@@ -1,0 +1,5099 @@
+{
+ "statements": [
+  {
+   "case": "alias/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "AliasBar",
+   "sql": "DELETE FROM bar b\nWHERE b.id = $1;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "alias/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AliasBar",
+   "sql": "DELETE FROM bar AS b\nWHERE b.id = ?;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "any/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Any",
+   "sql": "SELECT id\nFROM bar\nWHERE id = ANY($1::bigint[]);",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "array_in/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "In",
+   "sql": "SELECT *\nFROM bar\nWHERE id IN ($1, $2);",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "array_text/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "TextArray",
+   "sql": "SELECT * FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "array_text_join/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "JoinTextArray",
+   "sql": "SELECT bar.info\nFROM foo\nJOIN bar ON foo.bar = bar.id;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "batch/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "INSERT INTO myschema.foo (a, b)\nVALUES ($1, $2)\nRETURNING a;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "batch/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetValues",
+   "sql": "SELECT *\nFROM myschema.foo\nWHERE b = $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "batch/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateValues",
+   "sql": "UPDATE myschema.foo SET a = $1, b = $2;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "batch_parameter_limit/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthors",
+   "sql": "INSERT INTO authors (\n  name, bio\n) VALUES (\n  $1, $2\n);",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "batch_parameter_type/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertMappping",
+   "sql": "WITH\n    table1\n        AS (\n            SELECT\n                version\n            FROM\n                solar_commcard_mapping\n            WHERE\n                \"deviceId\" = $1\n            ORDER BY\n                \"updatedAt\" DESC\n            LIMIT\n                1\n        )\nINSERT\nINTO\n    solar_commcard_mapping\n        (\"deviceId\", version, sn, \"updatedAt\")\nSELECT\n    $1, @version::text, $3, $4\nWHERE\n    NOT\n        EXISTS(\n            SELECT\n                *\n            FROM\n                table1\n            WHERE\n                table1.version = @version::text\n        )\n    OR NOT EXISTS(SELECT * FROM table1);",
+   "reads": [],
+   "writes": [
+    "solar_commcard_mapping"
+   ]
+  },
+  {
+   "case": "bit_string/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectTest",
+   "sql": "SELECT *\nfrom test_table;",
+   "reads": [
+    "test_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "build_tags/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM authors\nWHERE id = $1 LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "build_tags/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "build_tags/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (\n          name, bio\n) VALUES (\n  $1, $2\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "build_tags/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteAuthor",
+   "sql": "DELETE FROM authors\nWHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetAvg",
+   "sql": "SELECT avg(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetCount",
+   "sql": "SELECT count(*) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetCountId",
+   "sql": "SELECT count(id) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetGroupConcatInt",
+   "sql": "SELECT group_concat(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetGroupConcatInt2",
+   "sql": "SELECT group_concat(1, ':') FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetGroupConcatText",
+   "sql": "SELECT group_concat(text_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetGroupConcatText2",
+   "sql": "SELECT group_concat(text_val, ':') FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetMaxInt",
+   "sql": "SELECT max(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetMaxText",
+   "sql": "SELECT max(text_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetMinInt",
+   "sql": "SELECT min(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetMinText",
+   "sql": "SELECT min(text_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetSumInt",
+   "sql": "SELECT sum(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetSumText",
+   "sql": "SELECT sum(text_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/aggfunc.sql",
+   "engine": "sqlite",
+   "name": "GetTotalInt",
+   "sql": "SELECT total(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "builtins/sqlite/queries/scalarfunc.sql",
+   "engine": "sqlite",
+   "name": "GetAbs",
+   "sql": "SELECT abs(int_val) FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "case_sensitive/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertContact",
+   "sql": "INSERT INTO contacts (\n  pid,\n  customername\n)\nVALUES (?, ?);",
+   "reads": [],
+   "writes": [
+    "contacts"
+   ]
+  },
+  {
+   "case": "case_stmt_bool/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CaseStatementBoolean",
+   "sql": "SELECT CASE \n  WHEN id = $1 THEN true\n  ELSE false\nEND is_one\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "case_text/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CaseStatementText",
+   "sql": "SELECT CASE \n  WHEN id = $1 THEN 'foo'\n  ELSE 'bar'\nEND is_one\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "case_value_param/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "Update",
+   "sql": "UPDATE testing\nSET value = CASE $1 WHEN true THEN 'Hello' WHEN false THEN 'Goodbye' ELSE value END;",
+   "reads": [],
+   "writes": [
+    "testing"
+   ]
+  },
+  {
+   "case": "cast_coalesce/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CastCoalesce",
+   "sql": "SELECT coalesce(bar, '')::text as login\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cast_null/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListNullable",
+   "sql": "SELECT\n  NULL::text as a,\n  NULL::integer as b,\n  NULL::bigint as c,\n  NULL::time as d\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cast_param/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetData",
+   "sql": "select *\nfrom my_table\nwhere (cast(sqlc.arg(allow_invalid) as boolean) or not invalid);",
+   "reads": [
+    "my_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "citext/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetCitexts",
+   "sql": "SELECT bar, bat\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceString",
+   "sql": "SELECT coalesce(bar, '') as login\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceNumeric",
+   "sql": "SELECT coalesce(baz, 0) as login\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceStringColumns",
+   "sql": "SELECT bar, bat, coalesce(bar, bat)\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceNumericColumns",
+   "sql": "SELECT baz, qux, coalesce(baz, qux)\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceStringNull",
+   "sql": "SELECT bar, coalesce(bar)\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CoalesceNumericNull",
+   "sql": "SELECT baz, coalesce(baz)\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Coalesce",
+   "sql": "SELECT coalesce(bar, '') AS login\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CoalesceColumns",
+   "sql": "SELECT bar, bat, coalesce(bar, bat)\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce_as/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "SumBaz",
+   "sql": "SELECT bar, coalesce(sum(baz), 0) as quantity\nFROM foo\nGROUP BY 1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce_as/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SumBaz",
+   "sql": "SELECT bar, coalesce(sum(baz), 0) AS quantity\nFROM foo\nGROUP BY 1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "coalesce_join/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetBar",
+   "sql": "SELECT foo.*, COALESCE(bar.id, 0) AS bar_id\nFROM foo\nLEFT JOIN bar ON foo.id = bar.id;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "column_alias/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "GetUsers",
+   "sql": "SELECT \n    users.id,\n    users.fname,\n    users.lname,\n    users.email,\n    users.created_at,\n    rank_email,\n    rank_fname,\n    rank_lname,\n    similarity\nFROM \n    users, \n    to_tsvector(users.email || users.fname || users.lname) document,\n    to_tsquery(@search_term::TEXT) query,\n    NULLIF(ts_rank(to_tsvector(users.email), query), 0) rank_email,\n    NULLIF(ts_rank(to_tsvector(users.fname), query), 0) rank_fname,\n    NULLIF(ts_rank(to_tsvector(users.lname), query), 0) rank_lname,\n    SIMILARITY(@search_term::TEXT, users.email || users.fname || users.lname) similarity\nWHERE query @@ document OR similarity > 0\nORDER BY rank_email, rank_lname, rank_fname, similarity DESC NULLS LAST;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_godoc/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ManyFoo",
+   "sql": "-- This function returns a list of Foos\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_godoc/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "OneFoo",
+   "sql": "-- This function returns one Foo\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_godoc/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ExecFoo",
+   "sql": "-- This function creates a Foo via :exec\nINSERT INTO foo (bar) VALUES ('bar');",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "comment_godoc/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ExecRowFoo",
+   "sql": "-- This function creates a Foo via :execrows\nINSERT INTO foo (bar) VALUES ('bar');",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "comment_godoc/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ExecResultFoo",
+   "sql": "-- This function creates a Foo via :execresult\nINSERT INTO foo (bar) VALUES ('bar');",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "comment_on/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListBar",
+   "sql": "SELECT * FROM foo.bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_on/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListBat",
+   "sql": "SELECT * FROM foo.bat;",
+   "reads": [
+    "bat"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_syntax/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DoubleDash",
+   "sql": "SELECT * FROM foo LIMIT 1;\n\n/* name: SlashStar :one */\nSELECT * FROM foo LIMIT 1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comment_syntax/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DoubleDash",
+   "sql": "SELECT * FROM foo LIMIT 1;\n\n/* name: SlashStar :one */\nSELECT * FROM foo LIMIT 1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GreaterThan",
+   "sql": "SELECT count(*) > 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LessThan",
+   "sql": "SELECT count(*) < 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GreaterThanOrEqual",
+   "sql": "SELECT count(*) >= 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LessThanOrEqual",
+   "sql": "SELECT count(*) <= 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "NotEqual",
+   "sql": "SELECT count(*) != 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "AlsoNotEqual",
+   "sql": "SELECT count(*) <> 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Equal",
+   "sql": "SELECT count(*) = 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GreaterThan",
+   "sql": "SELECT count(*) > 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "LessThan",
+   "sql": "SELECT count(*) < 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GreaterThanOrEqual",
+   "sql": "SELECT count(*) >= 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "LessThanOrEqual",
+   "sql": "SELECT count(*) <= 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "NotEqual",
+   "sql": "SELECT count(*) != 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AlsoNotEqual",
+   "sql": "SELECT count(*) <> 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "comparisons/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Equal",
+   "sql": "SELECT count(*) = 0 FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "composite_type/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListPaths",
+   "sql": "SELECT * FROM foo.paths;",
+   "reads": [
+    "paths"
+   ],
+   "writes": []
+  },
+  {
+   "case": "conflicted_arg_name/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "Time2ByTime",
+   "sql": "SELECT time2 FROM foo WHERE time=$1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "conflicted_arg_name/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "Uuid2ByUuid",
+   "sql": "SELECT uuid2 FROM foo WHERE uuid=$1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "copyfrom/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "-- InsertValues inserts multiple values using copy.\nINSERT INTO myschema.foo (a, b) VALUES ($1, $2);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "copyfrom/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertSingleValue",
+   "sql": "-- InsertSingleValue inserts a single value using copy.\nINSERT INTO myschema.foo (a) VALUES ($1);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "copyfrom_imports/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "INSERT INTO myschema.foo (a, b) VALUES ($1, $2);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "copyfrom_imports/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertSingleValue",
+   "sql": "INSERT INTO myschema.foo (a) VALUES ($1);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "copyfrom_imports/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteValues",
+   "sql": "DELETE\nFROM myschema.foo;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "copyfrom_named_params/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "StageUserData",
+   "sql": "insert into \"user_data\" (\"id\", \"user\")\nvalues (\n    sqlc.arg('id_param'),\n    sqlc.arg('user_param')\n);",
+   "reads": [],
+   "writes": [
+    "user_data"
+   ]
+  },
+  {
+   "case": "copyfrom_singlecolumn/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthors",
+   "sql": "INSERT INTO authors (author_id) VALUES ($1);",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "count_star/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CountStarLower",
+   "sql": "SELECT count(*) FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "count_star/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CountStarUpper",
+   "sql": "SELECT COUNT(*) FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "count_star/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CountStarLower",
+   "sql": "SELECT count(*) FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "create_materialized_view/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetFirst",
+   "sql": "SELECT * FROM mat_first_view;",
+   "reads": [
+    "mat_first_view"
+   ],
+   "writes": []
+  },
+  {
+   "case": "create_table_as/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetFirst",
+   "sql": "SELECT * FROM second_table;",
+   "reads": [
+    "second_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "create_view/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetFirst",
+   "sql": "SELECT * FROM first_view;",
+   "reads": [
+    "first_view"
+   ],
+   "writes": []
+  },
+  {
+   "case": "create_view/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetSecond",
+   "sql": "SELECT * FROM second_view WHERE val2 = $1;",
+   "reads": [
+    "second_view"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_count/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CTECount",
+   "sql": "WITH all_count AS (\n\tSELECT count(*) FROM bar\n), ready_count AS (\n\tSELECT count(*) FROM bar WHERE ready = true\n)\nSELECT all_count.count, ready_count.count\nFROM all_count, ready_count;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_filter/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CTEFilter",
+   "sql": "WITH filter_count AS (\n\tSELECT count(*) FROM bar WHERE ready = $1\n)\nSELECT filter_count.count\nFROM filter_count;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_in_delete/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteReadyWithCTE",
+   "sql": "WITH ready_ids AS (\n\tSELECT id FROM bar WHERE ready\n)\nDELETE FROM bar WHERE id IN (SELECT * FROM ready_ids)\nRETURNING id;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "cte_left_join/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "BadQuery",
+   "sql": "WITH\n\tq\n\t\tAS (\n\t\t\tSELECT\n\t\t\t\tauthors.name, authors.bio\n\t\t\tFROM\n\t\t\t\tauthors\n\t\t\t\tLEFT JOIN fake ON authors.name = fake.name\n\t\t)\nSELECT\n\t*\nFROM\n\tq AS c1\nWHERE c1.name = $1;",
+   "reads": [
+    "authors",
+    "fake"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_multiple_alias/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "BadQuery",
+   "sql": "WITH\n\tq\n\t\tAS (\n\t\t\tSELECT\n\t\t\t\tauthors.name, authors.bio\n\t\t\tFROM\n\t\t\t\tauthors\n\t\t\t\tLEFT JOIN fake ON authors.name = fake.name\n\t\t)\nSELECT\n\t*\nFROM\n\tq AS c1,\n\tq as c2;",
+   "reads": [
+    "authors",
+    "fake"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_nested_with/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "WITH person AS(\n    WITH summary AS(\n        WITH mb AS(\n            select\n                id, name, bio\n            from authors\n        )\n        SELECT\n            bio\n        FROM mb\n        )\n    SELECT\n       count(*) as total\n    FROM summary\n)\nselect total from person;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CTERecursive",
+   "sql": "WITH RECURSIVE cte AS (\n        SELECT b.* FROM bar AS b\n        WHERE b.id = $1\n    UNION ALL\n        SELECT b.*\n        FROM bar AS b, cte AS c\n        WHERE b.parent_id = c.id\n) SELECT * FROM cte;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive_employees/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetSubordinates",
+   "sql": "WITH RECURSIVE subordinates(name, manager) AS (\n    SELECT\n        NULL, sqlc.arg(name)::TEXT\n    UNION\n    SELECT\n        s.manager, e.name\n    FROM \n        subordinates AS s\n    LEFT OUTER JOIN\n        employees AS e\n    ON\n        e.manager = s.manager\n    WHERE\n        s.manager IS NOT NULL\n)\nSELECT \n    s.name\nFROM\n    subordinates AS s\nWHERE\n    s.name != sqlc.arg(name);",
+   "reads": [
+    "employees"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive_star/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetDictTree",
+   "sql": "with recursive dictTree(id, code, parent_code, label, value, path, depth) AS (\n\tselect id, code, parent_code, label, value, ARRAY[COALESCE((select id from dict where code=''),'virtual_root'), id], 1 as depth from dict where app_id = '1' and parent_code = '' and is_delete=false\n\tunion\n\t\tselect d.id, d.code, d.parent_code, d.label, d.value, t.path || ARRAY[d.id], t.depth+1 as depth from dict d join dictTree t on d.parent_code = t.code and not d.id = ANY(t.path) and d.is_delete=false\n)\nselect * from dictTree d order by depth, parent_code;",
+   "reads": [
+    "dict"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive_subquery/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetLatestVersion",
+   "sql": "WITH RECURSIVE search_tree(id, chain_id, chain_counter) AS (\n\tSELECT base.id, base.id AS chain_id, 0 as chain_counter\n\tFROM versions AS base\n\tWHERE base.previous_version_id IS NULL\n  \tUNION ALL\n\tSELECT v.id, search_tree.chain_id, search_tree.chain_counter + 1\n\tFROM versions AS v\n\tINNER JOIN search_tree ON search_tree.id = v.previous_version_id\n)\nSELECT DISTINCT ON (search_tree.chain_id) \n\tsearch_tree.id\nFROM search_tree   \nORDER BY search_tree.chain_id, chain_counter DESC;",
+   "reads": [
+    "versions"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive_subquery/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetLatestVersionWithSubquery",
+   "sql": "SELECT id\nFROM versions\nWHERE versions.id IN (\n  WITH RECURSIVE search_tree(id, chain_id, chain_counter) AS (\n\tSELECT base.id, base.id AS chain_id, 0 as chain_counter\n\tFROM versions AS base\n\tWHERE versions.previous_version_id IS NULL\n\tUNION ALL\n\tSELECT v.id, search_tree.chain_id, search_tree.chain_counter + 1\n\tFROM versions AS v\n\tINNER JOIN search_tree ON search_tree.id = v.previous_version_id \n  )\n  SELECT DISTINCT ON (search_tree.chain_id) \n\tsearch_tree.id\n  FROM search_tree   \n  ORDER BY search_tree.chain_id, chain_counter DESC\n);",
+   "reads": [
+    "versions"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_recursive_union/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "ListCaseIntentHistory",
+   "sql": "WITH RECURSIVE descendants AS\n   ( SELECT case_intent_parent_id AS parent, case_intent_id AS child, 1 AS lvl\n     FROM case_intent_parent_join\n     UNION ALL\n     SELECT d.parent as parent, p.case_intent_id as child, d.lvl + 1 as lvl\n     FROM descendants d\n              JOIN case_intent_parent_join p\n                   ON d.child = p.case_intent_parent_id\n   )\nselect distinct child, 'child' group_\nfrom descendants\nwhere parent = @case_intent_id\nunion\nselect distinct parent, 'parent' group_\nfrom descendants\nwhere child = @case_intent_id\nORDER BY child;",
+   "reads": [
+    "case_intent_parent_join"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_update/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateAttribute",
+   "sql": "with updated_attribute as (UPDATE attribute_value\n    SET\n        val = CASE WHEN @filter_value::bool THEN @value ELSE val END\n    WHERE attribute_value.id = @id\n    RETURNING id,attribute,val)\nselect updated_attribute.id, val, name\nfrom updated_attribute\n         left join attribute on updated_attribute.attribute = attribute.id;",
+   "reads": [
+    "attribute"
+   ],
+   "writes": [
+    "attribute_value"
+   ]
+  },
+  {
+   "case": "cte_update_multiple/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateUserAddressWithAddress",
+   "sql": "WITH t1 AS (\n    UPDATE \"address\" as a\n    SET\n    address_line = COALESCE(sqlc.narg(address_line),address_line), \n    region = COALESCE(sqlc.narg(region),region), \n    city= COALESCE(sqlc.narg(city),city)\n    WHERE id = COALESCE(sqlc.arg(id),id)\n    RETURNING a.id, a.address_line, a.region, a.city\n   ),\n   \n    t2 AS (\n    UPDATE \"user_address\"\n    SET\n    default_address = COALESCE(sqlc.narg(default_address),default_address)\n    WHERE\n    user_id = COALESCE(sqlc.arg(user_id),user_id)\n    AND address_id = COALESCE(sqlc.arg(address_id),address_id)\n    RETURNING user_id, address_id, default_address\n\t)\n\t\nSELECT \nuser_id,\naddress_id,\ndefault_address,\naddress_line,\nregion,\ncity From t1,t2;",
+   "reads": [],
+   "writes": [
+    "address",
+    "user_address"
+   ]
+  },
+  {
+   "case": "cte_with_in/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll",
+   "sql": "SELECT * FROM L;",
+   "reads": [
+    "l"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_with_in/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll1",
+   "sql": "with recursive cte as (\n  select id, L_ID, F from T\n  union all\n  select c.id, c.L_ID, c.F from T as c where c.L_ID = $1\n) select id, l_id, f from cte;",
+   "reads": [
+    "t"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_with_in/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll2",
+   "sql": "with recursive cte as (\n  select id, L_ID, F from T where T.ID=2\n  union all\n  select c.id, c.L_ID, c.F from T as c where c.L_ID = $1\n) select id, l_id, f from cte;",
+   "reads": [
+    "t"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_with_in/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll4",
+   "sql": "select id from T where L_ID in(\n  with recursive L as (\n    select id, L_ID, F from T where T.ID =2\n    union all\n    select c.id, c.L_ID, c.F from T as c where c.L_ID = $1\n ) select l_id from L\n);",
+   "reads": [
+    "t"
+   ],
+   "writes": []
+  },
+  {
+   "case": "cte_with_in/postgresql/pganalyze/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll3",
+   "sql": "select id from T where L_ID in(\n  with recursive cte as (\n    select id, L_ID, F from T where T.ID =2\n    union all\n    select c.id, c.L_ID, c.F from T as c where c.L_ID = $1\n ) select l_id from cte\n);",
+   "reads": [
+    "t"
+   ],
+   "writes": []
+  },
+  {
+   "case": "data_type_boolean/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListFoo",
+   "sql": "SELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "data_type_boolean/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListFoo",
+   "sql": "SELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "data_type_boolean/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListBar",
+   "sql": "SELECT * FROM bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_alter_materialized_views_set_schema/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "SomeQuery",
+   "sql": "select id from \"computed_tables\".\"something\";",
+   "reads": [
+    "something"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_alter_table_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertUser",
+   "sql": "INSERT INTO users (full_name, \"EmailAddress\", created_at)\nVALUES (?, ?, ?);",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "ddl_alter_table_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectUsers",
+   "sql": "SELECT id, full_name, \"EmailAddress\", created_at\nFROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_alter_table_set_schema/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateFooBar",
+   "sql": "UPDATE foo.bar SET name = $1;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "ddl_alter_type_rename/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM log_lines;",
+   "reads": [
+    "log_lines"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_create_table_inherits/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAllParties",
+   "sql": "SELECT * FROM party;",
+   "reads": [
+    "party"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_create_table_inherits/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAllPeople",
+   "sql": "SELECT * FROM person;",
+   "reads": [
+    "person"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_create_table_inherits/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAllOrganisations",
+   "sql": "SELECT * FROM organisation;",
+   "reads": [
+    "organisation"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_create_table_like/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "AllRanked",
+   "sql": "SELECT * FROM changes_ranked;",
+   "reads": [
+    "changes_ranked"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ddl_rename_drop_materialized_views/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthorMv",
+   "sql": "SELECT * FROM authors_mv\nWHERE id = $1 LIMIT 1;",
+   "reads": [
+    "authors_mv"
+   ],
+   "writes": []
+  },
+  {
+   "case": "delete_from/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteFrom",
+   "sql": "DELETE FROM foo WHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "delete_from/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteFrom",
+   "sql": "DELETE FROM foo WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "delete_using/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetSomeDeletedNotOk",
+   "sql": "DELETE FROM a\nUSING b\nWHERE a.b_id_fk = b.b_id\nRETURNING b.b_id; -- column \"b_id\" does not exist",
+   "reads": [
+    "b"
+   ],
+   "writes": [
+    "a"
+   ]
+  },
+  {
+   "case": "diff_no_output/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM authors\nORDER BY bio;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_db_and_json_tags/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll",
+   "sql": "SELECT * FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_enum_valid_and_values/query.sql",
+   "engine": "postgresql",
+   "name": "ListFoo",
+   "sql": "SELECT id_old as foo_old, id_old as baz_old\nFROM bar_old\nWHERE ip_old = $1 AND id_old = $2;",
+   "reads": [
+    "bar_old"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_enum_valid_and_values/query.sql",
+   "engine": "postgresql",
+   "name": "ListBar",
+   "sql": "SELECT * FROM bar_old;",
+   "reads": [
+    "bar_old"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_exported_queries/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateBarID",
+   "sql": "UPDATE bar SET id = $1 WHERE id = $2;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "emit_pointers_for_null_enum_types/optin/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "ListUsersByRole",
+   "sql": "SELECT * FROM users WHERE role = $1;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_pointers_for_null_enum_types/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "CreateUser",
+   "sql": "INSERT INTO users (role, required_role, status) VALUES ($1, $2, $3);",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "emit_result_and_params_struct_pointers/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "INSERT INTO foo (a, b)\nVALUES ($1, $2)\nON CONFLICT DO NOTHING\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "emit_result_and_params_struct_pointers/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetOne",
+   "sql": "SELECT * FROM foo WHERE a = $1 AND b = $2 LIMIT 1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "emit_result_and_params_struct_pointers/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAllAByB",
+   "sql": "SELECT a FROM foo WHERE b = $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "enum/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "NewUser",
+   "sql": "INSERT INTO users (\n    first_name,\n    last_name,\n    age,\n    shoe_size,\n    shirt_size\n) VALUES\n($1, $2, $3, $4, $5);",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "enum/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateSizes",
+   "sql": "UPDATE users\nSET shoe_size = $2, shirt_size = $3\nWHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "enum/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteBySize",
+   "sql": "DELETE FROM users\nWHERE shoe_size = $1 AND shirt_size = $2;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "exec_imports/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Bar",
+   "sql": "SELECT bar\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "exec_imports/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Bars",
+   "sql": "SELECT bars\nFROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "exec_no_return_struct/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "ResetTaskRun",
+   "sql": "UPDATE job\nSET last_run = NOW()\nFROM (\n        SELECT last_run,\n            task_name\n        FROM job AS o\n        WHERE o.task_name = $1 \n  \t\tFOR UPDATE\n    ) AS old_values\nWHERE job.task_name = $1\nRETURNING job.last_run AS this_run,\n    old_values.last_run AS last_run;",
+   "reads": [],
+   "writes": [
+    "job"
+   ]
+  },
+  {
+   "case": "exec_result/go_postgresql_pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteBarByID",
+   "sql": "DELETE FROM bar WHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "experiment_coreanalyzer/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM authors\nWHERE id = $1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "experiment_coreanalyzer/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT id, name FROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "experiment_coreanalyzer/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (id, name, bio)\nVALUES ($1, $2, $3)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "experiment_coreanalyzer/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "SELECT *\nFROM authors\nWHERE id = ?;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "experiment_coreanalyzer/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListAuthors",
+   "sql": "SELECT id, name\nFROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "experiment_coreanalyzer/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (id, name, bio)\nVALUES (?, ?, ?)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "experiment_coreanalyzer/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteAuthor",
+   "sql": "DELETE FROM authors\nWHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "select  id,name , bio\nfrom   authors\nwhere id =  $1 limit 1; -- the primary lookup\n\n/* This listing powers the admin page.\n   Keep it ordered by name so the UI stays stable. */",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT id, name, bio FROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (\n  name, bio\n) VALUES (\n  $1, $2\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "PickyQuery",
+   "sql": "SELECT id, -- the primary key\n       name\nFROM authors\nWHERE id > $1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SearchAuthors",
+   "sql": "SELECT id, name, bio, created_at FROM authors WHERE name LIKE $1 AND bio IS NOT NULL AND id > $2 AND name <> $3 ORDER BY name, id LIMIT $4;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AtParamsGlued",
+   "sql": "SELECT name FROM authors WHERE name = @slug AND @filter::bool;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteAuthor",
+   "sql": "DELETE FROM authors WHERE id = @id",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "select  id,name , bio from   authors\nwhere id =  ? limit 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "PickyQuery",
+   "sql": "SELECT id, -- the primary key\n       name,\n       -- computed downstream\n       bio\nFROM authors\n-- soft-deleted rows are filtered\nWHERE bio IS NOT NULL\n  AND id > ?;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InlineBlock",
+   "sql": "SELECT /* inline note */ id, name FROM authors ORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListAuthors",
+   "sql": "SELECT id, name, bio FROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetEvent",
+   "sql": "SELECT \"EventName\", \"order\"\nFROM \"Events\" WHERE id = ? LIMIT 1;",
+   "reads": [
+    "events"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CountSigils",
+   "sql": "SELECT count(*) FROM authors\nWHERE id <> @at_param AND id <> :colon_param AND id <> $dollar_param;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "TopAuthors",
+   "sql": "WITH ranked AS (\n  SELECT id, name FROM authors\n)\nSELECT * FROM ranked;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AddAuthor",
+   "sql": "INSERT INTO authors (name, bio)\nVALUES (?, ?);",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CastLabel",
+   "sql": "SELECT CAST(bio AS VARYING CHARACTER(120)) FROM authors LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "LoginName",
+   "sql": "SELECT COALESCE(bio, '') AS login FROM authors WHERE id = ? LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SpelledJoins",
+   "sql": "SELECT a.id\nFROM authors AS a\nINNER JOIN authors AS b ON a.id = b.id\nLEFT OUTER JOIN authors AS c ON a.id = c.id\nWHERE a.id != ? AND b.id == ? AND c.id <> ?;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CommaJoin",
+   "sql": "SELECT count(*) FROM authors AS a, authors AS b WHERE a.id = b.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "PlannerHint",
+   "sql": "SELECT a.id FROM authors AS a CROSS JOIN authors AS b;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "NumberedParams",
+   "sql": "SELECT id FROM authors WHERE name = ?2 AND bio = ?1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "NewestAndOldest",
+   "sql": "SELECT id FROM authors\nUNION\nSELECT id FROM authors;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "QuickUnion",
+   "sql": "SELECT id FROM authors UNION ALL SELECT id FROM authors;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpsertAuthor",
+   "sql": "INSERT INTO authors (id, name)\nVALUES (?, ?)\nON CONFLICT (id) DO UPDATE SET\n  name = excluded.name\nWHERE excluded.name <> '';",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "fmt/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "QuickUpsert",
+   "sql": "INSERT INTO authors (id, name) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "full_outer_join/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "SELECT *\nFROM authors AS a\nFULL JOIN books AS b ON a.id = b.id\nWHERE a.id = ?\nLIMIT 1;",
+   "reads": [
+    "authors",
+    "books"
+   ],
+   "writes": []
+  },
+  {
+   "case": "func_match_types/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AuthorPages",
+   "sql": "SELECT author, count(title) AS num_books, sum(pages) AS total_pages\nFROM books\nGROUP BY author;",
+   "reads": [
+    "books"
+   ],
+   "writes": []
+  },
+  {
+   "case": "func_return_record/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetData",
+   "sql": "SELECT key, value\nFROM my_table, jsonb_each(data)\nLIMIT 1;",
+   "reads": [
+    "my_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "func_variadic/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateJ",
+   "sql": "UPDATE\n    test\nSET\n    j = jsonb_build_object($1::text, $2::text, $3::text, $4::text)\nWHERE\n    id = $5;",
+   "reads": [],
+   "writes": [
+    "test"
+   ]
+  },
+  {
+   "case": "hstore/pgx/v4/hstore.sql",
+   "engine": "postgresql",
+   "name": "ListBar",
+   "sql": "SELECT bar FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "hstore/pgx/v4/hstore.sql",
+   "engine": "postgresql",
+   "name": "ListBaz",
+   "sql": "SELECT baz FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListCampuses",
+   "sql": "SELECT * FROM campus;",
+   "reads": [
+    "campus"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListStudents",
+   "sql": "SELECT * FROM students;",
+   "reads": [
+    "students"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListMetadata",
+   "sql": "SELECT * FROM product_meta;",
+   "reads": [
+    "product_meta"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListCalories",
+   "sql": "SELECT * FROM calories;",
+   "reads": [
+    "calories"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetProductMetadata",
+   "sql": "SELECT * FROM product_metadata;",
+   "reads": [
+    "product_metadata"
+   ],
+   "writes": []
+  },
+  {
+   "case": "inflection_exclude_table_names/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteBarByID",
+   "sql": "DELETE FROM bars WHERE id = $1 RETURNING id, name;",
+   "reads": [],
+   "writes": [
+    "bars"
+   ]
+  },
+  {
+   "case": "inflection_exclude_table_names/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteMyDataByID",
+   "sql": "DELETE FROM my_data WHERE id = $1 RETURNING id, name;",
+   "reads": [],
+   "writes": [
+    "my_data"
+   ]
+  },
+  {
+   "case": "inflection_exclude_table_names/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteExclusionByID",
+   "sql": "DELETE FROM exclusions WHERE id = $1 RETURNING id, name;",
+   "reads": [],
+   "writes": [
+    "exclusions"
+   ]
+  },
+  {
+   "case": "insert_cte/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertCode",
+   "sql": "WITH cc AS (\n            INSERT INTO td3.codes(created_by, updated_by, code, hash, is_private)\n            VALUES ($1, $1, $2, $3, false)\n            RETURNING hash\n)\nINSERT INTO td3.test_codes(created_by, updated_by, test_id, code_hash)\nVALUES(\n            $1, $1, $4, (select hash from cc)\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "codes",
+    "test_codes"
+   ]
+  },
+  {
+   "case": "insert_default_values/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertWorkspace",
+   "sql": "INSERT INTO workspace DEFAULT VALUES;",
+   "reads": [],
+   "writes": [
+    "workspace"
+   ]
+  },
+  {
+   "case": "insert_select/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertSelect",
+   "sql": "INSERT INTO foo (name, meta)\nSELECT name, $1\nFROM bar WHERE ready = $2;",
+   "reads": [
+    "bar"
+   ],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "insert_select_case/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertOrders",
+   "sql": "insert into Orders (id,name)\nselect id , CASE WHEN @name_do_update::BOOLEAN THEN @name ELSE s.name END \nfrom Orders s ;",
+   "reads": [],
+   "writes": [
+    "orders"
+   ]
+  },
+  {
+   "case": "insert_select_param/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertSelect",
+   "sql": "INSERT INTO authors (id, name, bio) \nSELECT @id, name, bio\nFROM authors\nWHERE name = @name;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "insert_values/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "INSERT INTO foo (a, b) VALUES ($1, $2);\n\n/* name: InsertMultipleValues :exec */\nINSERT INTO foo (a, b) VALUES ($1, $2), ($3, $4);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "insert_values_only/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertStatus",
+   "sql": "INSERT INTO status VALUES ($1, $2);",
+   "reads": [],
+   "writes": [
+    "status"
+   ]
+  },
+  {
+   "case": "insert_values_public/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertValues",
+   "sql": "INSERT INTO public.foo (a, b) VALUES ($1, $2);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "interval/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Get",
+   "sql": "SELECT bar, \"interval\" FROM foo LIMIT $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_alias/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "AliasJoin",
+   "sql": "SELECT f.id, b.title\nFROM foo f\nJOIN bar b ON b.id = f.id\nWHERE f.id = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_alias/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "AliasExpand",
+   "sql": "SELECT *\nFROM foo f\nJOIN bar b ON b.id = f.id\nWHERE f.id = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_alias/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AliasJoin",
+   "sql": "SELECT f.id, b.title\nFROM foo AS f\nJOIN bar AS b ON b.id = f.id\nWHERE f.id = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_alias/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AliasExpand",
+   "sql": "SELECT *\nFROM foo AS f\nJOIN bar AS b ON b.id = f.id\nWHERE f.id = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_clauses_order/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "TestLeftInner",
+   "sql": "SELECT a.a, b.b, c.c\nFROM a\nLEFT JOIN b ON b.a_id = a.id\nINNER JOIN c ON c.a_id = a.id;",
+   "reads": [
+    "a",
+    "b",
+    "c"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_clauses_order/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "TestInnerLeft",
+   "sql": "SELECT a.a, b.b, c.c\nFROM a\nINNER JOIN b ON b.a_id = a.id\nLEFT JOIN c ON c.a_id = a.id;",
+   "reads": [
+    "a",
+    "b",
+    "c"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_clauses_order/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "TestLeftInnerLeftInner",
+   "sql": "SELECT a.a, b.b, c.c, d.d, e.e\nFROM a\nLEFT JOIN b ON b.a_id = a.id\nINNER JOIN c ON c.a_id = a.id\nLEFT JOIN d ON d.a_id = a.id\nINNER JOIN e ON e.a_id = a.id;",
+   "reads": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_clauses_order/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "TestInnerLeftInnerLeft",
+   "sql": "SELECT a.a, b.b, c.c, d.d, e.e\nFROM a\nINNER JOIN b ON b.a_id = a.id\nLEFT JOIN c ON c.a_id = a.id\nINNER JOIN d ON d.a_id = a.id\nLEFT JOIN e ON e.a_id = a.id;",
+   "reads": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_from/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "MultiFrom",
+   "sql": "SELECT email FROM bar, foo WHERE login = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_from/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "MultiFrom",
+   "sql": "SELECT email FROM bar, foo WHERE login = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_full/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "FullJoin",
+   "sql": "SELECT f.id, f.bar_id, b.id\nFROM foo f\nFULL OUTER JOIN bar b ON b.id = f.bar_id\nWHERE f.id = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_group_by_alias/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "ColumnAsGroupBy",
+   "sql": "SELECT a.email AS id\nFROM foo a JOIN foo b ON a.email = b.email\nGROUP BY id;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_inner/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectAllJoinedAlias",
+   "sql": "select e.* from events e\n    inner join handled_events he\n       on e.ID > he.last_handled_id\nwhere he.handler = $1\n    for update of he skip locked;",
+   "reads": [
+    "events",
+    "handled_events"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_inner/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectAllJoined",
+   "sql": "select events.* from events\n    inner join handled_events\n       on events.ID > handled_events.last_handled_id\nwhere handled_events.handler = $1\n    for update of handled_events skip locked;",
+   "reads": [
+    "events",
+    "handled_events"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetMayors",
+   "sql": "SELECT\n    user_id,\n    mayors.full_name\nFROM users\nLEFT JOIN cities USING (city_id)\nINNER JOIN mayors USING (mayor_id);",
+   "reads": [
+    "cities",
+    "mayors",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetMayorsOptional",
+   "sql": "SELECT\n    user_id,\n    mayors.full_name\nFROM users\nLEFT JOIN cities USING (city_id)\nLEFT JOIN mayors USING (mayor_id);",
+   "reads": [
+    "cities",
+    "mayors",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AllAuthors",
+   "sql": "SELECT  *\nFROM    authors a\n        LEFT JOIN authors p\n            ON a.parent_id = p.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AllAuthorsAliases2",
+   "sql": "SELECT  a.*, p.*\nFROM    authors a\n        LEFT JOIN authors p\n            ON a.parent_id = p.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AllSuperAuthors",
+   "sql": "SELECT  *\nFROM    authors\n        LEFT JOIN super_authors\n            ON authors.parent_id = super_authors.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AllSuperAuthorsAliases",
+   "sql": "SELECT  *\nFROM    authors a\n        LEFT JOIN super_authors sa\n            ON a.parent_id = sa.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AllSuperAuthorsAliases2",
+   "sql": "SELECT  a.*, sa.*\nFROM    authors a\n        LEFT JOIN super_authors sa\n            ON a.parent_id = sa.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetSuggestedUsersByID",
+   "sql": "SELECT  DISTINCT u.*, m.*\nFROM    users_2 u\n        LEFT JOIN media m\n            ON u.user_avatar_id = m.media_id\nWHERE   u.user_id != @user_id\nLIMIT   @user_imit;",
+   "reads": [
+    "media",
+    "users_2"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetMayors",
+   "sql": "SELECT\n  user_id,\n  mayors.full_name\nFROM users\nLEFT JOIN cities USING (city_id)\nJOIN mayors USING (mayor_id);",
+   "reads": [
+    "mayors",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetMayorsOptional",
+   "sql": "SELECT\n  user_id,\n  cities.city_id,\n  mayors.full_name\nFROM users\nLEFT JOIN cities USING (city_id)\nLEFT JOIN mayors USING (mayor_id);",
+   "reads": [
+    "cities",
+    "mayors",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllAuthors",
+   "sql": "SELECT *\nFROM authors AS a\nLEFT JOIN authors AS p ON a.parent_id = p.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllSuperAuthors",
+   "sql": "SELECT *\nFROM authors\nLEFT JOIN super_authors ON authors.parent_id = super_authors.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllAuthorsAliases2",
+   "sql": "SELECT a.*, p.*\nFROM authors AS a\nLEFT JOIN authors AS p ON a.parent_id = p.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllSuperAuthorsAliases",
+   "sql": "SELECT *\nFROM authors AS a\nLEFT JOIN super_authors AS sa ON a.parent_id = sa.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllSuperAuthorsAliases2",
+   "sql": "SELECT a.*, sa.*\nFROM authors AS a\nLEFT JOIN super_authors AS sa ON a.parent_id = sa.super_id;",
+   "reads": [
+    "authors",
+    "super_authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetSuggestedUsersByID",
+   "sql": "SELECT DISTINCT u.*, m.*\nFROM users_2 AS u\nLEFT JOIN media AS m ON u.user_avatar_id = m.media_id\nWHERE u.user_id != @user_id;",
+   "reads": [
+    "media",
+    "users_2"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetSuggestedUsersByID2",
+   "sql": "SELECT users_2.user_id\nFROM users_2\nLEFT JOIN media AS m ON user_avatar_id = m.media_id\nWHERE user_id != @user_id;",
+   "reads": [
+    "media",
+    "users_2"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left_same_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AllAuthors",
+   "sql": "SELECT\n  a.id,\n  a.name,\n  p.id AS alias_id,\n  p.name AS alias_name\nFROM authors AS a\nLEFT JOIN authors AS p ON a.parent_id = p.id;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left_table_alias/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "JoinBar",
+   "sql": "SELECT f.id, info\nFROM foo f\nLEFT JOIN bar b ON b.foo_id = f.id;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_left_table_alias/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "JoinBarAlias",
+   "sql": "SELECT f.id, b.info\nFROM foo f\nLEFT JOIN bar b ON b.foo_id = f.id;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_order_by/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT a.name\nFROM authors a JOIN authors b ON a.id = b.id\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_order_by_alias/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "ColumnAsOrderBy",
+   "sql": "SELECT a.email AS id\nFROM foo a JOIN foo b ON a.email = b.email\nORDER BY id;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_right/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "RightJoin",
+   "sql": "SELECT f.id, f.bar_id, b.id\nFROM foo f\nRIGHT JOIN bar b ON b.id = f.bar_id\nWHERE f.id = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_table_name/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "TableName",
+   "sql": "SELECT foo.id\nFROM foo\nJOIN bar ON foo.bar = bar.id\nWHERE bar.id = $1 AND foo.id = $2;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_table_name/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "TableName",
+   "sql": "SELECT foo.id\nFROM foo\nJOIN bar ON foo.bar = bar.id\nWHERE bar.id = ? AND foo.id = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_two_tables/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "TwoJoins",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = bar_id\nJOIN baz ON baz.id = baz_id;",
+   "reads": [
+    "bar",
+    "baz",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_two_tables/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "TwoJoins",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = bar_id\nJOIN baz ON baz.id = baz_id;",
+   "reads": [
+    "bar",
+    "baz",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_update/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "Percentile",
+   "sql": "UPDATE group_calc_totals gct \nSET npn = nem.npn \nFROM producer_group_attribute ga \nJOIN npn_external_map nem ON ga.npn_external_map_id = nem.id \nWHERE gct.group_id = ga.group_id;",
+   "reads": [
+    "npn_external_map",
+    "producer_group_attribute"
+   ],
+   "writes": [
+    "group_calc_totals"
+   ]
+  },
+  {
+   "case": "join_using/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "SelectJoinUsing",
+   "sql": "select t1.fk, sum(t2.fk) from t1 join t2 using (fk) group by fk;",
+   "reads": [
+    "t1",
+    "t2"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "JoinWhereClause",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = barid\nWHERE owner = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "JoinParamWhereClause",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = $2\nWHERE owner = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "JoinNoConstraints",
+   "sql": "SELECT foo.*\nFROM foo\nCROSS JOIN bar\nWHERE bar.id = $2 AND owner = $1;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "JoinWhereClause",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = barid\nWHERE owner = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "JoinParamWhereClause",
+   "sql": "SELECT foo.*\nFROM foo\nJOIN bar ON bar.id = ?\nWHERE owner = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "join_where_clause/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "JoinNoConstraints",
+   "sql": "SELECT foo.*\nFROM foo\nCROSS JOIN bar\nWHERE bar.id = ? AND owner = ?;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "json_array_elements/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetActionCodeByResource",
+   "sql": "SELECT code, arr.item_object ->> 'code'  as resource_code\nFROM sys_actions,\n    jsonb_array_elements(resources) with ordinality arr(item_object, resource)\n    WHERE item_object->>'resource' = sqlc.arg('resource')\n    LIMIT 1;",
+   "reads": [
+    "sys_actions"
+   ],
+   "writes": []
+  },
+  {
+   "case": "json_param_type/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "FindByAddress",
+   "sql": "SELECT * FROM \"user\" WHERE \"metadata\"->>'address1' = $1 LIMIT 1;",
+   "reads": [
+    "user"
+   ],
+   "writes": []
+  },
+  {
+   "case": "json_param_type/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "FindByAddress",
+   "sql": "SELECT * FROM \"user\" WHERE \"metadata\"->>'address1' = ?1 LIMIT 1;",
+   "reads": [
+    "user"
+   ],
+   "writes": []
+  },
+  {
+   "case": "jsonb/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertFoo",
+   "sql": "INSERT INTO foo (\n    a,\n    b,\n    c,\n    d\n) VALUES (\n    @a,\n    @b,\n    @c,\n    @d\n) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "jsonb/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertFoo",
+   "sql": "INSERT INTO foo (\n  a,\n  b,\n  c,\n  d,\n  e,\n  f,\n  g,\n  h\n)\nVALUES (\n  @a,\n  @b,\n  @c,\n  @d,\n  @e,\n  @f,\n  @g,\n  @h\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "limit/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LimitMe",
+   "sql": "SELECT bar FROM foo LIMIT $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "limit/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "LimitMe",
+   "sql": "SELECT bar FROM foo LIMIT ?;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "lower/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Lower",
+   "sql": "SELECT bar FROM foo WHERE bar = $1 AND LOWER(bat) = $2;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "lower_switched_order/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LowerSwitchedOrder",
+   "sql": "SELECT bar FROM foo WHERE bar = $1 AND bat = LOWER($2);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "materialized_views/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM authors;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "mathmatical_operator/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Math",
+   "sql": "SELECT *, num / 1024 as division FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "min_max_date/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "ActivityStats",
+   "sql": "SELECT COUNT(*) as NumOfActivities,\n        MIN(event_time) as MinDate, \n        MAX(event_time) as MaxDate \nFROM activities \nWHERE account_id = $1;",
+   "reads": [
+    "activities"
+   ],
+   "writes": []
+  },
+  {
+   "case": "mix_param_types/postgresql/test.sql",
+   "engine": "postgresql",
+   "name": "CountOne",
+   "sql": "SELECT count(1) FROM bar WHERE id = sqlc.arg(id) AND name <> $1 LIMIT sqlc.arg('limit');",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "mix_param_types/postgresql/test.sql",
+   "engine": "postgresql",
+   "name": "CountTwo",
+   "sql": "SELECT count(1) FROM bar WHERE id = $1 AND name <> sqlc.arg(name);",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "mix_param_types/postgresql/test.sql",
+   "engine": "postgresql",
+   "name": "CountThree",
+   "sql": "SELECT count(1) FROM bar WHERE id > $2 AND phone <> sqlc.arg(phone) AND name <> $1;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "multibyte_comment/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListItems",
+   "sql": "-- an em dash right here \u2014 must not truncate the ORDER BY below\nSELECT id, name, cap_read\nFROM items\nWHERE cap_read = 'anonymous'\nORDER BY name;\n\n-- section \u2014 divider between queries",
+   "reads": [
+    "items"
+   ],
+   "writes": []
+  },
+  {
+   "case": "multibyte_comment/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateItem",
+   "sql": "UPDATE items SET name = ? WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "items"
+   ]
+  },
+  {
+   "case": "multibyte_comment/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CreateItem",
+   "sql": "-- \u5f53\u65b0\u5efa\u6761\u76ee\u65f6\uff0c\u9700\u8981\u5199\u5165\u540d\u79f0\u548c\u6743\u9650\nINSERT INTO items (name, cap_read)\nVALUES (?, ?);",
+   "reads": [],
+   "writes": [
+    "items"
+   ]
+  },
+  {
+   "case": "multibyte_comment/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteItem",
+   "sql": "DELETE FROM items WHERE id = ? RETURNING id, name, cap_read;",
+   "reads": [],
+   "writes": [
+    "items"
+   ]
+  },
+  {
+   "case": "named_param/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FuncParams",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg('slug') AND sqlc.arg(filter)::bool;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "named_param/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "AtParams",
+   "sql": "SELECT name FROM foo WHERE name = @slug AND @filter::bool;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "named_param/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertFuncParams",
+   "sql": "INSERT INTO foo(name, bio) values (sqlc.arg('name'), sqlc.arg('bio')) returning name;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "named_param/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertAtParams",
+   "sql": "INSERT INTO foo(name, bio) values (@name, @bio) returning name;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "named_param/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Update",
+   "sql": "UPDATE foo\nSET\n  name = CASE WHEN @set_name::bool\n    THEN @name::text\n    ELSE name\n    END\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "named_param/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "FuncParams",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg('slug');",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "named_param/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "AtParams",
+   "sql": "SELECT name FROM foo WHERE name = @slug;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "named_param/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertFuncParams",
+   "sql": "INSERT INTO foo(name, bio) values (sqlc.arg('name'), sqlc.arg('bio')) returning name;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "named_param/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertAtParams",
+   "sql": "INSERT INTO foo(name, bio) values (@name, @bio) returning name;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "nested_select/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "NestedSelect",
+   "sql": "SELECT latest.id, t.count\nFROM (\n  SELECT id, max(update_time) AS update_time\n  FROM test\n  WHERE id = ANY (sqlc.arg('IDs')::bigint[])\n    -- ERROR HERE on update_time\n    AND update_time >= sqlc.arg('StartTime')\n  GROUP BY id\n) latest\nINNER JOIN test t USING (id, update_time);",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "null_if_type/postgresql/pganalyzer/query.sql",
+   "engine": "postgresql",
+   "name": "GetRestrictedId",
+   "sql": "SELECT\n  NULLIF(id, $1) restricted_id\nFROM\n  author;",
+   "reads": [
+    "author"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_return_full_table",
+   "sql": "SELECT * FROM query_return_full_table;",
+   "reads": [
+    "query_return_full_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_param_enum_table",
+   "sql": "SELECT * FROM query_param_enum_table WHERE value = $1;",
+   "reads": [
+    "query_param_enum_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_param_struct_enum_table",
+   "sql": "SELECT id FROM query_param_struct_enum_table WHERE id = $1 AND value = $2;",
+   "reads": [
+    "query_param_struct_enum_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_return_enum_table",
+   "sql": "SELECT value FROM query_return_enum_table WHERE id = $1;",
+   "reads": [
+    "query_return_enum_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_return_struct_enum_table",
+   "sql": "SELECT value, another FROM query_return_struct_enum_table WHERE id = $1;",
+   "reads": [
+    "query_return_struct_enum_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_sqlc_embed_table",
+   "sql": "SELECT sqlc.embed(query_sqlc_embed_table) FROM query_sqlc_embed_table WHERE id = $1;",
+   "reads": [
+    "query_sqlc_embed_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "omit_unused_structs/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "query_enum_array_table",
+   "sql": "SELECT * FROM array_enum_table;",
+   "reads": [
+    "array_enum_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "operator_string_concat/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Test2",
+   "sql": "select * from Demo\nwhere txt like '%' || sqlc.arg('val')::text || '%';",
+   "reads": [
+    "demo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "operator_string_concat/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Test3",
+   "sql": "select * from Demo\nwhere txt like concat('%', sqlc.arg('val')::text, '%');",
+   "reads": [
+    "demo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_file_names/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "User",
+   "sql": "SELECT \"user\".* FROM \"user\";",
+   "reads": [
+    "user"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_file_names/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UsersB",
+   "sql": "SELECT * FROM \"user\"\nWHERE id = $1;",
+   "reads": [
+    "user"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_file_names/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UsersC",
+   "sql": "INSERT INTO \"user\"\n(id)\nVALUES\n($1);",
+   "reads": [],
+   "writes": [
+    "user"
+   ]
+  },
+  {
+   "case": "output_file_names/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "UsersC",
+   "sql": "INSERT INTO \"user\"\n(id)\nVALUES\n    ($1);",
+   "reads": [],
+   "writes": [
+    "user"
+   ]
+  },
+  {
+   "case": "output_models_path/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM authors WHERE id = $1 LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_models_path/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM authors ORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_models_path/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (name, bio, status) VALUES ($1, $2, $3) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "output_models_path/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "ListAuthorsByStatus",
+   "sql": "SELECT * FROM authors WHERE status = $1 ORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_models_path/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetBook",
+   "sql": "SELECT * FROM books WHERE id = $1 LIMIT 1;",
+   "reads": [
+    "books"
+   ],
+   "writes": []
+  },
+  {
+   "case": "output_models_shared/postgresql/queries/primary/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (name, status) VALUES ($1, $2) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "overrides_decimal_package/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetPrice",
+   "sql": "SELECT * FROM prices WHERE id = $1;",
+   "reads": [
+    "prices"
+   ],
+   "writes": []
+  },
+  {
+   "case": "overrides_global_engine/query.sql",
+   "engine": "postgresql",
+   "name": "FindEntry",
+   "sql": "SELECT id, value, code FROM entries\nWHERE value = sqlc.arg(value) AND code = sqlc.arg(code);",
+   "reads": [
+    "entries"
+   ],
+   "writes": []
+  },
+  {
+   "case": "overrides_global_engine/query.sql",
+   "engine": "sqlite",
+   "name": "FindEntry",
+   "sql": "SELECT id, value, code FROM entries\nWHERE value = sqlc.arg(value) AND code = sqlc.arg(code);",
+   "reads": [
+    "entries"
+   ],
+   "writes": []
+  },
+  {
+   "case": "overrides_go_types/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LoadFoo",
+   "sql": "SELECT * FROM foo WHERE id = $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "overrides_go_types/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "LoadFooWithAliases",
+   "sql": "SELECT\n  id AS aliased_id,\n  other_id AS aliased_other_id,\n  age AS aliased_age,\n  balance AS aliased_balance,\n  bio AS aliased_bio,\n  about AS aliased_about\nFROM foo\nWHERE id = @named_parameter_id;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "overrides_pointers/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "test",
+   "sql": "UPDATE foo SET langs = $1;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "overrides_result_tag/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "FindAccount",
+   "sql": "SELECT\n    a.*,\n    ua.name\n    -- other fields\nFROM\n    accounts a\n    INNER JOIN users_accounts ua ON a.id = ua.id2\nWHERE\n    a.id = @account_id;",
+   "reads": [
+    "accounts",
+    "users_accounts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectBreak",
+   "sql": "SELECT \"break\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectDefault",
+   "sql": "SELECT \"default\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectFunc",
+   "sql": "SELECT \"func\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectInterface",
+   "sql": "SELECT \"interface\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectSelect",
+   "sql": "SELECT \"select\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectCase",
+   "sql": "SELECT \"case\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectDefer",
+   "sql": "SELECT \"defer\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectGo",
+   "sql": "SELECT \"go\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectMap",
+   "sql": "SELECT \"map\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectStruct",
+   "sql": "SELECT \"struct\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectChan",
+   "sql": "SELECT \"chan\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectElse",
+   "sql": "SELECT \"else\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectGoto",
+   "sql": "SELECT \"goto\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectPackage",
+   "sql": "SELECT \"package\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectSwitch",
+   "sql": "SELECT \"switch\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectConst",
+   "sql": "SELECT \"const\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectFallthrough",
+   "sql": "SELECT \"fallthrough\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectIf",
+   "sql": "SELECT \"if\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectRange",
+   "sql": "SELECT \"range\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectType",
+   "sql": "SELECT \"type\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectContinue",
+   "sql": "SELECT \"continue\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectFor",
+   "sql": "SELECT \"for\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectImport",
+   "sql": "SELECT \"import\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectReturn",
+   "sql": "SELECT \"return\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectVar",
+   "sql": "SELECT \"var\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_go_keywords/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "SelectQ",
+   "sql": "SELECT \"q\" FROM go_keywords;",
+   "reads": [
+    "go_keywords"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_in_nested_func/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetGroups",
+   "sql": "SELECT\n    rg.groupId,\n    rg.groupName\nFROM \n    RouterGroup rg\nWHERE\n    rg.groupName LIKE CONCAT('%', COALESCE(sqlc.narg('groupName')::text, rg.groupName), '%') AND\n    rg.groupId = COALESCE(sqlc.narg('groupId'), rg.groupId);",
+   "reads": [
+    "routergroup"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_placeholder_in_left_expr/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "FindByID",
+   "sql": "SELECT * FROM users WHERE $1 = id;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_placeholder_in_left_expr/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "FindByIDAndName",
+   "sql": "SELECT * FROM users WHERE $1 = id AND $1 = name;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "params_two/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FooByAandB",
+   "sql": "SELECT a, b FROM foo \nWHERE a = $1 and b = $2;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "pattern_matching/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "PetsByName",
+   "sql": "SELECT * FROM pet WHERE name LIKE $1;",
+   "reads": [
+    "pet"
+   ],
+   "writes": []
+  },
+  {
+   "case": "pg_vector/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "InsertVector",
+   "sql": "INSERT INTO items (embedding) VALUES ($1);",
+   "reads": [],
+   "writes": [
+    "items"
+   ]
+  },
+  {
+   "case": "pg_vector/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "NearestNeighbor",
+   "sql": "SELECT *\nFROM items\nORDER BY embedding <-> $1\nLIMIT 5;",
+   "reads": [
+    "items"
+   ],
+   "writes": []
+  },
+  {
+   "case": "pointer_type_import/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Find",
+   "sql": "SELECT bar FROM foo WHERE baz = $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "primary_key_later/postgresql/pgx/v4/queries.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT\n    *\nFROM\n    authors\nWHERE\n    id = $1\nLIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "query_parameter_limit_param_only/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "MarkNoticeDone",
+   "sql": "UPDATE notice\nSET status='done', notice_at=$1\nWHERE id=$2;",
+   "reads": [],
+   "writes": [
+    "notice"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_param_only/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateNotice",
+   "sql": "INSERT INTO notice (cnt, created_at)\nVALUES ($1, $2);",
+   "reads": [],
+   "writes": [
+    "notice"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_to_two/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM authors\nWHERE name = $1 AND country_code = $2 LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "query_parameter_limit_to_two/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (\n  name, bio, country_code, titles\n) VALUES (\n  $1, $2, $3, $4\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_to_two/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteAuthors",
+   "sql": "DELETE FROM authors\nWHERE id IN (sqlc.slice(ids)) AND name = $1;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_to_two/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthorOnlyTitles",
+   "sql": "INSERT INTO authors (name, titles) VALUES ($1, $2) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_to_two/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "AddNewClient",
+   "sql": "INSERT INTO clients (\n  id, name\n) VALUES (\n  $1, $2\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "clients"
+   ]
+  },
+  {
+   "case": "query_parameter_limit_to_zero/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (\n  name, bio, country_code\n) VALUES (\n  $1, $2, $3\n)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "quoted_colname/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "TestList",
+   "sql": "SELECT * FROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "quoted_tablename/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "TestList",
+   "sql": "SELECT * FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "ranges/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "SelectTest",
+   "sql": "SELECT * from test_table;",
+   "reads": [
+    "test_table"
+   ],
+   "writes": []
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertUserAndReturnID",
+   "sql": "INSERT INTO users (name) VALUES ($1)\n  RETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "InsertUserAndReturnUser",
+   "sql": "INSERT INTO users (name) VALUES ($1)\n  RETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateUserAndReturnID",
+   "sql": "UPDATE users SET name = $1\n  WHERE name = $2\n  RETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateUserAndReturnUser",
+   "sql": "UPDATE users SET name = $1\n  WHERE name = $2\n  RETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteUserAndReturnID",
+   "sql": "DELETE FROM users\n  WHERE name = $1\n  RETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteUserAndReturnUser",
+   "sql": "DELETE FROM users\n  WHERE name = $1\n  RETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertUserAndReturnID",
+   "sql": "INSERT INTO users (name)\nVALUES (?1)\nRETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertUserAndReturnUser",
+   "sql": "INSERT INTO users (name)\nVALUES (?1)\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateUserAndReturnID",
+   "sql": "UPDATE users\nSET name = ?1\nWHERE name = ?2\nRETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateUserAndReturnUser",
+   "sql": "UPDATE users\nSET name = ?1\nWHERE name = ?2\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteUserAndReturnID",
+   "sql": "DELETE FROM users\nWHERE name = ?1\nRETURNING id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteUserAndReturnUser",
+   "sql": "DELETE FROM users\nWHERE name = ?1\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateReturningOld",
+   "sql": "UPDATE users SET name = $1 WHERE id = $2\nRETURNING old.name;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateReturningOldNew",
+   "sql": "UPDATE users SET name = $1 WHERE id = $2\nRETURNING old.name, new.name;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateReturningOldStar",
+   "sql": "UPDATE users SET name = $1 WHERE id = $2\nRETURNING old.*;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "InsertReturningOldNew",
+   "sql": "INSERT INTO users (name) VALUES ($1)\nRETURNING old.id, new.id;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "DeleteReturningOldNew",
+   "sql": "DELETE FROM users WHERE id = $1\nRETURNING old.name, new.name;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "returning_old_new/postgresql/pgx/v5/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateReturningWithAliases",
+   "sql": "UPDATE users SET name = $1 WHERE id = $2\nRETURNING WITH (OLD AS o, NEW AS n) o.name, n.name;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "schema_scoped_create/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SchemaScopedCreate",
+   "sql": "INSERT INTO foo.bar (id, name) VALUES ($1, $2) RETURNING id;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "schema_scoped_delete/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SchemaScopedDelete",
+   "sql": "DELETE FROM foo.bar WHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "schema_scoped_enum/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListUsersByRole",
+   "sql": "SELECT * FROM foo.users WHERE role = $1;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "schema_scoped_filter/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SchemaScopedFilter",
+   "sql": "SELECT * FROM foo.bar WHERE id = $1;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "schema_scoped_list/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SchemaScopedColList",
+   "sql": "SELECT foo.bar.id FROM foo.bar;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "schema_scoped_update/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SchemaScopedUpdate",
+   "sql": "UPDATE foo.bar SET name = $2 WHERE id = $1;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "schema_table_column_ref/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetTotalSlackQueries",
+   "sql": "SELECT\n    COUNT(*) AS count\nFROM astoria.slack_feedback\nWHERE astoria.slack_feedback.workspace_id = $1\nAND created_at BETWEEN $2::date AND $3::date;",
+   "reads": [
+    "slack_feedback"
+   ],
+   "writes": []
+  },
+  {
+   "case": "schema_table_column_ref/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetTotalSlackQueriesResolved",
+   "sql": "SELECT\n    COUNT(*) AS count\nFROM astoria.slack_feedback\nWHERE astoria.slack_feedback.workspace_id = $1\n  AND (issue_raised = false OR issue_raised IS NULL)\n  AND created_at BETWEEN $2::date AND $3::date;",
+   "reads": [
+    "slack_feedback"
+   ],
+   "writes": []
+  },
+  {
+   "case": "schema_table_column_ref/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetTotalSlackQueriesRequestsCreated",
+   "sql": "SELECT\n    COUNT(*) AS count\nFROM astoria.tickets\nWHERE astoria.tickets.workspace_id = $1\n  AND source = 'RAISED_FROM_BOT'\n  AND created_at BETWEEN $2::date AND $3::date;",
+   "reads": [
+    "tickets"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_column_cast/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectColumnCast",
+   "sql": "SELECT bar::int FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_distinct/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetBars",
+   "sql": "SELECT DISTINCT ON (a.id) a.*\nFROM bar a;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_empty_column_list/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetBars",
+   "sql": "SELECT FROM bar LIMIT 5;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_exists/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "BarExists",
+   "sql": "SELECT\n    EXISTS (\n        SELECT\n            1\n        FROM\n            bar\n        where\n            id = $1\n    );",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_exists/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "BarExists",
+   "sql": "SELECT\n  EXISTS (\n    SELECT 1\n    FROM bar\n    WHERE id = ?\n  );",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_in_and/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteAuthor",
+   "sql": "DELETE FROM books AS b\nWHERE NOT b.author IN (\n    SELECT a.name\n    FROM authors AS a\n    WHERE a.age >= ?\n  )\n  AND NOT b.translator IN (\n    SELECT t.name\n    FROM translators AS t\n    WHERE t.age >= ?\n  )\n  AND b.year <= ?;",
+   "reads": [
+    "authors",
+    "translators"
+   ],
+   "writes": [
+    "books"
+   ]
+  },
+  {
+   "case": "select_limit/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FooLimit",
+   "sql": "SELECT a FROM foo\nLIMIT $1;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_limit/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FooLimitOffset",
+   "sql": "SELECT a FROM foo\nLIMIT $1 OFFSET $2;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_nested_count/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthorsWithBooksCount",
+   "sql": "SELECT\n  *,\n  (\n    SELECT count(id)\n    FROM books\n    WHERE books.author_id = id\n  ) AS books_count\nFROM authors;",
+   "reads": [
+    "authors",
+    "books"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_not_exists/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "BarNotExists",
+   "sql": "SELECT\n    NOT EXISTS (\n        SELECT\n            1\n        FROM\n            bar\n        where\n            id = $1\n    );",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_not_exists/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "BarNotExists",
+   "sql": "SELECT\n  NOT EXISTS (\n    SELECT 1\n    FROM bar\n    WHERE id = ?\n  );",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_sequence/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetLastValue",
+   "sql": "SELECT last_value FROM my_sequence;",
+   "reads": [
+    "my_sequence"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_star/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetAll",
+   "sql": "SELECT * FROM users;\n\n/* name: GetIDAll :many */\nSELECT * FROM (SELECT id FROM users) t;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_star/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAll",
+   "sql": "SELECT * FROM users;\n\n/* name: GetIDAll :many */\nSELECT * FROM (SELECT id FROM users) AS t;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_subquery/postgresql/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "Subquery",
+   "sql": "SELECT \n\ta,\n\tname,\n\t(SELECT alias FROM bar WHERE bar.a=foo.a AND alias = $1 ORDER BY bar.a DESC limit 1) as alias\nFROM FOO WHERE a = $2;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_subquery_alias/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "FindWallets",
+   "sql": "select id, address, balance, total_balance from \n(\n\tselect id, address, balance,\n\t  sum(balance) over (order by balance desc rows between unbounded preceding and current row) as total_balance,\n\t  sum(balance) over (order by balance desc rows between unbounded preceding and current row) - balance as last_balance\n\tfrom wallets\n\twhere type=$1\n) amounts\nwhere amounts.last_balance < $2;",
+   "reads": [
+    "wallets"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_subquery_no_alias/postgres/stdlib/query.sql",
+   "engine": "postgresql",
+   "name": "Subquery",
+   "sql": "SELECT * FROM (SELECT * FROM foo);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_subquery_no_alias/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Subquery",
+   "sql": "SELECT * FROM (SELECT * FROM foo);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_system/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetSystemColumns",
+   "sql": "SELECT\n  tableoid, xmin, cmin, xmax, cmax, ctid\nFROM test;",
+   "reads": [
+    "test"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectUnion",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectUnionWithLimit",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM foo\nLIMIT $1 OFFSET $2;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectExcept",
+   "sql": "SELECT * FROM foo\nEXCEPT\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectIntersect",
+   "sql": "SELECT * FROM foo\nINTERSECT\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectUnionOther",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM bar;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/postgres/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SelectUnionAliased",
+   "sql": "(SELECT * FROM foo)\nUNION\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectUnion",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectUnionWithLimit",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM foo\nLIMIT ?\nOFFSET ?;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectExcept",
+   "sql": "SELECT * FROM foo\nEXCEPT\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectIntersect",
+   "sql": "SELECT * FROM foo\nINTERSECT\nSELECT * FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectUnionOther",
+   "sql": "SELECT * FROM foo\nUNION\nSELECT * FROM bar;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "select_union_subquery/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "TestSubqueryUnion",
+   "sql": "SELECT tmp.* FROM (\n  SELECT * FROM authors\n  UNION\n  SELECT * FROM authors\n) tmp LIMIT 5;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "single_param_conflict/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthorIDByID",
+   "sql": "SELECT id\nFROM authors\nWHERE id = ?\nLIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "single_param_conflict/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthorByID",
+   "sql": "SELECT id, name, bio\nFROM authors\nWHERE id = ?\nLIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "single_param_conflict/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetUser",
+   "sql": "SELECT sub\nFROM users\nWHERE sub = ?\nLIMIT 1;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_arg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FuncParamIdent",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg(slug);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_arg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "FuncParamString",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg('slug');",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "Only",
+   "sql": "SELECT sqlc.embed(users) FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "WithAlias",
+   "sql": "SELECT sqlc.embed(u) FROM users u;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "WithSubquery",
+   "sql": "SELECT sqlc.embed(users), (SELECT count(*) FROM users) AS total_count FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "WithAsterisk",
+   "sql": "SELECT sqlc.embed(users), * FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "Duplicate",
+   "sql": "SELECT sqlc.embed(users), sqlc.embed(users) FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "Join",
+   "sql": "SELECT sqlc.embed(users), sqlc.embed(posts) FROM posts\nINNER JOIN users ON posts.user_id = users.id;",
+   "reads": [
+    "posts",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "WithSchema",
+   "sql": "SELECT sqlc.embed(bu) FROM baz.users bu;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "WithCrossSchema",
+   "sql": "SELECT sqlc.embed(users), sqlc.embed(bu) FROM users\nINNER JOIN baz.users bu ON users.id = bu.id;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Only",
+   "sql": "SELECT sqlc.embed(users) FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "WithAlias",
+   "sql": "SELECT sqlc.embed(u) FROM users AS u;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "WithSubquery",
+   "sql": "SELECT sqlc.embed(users), (SELECT count(*) FROM users) AS total_count FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "WithAsterisk",
+   "sql": "SELECT sqlc.embed(users), * FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Duplicate",
+   "sql": "SELECT sqlc.embed(users), sqlc.embed(users) FROM users;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "Join",
+   "sql": "SELECT sqlc.embed(u), sqlc.embed(p) FROM posts AS p\nINNER JOIN users AS u ON p.user_id = u.id;",
+   "reads": [
+    "posts",
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_embed/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "WithCrossSchema",
+   "sql": "SELECT sqlc.embed(u), sqlc.embed(bu) FROM users AS u\nINNER JOIN baz.users bu ON u.id = bu.id;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "IdentOnNonNullable",
+   "sql": "SELECT bar FROM foo WHERE bar = sqlc.narg(bar);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "IdentOnNullable",
+   "sql": "SELECT maybe_bar FROM foo WHERE maybe_bar = sqlc.narg(maybe_bar);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StringOnNonNullable",
+   "sql": "SELECT bar FROM foo WHERE bar = sqlc.narg('bar');",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StringOnNullable",
+   "sql": "SELECT maybe_bar FROM foo WHERE maybe_bar = sqlc.narg('maybe_bar');",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "IdentOnNonNullable",
+   "sql": "SELECT bar FROM foo WHERE bar = sqlc.narg(bar);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_narg/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "IdentOnNullable",
+   "sql": "SELECT maybe_bar FROM foo WHERE maybe_bar = sqlc.narg(maybe_bar);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_slice/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "FuncParamIdent",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg(slug)\n  AND id IN (sqlc.slice(favourites));",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlc_slice/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "FuncParamString",
+   "sql": "SELECT name FROM foo WHERE name = sqlc.arg('slug')\n  AND id IN (sqlc.slice('favourites'));",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlite_skip_todo/query.sql",
+   "engine": "sqlite",
+   "name": "GetFoo",
+   "sql": "SELECT *\nFROM foo\nWHERE bar = ?;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sqlite_table_options/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "SELECT *\nFROM authors1\nWHERE id = ?1\nLIMIT 1;",
+   "reads": [
+    "authors1"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansion",
+   "sql": "SELECT *, *, foo.* FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarQuotedExpansion",
+   "sql": "SELECT \"t\".* FROM foo \"t\";",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansion",
+   "sql": "SELECT *, *, foo.* FROM foo;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarQuotedExpansion",
+   "sql": "SELECT t.* FROM foo AS t;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionJoin",
+   "sql": "SELECT * FROM foo, bar;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionSubquery",
+   "sql": "SELECT * FROM (SELECT * FROM bar) sub;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionCTE",
+   "sql": "WITH t AS (SELECT * FROM bar) SELECT * FROM t;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionReturning",
+   "sql": "INSERT INTO bar (a, c) VALUES ($1, $2) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "star_expansion_core/postgresql/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionAliasedSubquery",
+   "sql": "SELECT (SELECT * FROM baz LIMIT 1) AS x FROM foo GROUP BY x;",
+   "reads": [
+    "baz",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionJoin",
+   "sql": "SELECT * FROM foo, bar;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionSubquery",
+   "sql": "SELECT * FROM (SELECT * FROM bar) AS sub;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionCTE",
+   "sql": "WITH t AS (SELECT * FROM bar) SELECT * FROM t;",
+   "reads": [
+    "bar"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionReturning",
+   "sql": "INSERT INTO bar (a, c) VALUES (?, ?) RETURNING *;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionAliasedSubquery",
+   "sql": "SELECT (SELECT * FROM baz LIMIT 1) AS x FROM foo GROUP BY x;",
+   "reads": [
+    "baz",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionHiddenColumns",
+   "sql": "SELECT * FROM recipes_fts;",
+   "reads": [
+    "recipes_fts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_core/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "StarExpansionQualifiedHiddenColumns",
+   "sql": "SELECT recipes_fts.* FROM recipes_fts;",
+   "reads": [
+    "recipes_fts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_cte/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionCTE",
+   "sql": "WITH cte AS (SELECT * FROM foo) SELECT * FROM bar;",
+   "reads": [
+    "bar",
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_cte/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionTwoCTE",
+   "sql": "WITH \n  a AS (SELECT * FROM foo),\n  b AS (SELECT 1::int as bar, * FROM a)\nSELECT * FROM b;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_from_cte/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionCTE",
+   "sql": "WITH cte AS (SELECT * FROM foo) SELECT * FROM cte;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_series/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "CountAlertReportBy",
+   "sql": "select DATE_TRUNC($1,ts)::text as datetime,coalesce(count,0) as count from \n(\n    SELECT  DATE_TRUNC($1,eventdate) as hr ,count(*)\n    FROM    alertreport\n    where eventdate between $2 and $3\n    GROUP BY   1\n) AS cnt \nright outer join ( SELECT * FROM generate_series ( $2, $3, CONCAT('1 ',$1)::interval) AS ts ) as dte\non DATE_TRUNC($1, ts ) = cnt.hr \norder by 1 asc;",
+   "reads": [
+    "alertreport"
+   ],
+   "writes": []
+  },
+  {
+   "case": "star_expansion_subquery/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "StarExpansionSubquery",
+   "sql": "SELECT * FROM foo WHERE EXISTS (SELECT * FROM foo);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "subquery_calculated_column/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "SubqueryCalcColumn",
+   "sql": "SELECT sum FROM (SELECT a + b AS sum FROM foo) AS f;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "subquery_calculated_column/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SubqueryCalcColumn",
+   "sql": "SELECT sum FROM (SELECT a + b AS sum FROM foo) AS f;",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "sum_type/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "SumOrder",
+   "sql": "SELECT SUM(quantity) FROM orders;",
+   "reads": [
+    "orders"
+   ],
+   "writes": []
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertUser",
+   "sql": "INSERT INTO users (name) VALUES (?);",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertAuthor",
+   "sql": "INSERT INTO \"Authors\" (name) VALUES (?);",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertBook",
+   "sql": "INSERT INTO books (title) VALUES (?);",
+   "reads": [],
+   "writes": [
+    "books"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateUser",
+   "sql": "UPDATE users SET name = ? WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateAuthor",
+   "sql": "UPDATE \"Authors\" SET name = ? WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateBook",
+   "sql": "UPDATE books SET title = ? WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "books"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteUser",
+   "sql": "DELETE FROM users WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "users"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteAuthor",
+   "sql": "DELETE FROM \"Authors\" WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteBook",
+   "sql": "DELETE FROM books WHERE id = ?;",
+   "reads": [],
+   "writes": [
+    "books"
+   ]
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetUser",
+   "sql": "SELECT * FROM users WHERE id = ?;",
+   "reads": [
+    "users"
+   ],
+   "writes": []
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM \"Authors\" WHERE id = ?;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "table_name_case_sensitivity/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetBook",
+   "sql": "SELECT * FROM books WHERE id = ?;",
+   "reads": [
+    "books"
+   ],
+   "writes": []
+  },
+  {
+   "case": "truncate/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "Truncate",
+   "sql": "TRUNCATE bar;",
+   "reads": [],
+   "writes": [
+    "bar"
+   ]
+  },
+  {
+   "case": "unknown_func/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "ListFoos",
+   "sql": "SELECT id FROM foo WHERE id = frobnicate($1);",
+   "reads": [
+    "foo"
+   ],
+   "writes": []
+  },
+  {
+   "case": "unnest/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "CreateMemories",
+   "sql": "INSERT INTO memories (vampire_id)\nSELECT\n    unnest(@vampire_id::uuid[]) AS vampire_id\nRETURNING\n    *;",
+   "reads": [],
+   "writes": [
+    "memories"
+   ]
+  },
+  {
+   "case": "unnest_star/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "GetPlanItems",
+   "sql": "SELECT p.plan_id, p.item_id\nFROM (SELECT * FROM unnest(@ids::bigint[])) AS i(req_item_id),\nLATERAL (\n    SELECT plan_id, item_id\n    FROM plan_items\n    WHERE\n        item_id = i.req_item_id AND\n        (@after = 0 OR plan_id < @after)\n    ORDER BY plan_id DESC\n    LIMIT @limit_count\n) p;",
+   "reads": [
+    "plan_items"
+   ],
+   "writes": []
+  },
+  {
+   "case": "unnest_with_ordinality/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "GetValues",
+   "sql": "SELECT id, index::bigint, value::text\nFROM array_values AS x, unnest(values) WITH ORDINALITY AS y (value, index);",
+   "reads": [
+    "array_values"
+   ],
+   "writes": []
+  },
+  {
+   "case": "untyped_columns/sqlite/stdlib/query.sql",
+   "engine": "sqlite",
+   "name": "GetRepro",
+   "sql": "SELECT * FROM repro WHERE id = ? LIMIT 1;",
+   "reads": [
+    "repro"
+   ],
+   "writes": []
+  },
+  {
+   "case": "update_array_index/postgresql/pgx/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateAuthor",
+   "sql": "update authors\nset names[$1] = $2\nwhere id=$3\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "update_cte/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateCode",
+   "sql": "WITH cc AS (\n            UPDATE td3.codes\n            SET\n                created_by = $1,\n                updated_by  = $1,\n                code = $2,\n                hash = $3,\n                is_private = false\n            RETURNING hash\n)\nUPDATE td3.test_codes\nSET\n    created_by = $1,\n    updated_by  = $1,\n    test_id = $4,\n    code_hash = cc.hash\n    FROM cc\nRETURNING *;",
+   "reads": [],
+   "writes": [
+    "codes",
+    "test_codes"
+   ]
+  },
+  {
+   "case": "update_set/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateSet",
+   "sql": "UPDATE foo SET name = $2 WHERE slug = $1;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "update_set_multiple/postgresql/pgx/v4/query.sql",
+   "engine": "postgresql",
+   "name": "UpdateSetMultiple",
+   "sql": "UPDATE foo SET (name, slug) = ($2, $1);",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "update_set_multiple/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateSetMultiple",
+   "sql": "UPDATE foo SET name = ?, slug = ?;",
+   "reads": [],
+   "writes": [
+    "foo"
+   ]
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectAllColsFt",
+   "sql": "SELECT b\nFROM ft\nWHERE b MATCH ?;",
+   "reads": [
+    "ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectAllColsTblFt",
+   "sql": "SELECT b, c\nFROM tbl_ft\nWHERE b MATCH ?;",
+   "reads": [
+    "tbl_ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectOneColFt",
+   "sql": "SELECT b\nFROM ft\nWHERE b = ?;",
+   "reads": [
+    "ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectOneColTblFt",
+   "sql": "SELECT c\nFROM tbl_ft\nWHERE b = ?;",
+   "reads": [
+    "tbl_ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectHightlighFunc",
+   "sql": "SELECT highlight(tbl_ft, 0, '<b>', '</b>')\nFROM tbl_ft\nWHERE b MATCH ?;",
+   "reads": [
+    "tbl_ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectSnippetFunc",
+   "sql": "SELECT snippet(tbl_ft, 0, '<b>', '</b>', 'aa', ?) FROM tbl_ft;",
+   "reads": [
+    "tbl_ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SelectBm25Func",
+   "sql": "SELECT b, c, bm25(tbl_ft, 2.0)\nFROM tbl_ft\nWHERE b MATCH ?\nORDER BY bm25(tbl_ft);",
+   "reads": [
+    "tbl_ft"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "UpdateTblFt",
+   "sql": "UPDATE tbl_ft SET c = ? WHERE b = ?;",
+   "reads": [],
+   "writes": [
+    "tbl_ft"
+   ]
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteTblFt",
+   "sql": "DELETE FROM tbl_ft WHERE b = ?;",
+   "reads": [],
+   "writes": [
+    "tbl_ft"
+   ]
+  },
+  {
+   "case": "virtual_table/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "InsertTblFt",
+   "sql": "INSERT INTO tbl_ft (b, c) VALUES (?, ?);",
+   "reads": [],
+   "writes": [
+    "tbl_ft"
+   ]
+  },
+  {
+   "case": "virtual_table_fts5_hidden/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SearchRecipes",
+   "sql": "SELECT rowid, name\nFROM recipes_fts\nWHERE recipes_fts MATCH ?;",
+   "reads": [
+    "recipes_fts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "virtual_table_fts5_hidden/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "SearchRecipesRanked",
+   "sql": "SELECT rowid, name, rank\nFROM recipes_fts\nWHERE recipes_fts MATCH ?\nORDER BY rank;",
+   "reads": [
+    "recipes_fts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "where_collate/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAccountByName",
+   "sql": "SELECT *\nFROM accounts\nWHERE name = ? COLLATE nocase\nLIMIT 1;",
+   "reads": [
+    "accounts"
+   ],
+   "writes": []
+  },
+  {
+   "case": "wrap_errors/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "GetAuthor",
+   "sql": "SELECT * FROM authors\nWHERE id = ?1 LIMIT 1;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "wrap_errors/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "ListAuthors",
+   "sql": "SELECT * FROM authors\nORDER BY name;",
+   "reads": [
+    "authors"
+   ],
+   "writes": []
+  },
+  {
+   "case": "wrap_errors/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "CreateAuthor",
+   "sql": "INSERT INTO authors (\n          name, bio\n) VALUES (\n  ?1, ?2\n);",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  },
+  {
+   "case": "wrap_errors/sqlite/query.sql",
+   "engine": "sqlite",
+   "name": "DeleteAuthorExec",
+   "sql": "DELETE FROM authors\nWHERE id = ?1;",
+   "reads": [],
+   "writes": [
+    "authors"
+   ]
+  }
+ ]
+}

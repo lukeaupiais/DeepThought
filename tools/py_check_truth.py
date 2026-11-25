@@ -50,6 +50,8 @@ from xml.etree import ElementTree
 HEADER = "# decl_file\tdecl_line\tname\tref_file\tref_line\tkind"
 _ERROR = re.compile(r"^(.+?\.pyi?):(\d+):(\d+): error: (.*?)(?:  \[[\w-]+\])?$")
 _GONE = "__compile_truth_gone"
+# A ``type: ignore`` comment, which would hide the error a rename adds.
+_IGNORE = re.compile(rb"#\s*type:\s*ignore(?:\[[^\]]*\])?")
 _DEF = re.compile(r"^(\s*)(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)")
 
 
@@ -181,6 +183,21 @@ def candidates(calls, root):
     return sorted(out)
 
 
+def unignore(root, targets):
+    """Blank every ``type: ignore`` comment under the targets, keeping each
+    offset, so that a use the comment would hide reports its error."""
+    for target in targets:
+        base = root / target
+        files = [base] if base.is_file() else base.rglob("*.py*")
+        for path in files:
+            if path.suffix not in (".py", ".pyi"):
+                continue
+            text = path.read_bytes()
+            blanked = _IGNORE.sub(lambda m: b" " * len(m.group()), text)
+            if blanked != text:
+                path.write_bytes(blanked)
+
+
 def derive(workspace, calls, mypy, targets, sample, seed):
     workspace = Path(workspace).resolve()
     picks = candidates(calls, workspace)
@@ -189,6 +206,7 @@ def derive(workspace, calls, mypy, targets, sample, seed):
     try:
         root, cache = scratch / "src", scratch / "cache"
         shutil.copytree(workspace, root, ignore=shutil.ignore_patterns(".git"))
+        unignore(root, targets)
         before = type_errors(root, mypy, targets, cache, scratch / "report")
         untyped = imprecise_lines(scratch / "report")
         sites = call_sites(calls)
