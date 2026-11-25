@@ -1677,11 +1677,23 @@ func Load(db *sql.DB, other dep.Conn) {
         )
 
     def test_files_outside_a_module(self):
-        files = {"main.go": "package main\n\nfunc main() {}\n"}
+        # A GOPATH-era package: checked as a module of its own.
+        files = {
+            "cmd/load/main.go": """package main
+
+import "database/sql"
+
+func Load(db *sql.DB) {
+\tdb.Query("SELECT id FROM accounts")
+}
+""",
+        }
         output = self.analyze(files)
         self.assertEqual(
-            output.metadata.custom_metrics["go_type_facts"]["files_not_checked"],
-            {"no_go_module": 1},
+            go_edges(output), [("READS", "Load", "accounts", "go-sql-types")]
+        )
+        self.assertFalse(
+            output.metadata.custom_metrics["go_type_facts"].get("files_not_checked")
         )
 
 

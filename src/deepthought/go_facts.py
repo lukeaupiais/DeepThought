@@ -108,6 +108,9 @@ class GoFacts:
     modules: dict[str, str] = field(default_factory=dict)  # directory -> status
     toolchains: dict[str, str] = field(default_factory=dict)  # directory -> Go
     downloads: dict[str, str] = field(default_factory=dict)  # directory -> status
+    # Directories of packages outside every module, checked as modules of
+    # their own (GOPATH-era code).
+    gopath: set[str] = field(default_factory=set)
     requires: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def module_of(self, file):
@@ -324,12 +327,48 @@ def collect(root, files, module_directories, *, timeout=600):
     owned = defaultdict(list)
     for file in files:
         owned[module_of(file)].append(file)
+    # Files outside every module are GOPATH-era packages: each directory is
+    # checked on its own, as a module of its own whose imports resolve to
+    # their latest versions (what `go get` gave such a package).
+    packages = defaultdict(list)
     for file in owned.pop(None, ()):
-        facts.uncovered[file] = "no_go_module"
+        packages[posixpath.dirname(file)].append(file)
     go = toolchain()
-    if go is None and owned:
+    if go is None and (owned or packages):
         raise GoMissing("the Go toolchain is required to type Go code")
     built = {}
+    for directory in sorted(packages):
+        with tempfile.TemporaryDirectory(prefix="deepthought-gopath-") as scratch:
+            copy = Path(scratch) / "package"
+            target = copy / directory if directory else copy
+            target.mkdir(parents=True)
+            try:
+                for source in (root / directory).iterdir():
+                    if source.suffix == ".go" and source.is_file():
+                        shutil.copyfile(source, target / source.name)
+            except OSError:
+                facts.uncovered.update(
+                    dict.fromkeys(packages[directory], "no_go_module")
+                )
+                continue
+            version = ".".join(_info(go)["GOVERSION"].removeprefix("go").split(".")[:2])
+            text = f"module gopath.local/package\n\ngo {version}\n"
+            (target / "go.mod").write_text(text, encoding="utf-8")
+            facts.gopath.add(directory)
+            with tempfile.TemporaryDirectory(
+                prefix="deepthought-gomod-"
+            ) as files_scratch:
+                _check_module(
+                    copy,
+                    directory,
+                    packages[directory],
+                    files_scratch,
+                    go,
+                    {directory: text},
+                    built,
+                    facts,
+                    timeout,
+                )
     for directory in sorted(owned):
         with tempfile.TemporaryDirectory(prefix="deepthought-gomod-") as scratch:
             _check_module(
