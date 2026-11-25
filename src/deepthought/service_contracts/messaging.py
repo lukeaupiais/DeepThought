@@ -160,14 +160,25 @@ class _Sites:
         for destination, calls in fold_through_calls(folder, compute, self.calls_of):
             self.add(node, role, broker, destination, client, argument_from=calls)
 
-    def consume_queue(self, node, queue, bindings, client, declaration_id=None):
-        """A consumer of ``queue``: the default exchange plus its bindings."""
+    def consume_queue(
+        self, node, queue, bindings, client, declaration_id=None, identity=None
+    ):
+        """A consumer of ``queue``: the default exchange plus its bindings.
+        A binding is (queue, key, exchange), optionally with the identity of
+        the declaration its queue comes from: a queue whose name is not
+        known (the broker names it) still has the bindings of the same
+        declaration."""
         if PLACEHOLDER in queue:
             self.add(node, "consume", "amqp", queue, client, declaration_id)
-            return
-        self.add(node, "consume", "amqp", "/" + queue, client, declaration_id)
-        for bound_queue, key, exchange in bindings:
-            if bound_queue != queue:
+        else:
+            self.add(node, "consume", "amqp", "/" + queue, client, declaration_id)
+        for binding in bindings:
+            bound_queue, key, exchange = binding[:3]
+            if PLACEHOLDER in queue:
+                bound = binding[3] if len(binding) > 3 else None
+                if identity is None or bound != identity:
+                    continue
+            elif bound_queue != queue:
                 continue
             if "*" in key or "#" in key:
                 self.unread.append(
@@ -691,6 +702,16 @@ def extract_go(sites, facts):
                 return call.values[0].text
         return PLACEHOLDER
 
+    def declaration(item):
+        """The QueueDeclare result field a queue argument reads, or None."""
+        if item is None or item.text is not None or item.result is None:
+            return None
+        line, column, _, _ = item.result
+        call = at.get((line, column))
+        if call is None or call.declared not in _GO_AMQP:
+            return None
+        return item.result if call.method == "QueueDeclare" else None
+
     def argument(call, index):
         return call.values[index] if index < len(call.values) else None
 
@@ -710,6 +731,7 @@ def extract_go(sites, facts):
             value(argument(call, 0)),
             value(argument(call, 1)),
             value(argument(call, 2)),
+            declaration(argument(call, 0)),
         )
         for _, call in sited
         if call.declared in _GO_AMQP and call.method == "QueueBind"
@@ -724,8 +746,13 @@ def extract_go(sites, facts):
                 sites.add(node, "publish", "amqp", f"{exchange}/{key}", "go-amqp")
             elif method in ("Consume", "ConsumeWithContext"):
                 offset = 1 if method == "ConsumeWithContext" else 0
+                queue = argument(call, offset)
                 sites.consume_queue(
-                    node, value(argument(call, offset)), bindings, "go-amqp"
+                    node,
+                    value(queue),
+                    bindings,
+                    "go-amqp",
+                    identity=declaration(queue),
                 )
             continue
         client = _go_kafka_client(call.declared)

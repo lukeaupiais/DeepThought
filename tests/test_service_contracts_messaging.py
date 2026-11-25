@@ -201,7 +201,11 @@ func audit(ch *amqp.Channel) {
 	ch.Consume(replies, "", true, false, false, false, nil)
 	// The broker names a queue declared with "".
 	q, _ := ch.QueueDeclare("", false, false, true, false, nil)
+	// Its bindings are the ones made through the same declaration.
+	ch.QueueBind(q.Name, "", "logs", false, nil)
 	ch.Consume(q.Name, "", true, false, false, false, nil)
+	other, _ := ch.QueueDeclare("", false, false, true, false, nil)
+	ch.Consume(other.Name, "", true, false, false, false, nil)
 	ch.PublishWithDeferredConfirmWithContext(nil, "audit", "audit.done", false, false, amqp.Publishing{})
 }
 """
@@ -297,6 +301,8 @@ class MessagingContractTests(unittest.TestCase):
                 # A package variable nothing reassigns.
                 ("main.go", "consume", "amqp", "/replies", "go-amqp"),
                 ("main.go", "consume", "amqp", "audit/booking.created", "go-amqp"),
+                # Bound through the declaration of a queue the broker names.
+                ("main.go", "consume", "amqp", "logs/", "go-amqp"),
                 ("main.go", "consume", "amqp", "robot-shop/orders", "go-amqp"),
                 ("main.go", "publish", "amqp", "audit/audit.done", "go-amqp"),
                 ("main.go", "publish", "amqp", "audit/dispatch.done", "go-amqp"),
@@ -311,7 +317,8 @@ class MessagingContractTests(unittest.TestCase):
                 ("OrderService.java", "publish", "destination_not_literal"),
                 ("OrderService.java", "publish", "destination_not_literal"),
                 ("Send.java", "publish", "template_exchange"),
-                # q.Name of a queue the broker names.
+                # q.Name of the queues the broker names.
+                ("main.go", "consume", "destination_not_literal"),
                 ("main.go", "consume", "destination_not_literal"),
                 ("main.go", "consume", "key_pattern"),
                 ("publisher.py", "consume", "destination_not_literal"),
@@ -345,7 +352,7 @@ class MessagingContractTests(unittest.TestCase):
                 rule = get_rule(relationship.properties["rule_id"])
                 self.assertEqual(rule.evidence_type, "pattern_matched")
         metrics = self.output.metadata.custom_metrics
-        self.assertEqual(metrics["message_endpoints"], 17)
+        self.assertEqual(metrics["message_endpoints"], 18)
         self.assertEqual(metrics["unread"]["consume:key_pattern"], 1)
 
     def test_graph_joins_tree_sitter_declarations(self):
