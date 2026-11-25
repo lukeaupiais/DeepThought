@@ -157,6 +157,85 @@ class FixtureUseTests(unittest.TestCase):
             [(("test_z.py", 1), "named", ("conftest.py", 6), 1, "parameter")],
         )
 
+    def test_autouse_fixtures_reach_every_test_that_sees_them(self):
+        sources = {
+            "conftest.py": "import pytest\n\n@pytest.fixture(autouse=True)\n"
+            "def reset():\n    pass\n\n@pytest.fixture(autouse=False)\n"
+            "def manual():\n    pass\n",
+            # A test requesting the name gets one parameter use, not two;
+            # a fixture gets no autouse uses.
+            "a/test_a.py": "import pytest\n\n@pytest.fixture\ndef f():\n"
+            "    pass\n\ndef test_a(reset):\n    pass\n\n"
+            "class TestA:\n    @pytest.fixture(autouse=True)\n"
+            "    def setup(self):\n        pass\n\n"
+            "    def test_m(self):\n        pass\n",
+            # A conftest.py autouse fixture covers only its own subtree.
+            "b/conftest.py": "import pytest\n\n@pytest.fixture(autouse=True)\n"
+            "def only_b():\n    pass\n",
+            "c/test_c.py": "def test_c():\n    pass\n",
+        }
+        root, a = "conftest.py", "a/test_a.py"
+        self.assertEqual(
+            uses(sources),
+            [
+                ((a, 7), "reset", (root, 4), 7, "parameter"),
+                ((a, 15), "reset", (root, 4), 15, "autouse"),
+                ((a, 15), "setup", (a, 12), 15, "autouse"),
+                (("c/test_c.py", 1), "reset", (root, 4), 1, "autouse"),
+            ],
+        )
+
+    def test_a_directly_parametrized_argument_requests_no_fixture(self):
+        conftest = (
+            "import pytest\n\n@pytest.fixture\ndef db():\n    pass\n\n"
+            "@pytest.fixture\ndef api():\n    pass\n"
+        )
+        test = """\
+import pytest
+import other
+
+@pytest.mark.parametrize("db, api,", [(1, 2)])
+def test_both(db, api):
+    pass
+
+@pytest.mark.parametrize(argnames=["db"], argvalues=[1], indirect=True)
+def test_indirect(db):
+    pass
+
+@pytest.mark.parametrize(("db", "api"), [(1, 2)], indirect=["db"])
+def test_some_indirect(db, api):
+    pass
+
+@pytest.mark.parametrize("db", [1])
+class TestP:
+    def test_m(self, db, api):
+        pass
+
+@pytest.mark.parametrize(names, [1])
+def test_unknown(db):
+    pass
+
+@pytest.mark.parametrize(argvalues=[1], argnames="db", indirect=False)
+@pytest.mark.parametrize(["api", NAME], [(1, 2)])
+def test_keywords(db, api):
+    pass
+
+@other.mark.parametrize("db", [1])
+def test_other(db):
+    pass
+"""
+        root, t = "conftest.py", "test_p.py"
+        self.assertEqual(
+            uses({root: conftest, t: test}),
+            [
+                ((t, 9), "db", (root, 4), 9, "parameter"),
+                ((t, 13), "db", (root, 4), 13, "parameter"),
+                ((t, 18), "api", (root, 8), 18, "parameter"),
+                ((t, 22), "db", (root, 4), 22, "parameter"),
+                ((t, 31), "db", (root, 4), 31, "parameter"),
+            ],
+        )
+
 
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter")
@@ -173,7 +252,8 @@ class FixtureEdgeTests(unittest.TestCase):
             (root / "tests" / "conftest.py").write_text(CONFTEST_ROOT)
             (root / "tests" / "test_b.py").write_text(
                 "import pytest\n\n@pytest.mark.usefixtures('db')\n"
-                "class TestB:\n    def test_b(self, client):\n        pass\n"
+                "class TestB:\n    def test_b(self, client):\n        pass\n\n"
+                "@pytest.fixture(autouse=True)\ndef auto():\n    pass\n"
             )
             output = asyncio.run(
                 TreeSitterTool(root).analyze(
@@ -206,6 +286,14 @@ class FixtureEdgeTests(unittest.TestCase):
                     3,
                     "db",
                     "pytest.fixture-usefixtures",
+                    "pattern_matched",
+                ),
+                (
+                    "TestB.test_b",
+                    "auto",
+                    5,
+                    "auto",
+                    "pytest.fixture-autouse",
                     "pattern_matched",
                 ),
                 (

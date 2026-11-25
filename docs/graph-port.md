@@ -852,17 +852,21 @@ edge to each fixture it requests, with the `line` and `name` written:
 |---|---|
 | `pytest.fixture-parameter` | a parameter without a default value (after a method's `self`) to the fixture of that name |
 | `pytest.fixture-usefixtures` | a string in `@pytest.mark.usefixtures(...)` on a test or test class to the fixture of that name |
+| `pytest.fixture-autouse` | a test, at its `def` line, to each `autouse=True` fixture it sees and does not request by name |
 
 A fixture is a function decorated `@pytest.fixture` or
 `@pytest_asyncio.fixture` (or `fixture` imported from either), named by its
 `name=` argument when that is a string. A name is looked up as pytest looks
 it up: the test's class, its module, then `conftest.py` in the module's
 directory and each directory above it, nearest first; a fixture requesting
-its own name gets the one it overrides. Both rules are `pattern_matched`.
+its own name gets the one it overrides. A parameter that
+`@pytest.mark.parametrize` on the test or its class gives values directly
+(not `indirect`) requests no fixture. All three rules are `pattern_matched`.
 This is a rule over the source read with Python's `ast`, because pytest's
 own listing (`--fixtures-per-test`) imports the project and runs its
 plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
-`getfixturevalue`, and `python_files` or `python_functions` settings in
+`getfixturevalue`, fixtures inherited from a test class's base classes,
+and `python_files` or `python_functions` settings in
 configuration are not read. `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
 

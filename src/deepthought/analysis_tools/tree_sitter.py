@@ -80,6 +80,19 @@ FIXTURE_MARK_RULE = register_rule(
         "fixture, found as pytest looks it up.",
     )
 )
+FIXTURE_AUTOUSE_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-autouse",
+        "pattern_matched",
+        "A pytest fixture declared autouse=True in the test's class, module or "
+        "a conftest.py above it, which pytest runs for every test that sees it.",
+    )
+)
+_FIXTURE_RULES = {
+    "parameter": FIXTURE_PARAMETER_RULE,
+    "usefixtures": FIXTURE_MARK_RULE,
+    "autouse": FIXTURE_AUTOUSE_RULE,
+}
 
 UNLINKED_CALL_RULE = register_rule(
     EvidenceRule(
@@ -958,11 +971,7 @@ class TreeSitterTool(AnalysisTool):
                     {
                         "line": use.line,
                         "name": use.name,
-                        **_evidence(
-                            FIXTURE_PARAMETER_RULE
-                            if use.rule == "parameter"
-                            else FIXTURE_MARK_RULE
-                        ),
+                        **_evidence(_FIXTURE_RULES[use.rule]),
                     },
                 )
             )
