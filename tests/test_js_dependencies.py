@@ -402,5 +402,77 @@ class UnreachableLockfileHostTest(unittest.TestCase):
         self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
 
 
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-typescript"])
+    and importlib.util.find_spec("google.protobuf"),
+    "Install scip-typescript and the scip extra",
+)
+class JsconfigTest(unittest.TestCase):
+    """A JavaScript project keeps its compiler options in jsconfig.json:
+    preact maps ``preact`` to its own sources through its ``paths``."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        base = Path(self.scratch.name)
+        self.root, self.out = base / "work", base / "out"
+        write(
+            self.root,
+            {
+                "jsconfig.json": json.dumps(
+                    {
+                        "compilerOptions": {
+                            "baseUrl": ".",
+                            "paths": {"mylib": ["./lib/index.js"]},
+                        }
+                    }
+                ),
+                "lib/index.js": "export function hello() {\n  return 1;\n}\n",
+                "src/app.js": (
+                    'import { hello } from "mylib";\n'
+                    "export function run() {\n  return hello();\n}\n"
+                ),
+            },
+        )
+
+    def symbols(self):
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("javascript", "typescript")
+        )
+        from deepthought._scip import scip_pb2
+
+        found = set()
+        for run in report["runs"]:
+            self.assertEqual(run["status"], "indexed", run["detail"])
+            index = scip_pb2.Index()
+            index.ParseFromString(Path(run["index"]).read_bytes())
+            for document in index.documents:
+                if document.relative_path == "src/app.js":
+                    found |= {o.symbol for o in document.occurrences}
+        self.assertEqual(report["coverage"]["src/app.js"]["status"], "covered")
+        return found
+
+    def test_a_workspace_without_a_tsconfig_reads_the_jsconfig_paths(self):
+        symbols = self.symbols()
+        self.assertTrue(
+            any(s.endswith("`index.js`/hello().") for s in symbols), symbols
+        )
+
+    def test_files_outside_every_tsconfig_read_the_jsconfig_paths(self):
+        # Like preact's demo/tsconfig.json: the root's files are indexed by
+        # the pass over files outside every tsconfig.
+        write(
+            self.root,
+            {
+                "demo/tsconfig.json": json.dumps({"include": ["*.ts"]}),
+                "demo/main.ts": "export const one = 1;\n",
+            },
+        )
+        symbols = self.symbols()
+        self.assertTrue(
+            any(s.endswith("`index.js`/hello().") for s in symbols), symbols
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

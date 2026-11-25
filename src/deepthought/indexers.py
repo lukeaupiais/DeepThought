@@ -638,7 +638,7 @@ def run_indexer(
             # tsconfig.json into the workspace, which may be read-only, and
             # scip-typescript infers {} instead of allowJs once node_modules
             # holds TypeScript declarations, and then indexes no file at all.
-            project = _javascript_project()
+            project = _javascript_project(root)
             config = Path(scratch) / "tsconfig.json"
             config.write_text(
                 json.dumps(
@@ -646,6 +646,11 @@ def run_indexer(
                         **project,
                         "include": [str(base / i) for i in project["include"]],
                         "exclude": [str(base / x) for x in project["exclude"]],
+                        **(
+                            {"extends": str(indexed_root / project["extends"])}
+                            if "extends" in project
+                            else {}
+                        ),
                     }
                 )
             )
@@ -809,28 +814,43 @@ def _prepared_packages(root, directory, environ, timeout):
     return prepared
 
 
-def _javascript_project():
+def _root_config(root):
+    """The workspace's own compiler configuration: its tsconfig.json, else
+    the jsconfig.json a JavaScript project keeps its options in (preact maps
+    ``preact`` to its own sources through the ``paths`` there)."""
+    for name in ("tsconfig.json", "jsconfig.json"):
+        if (Path(root) / name).is_file():
+            return name
+    return None
+
+
+def _javascript_project(root):
     """The project of a workspace without a tsconfig.json, with paths
     relative to it: every JavaScript and TypeScript file outside
-    node_modules."""
-    return {
+    node_modules, with the options of its jsconfig.json if there is one."""
+    project = {
         "compilerOptions": {"allowJs": True, "noEmit": True},
         "include": ["**/*"],
         "exclude": ["**/node_modules"],
     }
+    config = _root_config(root)
+    if config is not None:
+        project["extends"] = config
+    return project
 
 
 def _uncovered_project(root, files):
     """The project a scip-typescript pass over ``files`` indexes, with paths
     relative to the workspace: those files, allowing JavaScript and imports
-    by .ts names, with the compiler options of the root tsconfig.json if there
-    is one."""
+    by .ts names, with the compiler options of the root tsconfig.json, or
+    else its jsconfig.json, if there is one."""
     # Files outside every tsconfig are often Deno or Bun scripts, which import
     # modules by their .ts names; the compiler accepts that only when told.
     options = {"allowJs": True, "allowImportingTsExtensions": True, "noEmit": True}
     project = {"compilerOptions": options, "files": sorted(files)}
-    if (root / "tsconfig.json").is_file():
-        project["extends"] = "tsconfig.json"
+    config = _root_config(root)
+    if config is not None:
+        project["extends"] = config
     return project
 
 

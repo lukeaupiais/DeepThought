@@ -2112,12 +2112,25 @@ run covers its 487 files with the server's `baseUrl` imports resolved.
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
 pass, written to `scip-typescript-uncovered.scip`: one project of exactly
-those files that extends the root tsconfig.json when there is one, with
+those files that extends the root tsconfig.json (else jsconfig.json) when
+there is one, with
 `allowJs`, `allowImportingTsExtensions` and `noEmit`. Its receipt records that
 project with workspace-relative paths, its coverage entries say
 `pass: outside_tsconfig`, and it keeps only those files' documents, so the two
 indexes never cover the same file. On hono it covers the 75 files the first
 pass leaves out.
+
+A JavaScript project keeps its compiler options in `jsconfig.json`, which
+scip-typescript does not read. When the root has no tsconfig.json, the
+project the engine writes (for the whole workspace, or for the files outside
+every tsconfig) extends the root `jsconfig.json`. preact (1fbc07f) maps
+`preact` to its own sources through the `paths` there; its only tsconfigs are
+in `demo/` and its type tests, so its 246 core files are indexed by the
+outside-tsconfig pass. Without the jsconfig, `import { options } from
+'preact'` in `hooks/src/index.js` was `local 0`; now it binds to `options`
+in preact's `src/index.d.ts`. Across that pass, references to a `local`
+symbol fell from 30,233 to 27,002, and references into the preact package
+rose from 15,543 to 18,205.
 
 scip-python types a call into a library only when the library is importable,
 so before it runs the project's declared dependencies are installed
