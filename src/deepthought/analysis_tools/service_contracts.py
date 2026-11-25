@@ -1639,7 +1639,18 @@ CONTRACT_READERS = {
 _RESOLVER = f"service-contracts@{__version__}"
 
 
-def contract_coverage(repo_url, languages, coverage, sites):
+# Unread GraphQL sites of client operations; the others are of servers.
+_GRAPHQL_CLIENT_UNREAD = frozenset({"operation_not_parsed", "client_fragment_root"})
+# The edge family of an unread messaging site by its role; a role naming no
+# direction (a file the Go type checker could not check) counts for both.
+_MESSAGING_UNREAD = {
+    "publish": ("PUBLISHES",),
+    "consume": ("CONSUMES",),
+    "subscribe": ("CONSUMES",),
+}
+
+
+def contract_coverage(repo_url, languages, coverage, sites, unread=None):
     """One EdgeCoverage node per (edge family, protocol, language of the
     repository's source files), in the shape the call and import coverage
     shares. Every contract site rule of this tool is pattern_matched: the
@@ -1650,8 +1661,13 @@ def contract_coverage(repo_url, languages, coverage, sites):
     ``not_supported`` when it has no reader; ``files_linked`` is 0.
     ``resolver``; ``files`` (``languages``, from ``source_languages``);
     ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
-    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
-    resolution status or None) per site."""
+    ``unresolved``; ``unread`` and ``files_unread``, the sites the readers
+    saw but could not read (a path, destination or field that is not a
+    literal, a handler without its declaration, ...), and the files holding
+    them. Calls no reader recognises are in neither count. ``sites`` maps
+    each (family, protocol) to (file, resolution status or None) per site;
+    ``unread`` maps each (family, protocol) to the file of each unread
+    site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
     for family, protocol in sorted(CONTRACT_READERS):
@@ -1661,9 +1677,14 @@ def contract_coverage(repo_url, languages, coverage, sites):
             found["sites"] = found.get("sites", 0) + 1
             if status is not None:
                 found[status] = found.get(status, 0) + 1
+        missed = {}
+        for file in (unread or {}).get((family, protocol), ()):
+            files = missed.setdefault(language_of.get(file), {})
+            files[file] = files.get(file, 0) + 1
         for language in sorted(languages):
             read = language in CONTRACT_READERS[(family, protocol)]
             found = counts.get(language, {})
+            not_read = missed.get(language, {})
             reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
@@ -1684,6 +1705,8 @@ def contract_coverage(repo_url, languages, coverage, sites):
                         "files": languages[language],
                         "files_linked": 0,
                         "sites": found.get("sites", 0),
+                        "unread": sum(not_read.values()),
+                        "files_unread": len(not_read),
                         **(
                             {
                                 key: found.get(key, 0)
@@ -3135,6 +3158,22 @@ class ServiceContractTool(AnalysisTool):
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         request_status = {r.request_id: r.status for r in resolutions}
+        unread_sites = defaultdict(list)
+        for item in unread:
+            if item.kind in ("route", "request"):
+                family = "HANDLES" if item.kind == "route" else "REQUESTS"
+                unread_sites[(family, "http")].append(item.file)
+            elif item.kind == "graphql":
+                family = (
+                    "REQUESTS" if item.reason in _GRAPHQL_CLIENT_UNREAD else "HANDLES"
+                )
+                unread_sites[(family, "graphql")].append(item.file)
+        for file, _, kind, _ in grpc.unread:
+            if kind == "server":
+                unread_sites[("HANDLES", "grpc")].append(file)
+        for item in messaging_unread:
+            for family in _MESSAGING_UNREAD.get(item.role, ("PUBLISHES", "CONSUMES")):
+                unread_sites[(family, "messaging")].append(item.file)
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3164,6 +3203,7 @@ class ServiceContractTool(AnalysisTool):
                     (e.file, None) for e in endpoints if e.role != "publish"
                 ],
             },
+            unread_sites,
         )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
