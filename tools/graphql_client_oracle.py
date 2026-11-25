@@ -1,16 +1,20 @@
 """Label GraphQL client operations with the server fields that declare them.
 
-    python tools/graphql_client_oracle.py SPEC CORPUS CHECKOUT > LABELS.json
+    NODE_PATH=DIR python tools/graphql_client_oracle.py SPEC CORPUS CHECKOUT > LABELS.json
 
-The labels come from graphql-core's parser, not from the engine. SPEC names
-the corpus, its server scopes (each with its schema files) and its client
-roots. Every ``gql`` / ``graphql`` template literal and every ``.graphql``
-or ``.gql`` file under a client root is parsed. Each root field of an
-operation is a call site, except ``__typename``, introspection fields and
-fields marked ``@client`` (Apollo local state). The site is linked to a
-server when exactly one scope the client can reach (its ``servers`` in the
-spec, from the deployment config; every scope when absent) declares the
-field on its Query, Mutation or Subscription type; with more than one it is listed as ambiguous, and with
+The labels come from graphql-js, the reference GraphQL implementation, not
+from the engine (which reads GraphQL with graphql-core). DIR holds graphql
+and typescript (``npm install graphql@16.9.0 typescript@5.6.3``);
+``tools/graphql_documents.cjs`` reads the files with them. SPEC names the
+corpus, its server scopes (each with its schema files) and its client roots.
+Every template literal tagged ``gql`` or ``graphql`` (found by the
+TypeScript compiler) and every ``.graphql`` or ``.gql`` file under a client
+root is parsed. Each root field of an operation is a call site, except
+``__typename``, introspection fields and fields marked ``@client`` (Apollo
+local state). The site is linked to a server when exactly one scope the
+client can reach (its ``servers`` in the spec, from the deployment config;
+every scope when absent) declares the field on its Query, Mutation or
+Subscription type; with more than one it is listed as ambiguous, and with
 none as unmatched. Sites under a ``dont_care`` root are listed with the
 spec's reason instead of being labelled.
 
@@ -21,133 +25,111 @@ other files in evals/fixtures/service_contracts.
 
 import argparse
 import json
-import re
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
-from graphql import GraphQLSyntaxError, parse
-from graphql.language import (
-    ObjectTypeDefinitionNode,
-    ObjectTypeExtensionNode,
-    OperationDefinitionNode,
-    SchemaDefinitionNode,
-    SchemaExtensionNode,
-)
-
-TEMPLATE = re.compile(r"\b(?:gql|graphql)\s*(?:\(\s*)?`")
-SOURCES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".vue", ".graphql", ".gql"}
+SOURCES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".graphql", ".gql"}
 SKIPPED_DIRS = {"node_modules", "__generated__", "dist", "build", ".git"}
+HELPER = Path(__file__).with_name("graphql_documents.cjs")
 
 
-def templates(text):
-    """(line offset, body) of each tagged template literal in ``text``."""
-    for match in TEMPLATE.finditer(text):
-        i, body = match.end(), []
-        while i < len(text) and text[i] != "`":
-            if text.startswith("${", i):
-                depth = 0
-                while i < len(text):
-                    c = text[i]
-                    body.append("\n" if c == "\n" else " ")
-                    i += 1
-                    if c == "{":
-                        depth += 1
-                    elif c == "}":
-                        depth -= 1
-                        if depth == 0:
-                            break
-                continue
-            if text[i] == "\\" and i + 1 < len(text):
-                body.append(text[i + 1])
-                i += 2
-                continue
-            body.append(text[i])
-            i += 1
-        yield text.count("\n", 0, match.end()), "".join(body)
+def read_documents(paths, node=None):
+    """``{path: [(line offset, document summary)]}`` from graphql-js."""
+    node = node or os.environ.get("NODE") or shutil.which("node")
+    if not node:
+        raise RuntimeError("node is required to run graphql-js")
+    paths = [str(p) for p in paths]
+    out = subprocess.run(
+        [node, str(HELPER)],
+        input=json.dumps(paths),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    found = {}
+    for entry in json.loads(out):
+        docs = []
+        for doc in entry["documents"]:
+            if "error" in doc:
+                print(
+                    f"not GraphQL: {entry['file']}:{doc['line'] + 1}: {doc['error']}",
+                    file=sys.stderr,
+                )
+            else:
+                docs.append((doc["line"], doc))
+        found[entry["file"]] = docs
+    return found
 
 
-def documents(path):
-    """Parsed GraphQL documents in ``path`` with their line offsets."""
-    text = path.read_text("utf-8", errors="replace")
-    pieces = [(0, text)] if path.suffix in (".graphql", ".gql") else templates(text)
-    for offset, body in pieces:
-        try:
-            yield offset, parse(body)
-        except GraphQLSyntaxError as error:
-            print(f"not GraphQL: {path}:{offset + 1}: {error.message}", file=sys.stderr)
-
-
-def _line(offset, node):
-    return offset + node.loc.source.get_location(node.loc.start).line
-
-
-def root_fields(checkout, schema_files):
+def root_fields(checkout, schema_files, docs):
     """``{(operation, field): (file, line)}`` for one server scope."""
     roots = {"query": "Query", "mutation": "Mutation", "subscription": "Subscription"}
     parsed = [
         (f, offset, doc)
         for f in schema_files
-        for offset, doc in documents(checkout / f)
+        for offset, doc in docs[str(checkout / f)]
     ]
     for _, _, doc in parsed:
-        for d in doc.definitions:
-            if isinstance(d, (SchemaDefinitionNode, SchemaExtensionNode)):
-                for op in d.operation_types or ():
-                    roots[op.operation.value] = op.type.name.value
+        roots.update(doc["schema_roots"])
     fields = {}
     for f, offset, doc in parsed:
-        for d in doc.definitions:
-            if not isinstance(d, (ObjectTypeDefinitionNode, ObjectTypeExtensionNode)):
-                continue
+        for d in doc["object_types"]:
             for operation, type_name in roots.items():
-                if d.name.value == type_name:
-                    for field in d.fields or ():
+                if d["name"] == type_name:
+                    for field in d["fields"]:
                         fields.setdefault(
-                            (operation, field.name.value),
-                            (f, _line(offset, field.name)),
+                            (operation, field["name"]), (f, offset + field["line"])
                         )
     return fields
 
 
-def client_sites(checkout, root, excluded):
-    """Root-field call sites of the operations under ``root``."""
+def client_files(checkout, root, excluded):
+    """Source files under ``root`` that may hold client operations."""
     for path in sorted((checkout / root).rglob("*")):
         rel = path.relative_to(checkout).as_posix()
         if (
-            not path.is_file()
-            or path.suffix not in SOURCES
-            or rel in excluded
-            or SKIPPED_DIRS & set(Path(rel).parts)
+            path.is_file()
+            and path.suffix in SOURCES
+            and rel not in excluded
+            and not SKIPPED_DIRS & set(Path(rel).parts)
         ):
-            continue
-        for offset, doc in documents(path):
-            for d in doc.definitions:
-                if not isinstance(d, OperationDefinitionNode):
-                    continue
-                for selection in d.selection_set.selections:
-                    name = getattr(getattr(selection, "name", None), "value", None)
-                    if name is None or name.startswith("__"):
-                        continue
-                    if any(
-                        x.name.value == "client" for x in selection.directives or ()
-                    ):
+            yield path
+
+
+def client_sites(checkout, root, excluded, docs):
+    """Root-field call sites of the operations under ``root``."""
+    for path in client_files(checkout, root, excluded):
+        rel = path.relative_to(checkout).as_posix()
+        for offset, doc in docs[str(path)]:
+            for operation in doc["operations"]:
+                for field in operation["fields"]:
+                    if field["name"].startswith("__") or field["client"]:
                         continue
                     yield {
                         "file": rel,
-                        "line": _line(offset, selection.name),
-                        "operation_type": d.operation.value,
-                        "operation": d.name.value if d.name else None,
-                        "field": name,
+                        "line": offset + field["line"],
+                        "operation_type": operation["type"],
+                        "operation": operation["name"],
+                        "field": field["name"],
                     }
 
 
 def label(spec, checkout):
-    servers = {s["name"]: root_fields(checkout, s["schema"]) for s in spec["servers"]}
     schemas = {f for s in spec["servers"] for f in s["schema"]}
     excluded = schemas | set(spec.get("not_clients", ()))
+    files = {checkout / f for f in schemas}
+    for client in spec["clients"]:
+        files.update(client_files(checkout, client["root"], excluded))
+    docs = read_documents(sorted(files))
+    servers = {
+        s["name"]: root_fields(checkout, s["schema"], docs) for s in spec["servers"]
+    }
     links, ambiguous, unmatched, dont_care = [], [], [], []
     for client in spec["clients"]:
-        for site in client_sites(checkout, client["root"], excluded):
+        for site in client_sites(checkout, client["root"], excluded, docs):
             key = (site["operation_type"], site["field"])
             contract = f"{site['operation_type'].capitalize()}.{site['field']}"
             where = {"file": site["file"], "line": site["line"]}
@@ -182,9 +164,10 @@ def label(spec, checkout):
     return {
         **{k: spec[k] for k in ("corpus", "repo", "commit", "license", "languages")},
         "sources": [
-            "graphql-core parse of every gql/graphql template literal and "
-            ".graphql/.gql file under the client roots, and of the server "
-            "schemas; tools/graphql_client_oracle.py with the spec in "
+            "graphql-js parse of every gql/graphql template literal (found "
+            "by the TypeScript compiler) and .graphql/.gql file under the "
+            "client roots, and of the server schemas; "
+            "tools/graphql_client_oracle.py with the spec in "
             "evals/fixtures/service_contracts/graphql-specs.json",
             *spec.get("sources", ()),
         ],
