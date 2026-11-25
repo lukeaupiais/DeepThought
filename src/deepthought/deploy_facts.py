@@ -58,6 +58,11 @@ class DeployToolsMissing(RuntimeError):
     """The Go toolchain, which builds the deployment tools, is not installed."""
 
 
+class DeployModulesUnavailable(DeployToolsMissing):
+    """The pinned Compose, Helm and kustomize modules are neither in the Go
+    module cache nor downloadable (no network on a first build)."""
+
+
 @dataclass(frozen=True)
 class ComposeService:
     name: str
@@ -164,6 +169,21 @@ def build(timeout=1200):
         for name, content in sources.items():
             (Path(scratch) / name).write_bytes(content)
         output = Path(scratch) / "deployfacts"
+        try:
+            subprocess.run(
+                [go, "mod", "download"],
+                cwd=scratch,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=True,
+                env=environment,
+            )
+        except subprocess.CalledProcessError as error:
+            raise DeployModulesUnavailable(
+                "could not download the deployment renderers' pinned modules: "
+                + error.stderr[-2000:]
+            ) from error
         try:
             subprocess.run(
                 [go, "build", "-trimpath", "-o", str(output), "."],
