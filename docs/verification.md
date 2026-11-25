@@ -1135,7 +1135,8 @@ value, so a call row it does not report on a line its precision report
 marks as holding Any is `untyped` and not judged. A method that overrides a
 base method is skipped, because its uses resolve to the base and its rename
 breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
-method that overrides nothing. Each edit gets a new modification time,
+method that overrides nothing. `type: ignore` comments under the targets
+are blanked first, since one would hide the error a rename adds. Each edit gets a new modification time,
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
