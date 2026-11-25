@@ -4624,6 +4624,13 @@ func Touch(db *gorm.DB, u *models.User) string {
 	db.Create(&models.Order{UserID: u.ID, Total: 3})
 	return u.Name
 }
+
+func Strings(db *gorm.DB, u *models.User) {
+	db.Model(u).Where("name = ? AND visits > ?", "a", 1).Order("seen desc").Update("mail", "x")
+	db.Model(&models.User{}).Updates(map[string]interface{}{"api_key": "k"})
+	var names []string
+	db.Model(&models.User{}).Pluck("name", &names)
+}
 """,
 }
 
@@ -4790,6 +4797,30 @@ class GormTests(unittest.TestCase):
             )
             for r in output.relationships
             if r.type in ("READS_COLUMN", "WRITES_COLUMN")
+            and r.properties["rule_id"].endswith("access")
+        )
+        keys = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties["line"],
+                r.properties["method"],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.gorm-column-key"
+        )
+        # Where's SQL fragment and Order's read by sqlglot, Update's column
+        # and a map key written, Pluck's column read.
+        self.assertEqual(
+            keys,
+            [
+                ("READS_COLUMN", "users::column::name", 17, "Where"),
+                ("READS_COLUMN", "users::column::name", 20, "Pluck"),
+                ("READS_COLUMN", "users::column::seen", 17, "Order"),
+                ("READS_COLUMN", "users::column::visits", 17, "Where"),
+                ("WRITES_COLUMN", "users::column::api_key", 18, "Updates"),
+                ("WRITES_COLUMN", "users::column::mail", 17, "Update"),
+            ],
         )
         self.assertEqual(
             access,

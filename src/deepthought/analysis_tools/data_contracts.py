@@ -47,6 +47,7 @@ from ..data_contracts import (
     drizzle_helper_name,
     drizzle_spread_columns,
     statement_columns,
+    statement_tables,
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
@@ -830,6 +831,21 @@ GORM_COLUMN_ACCESS_RULE = register_rule(
         "assignment or literal key writes the column (a literal passed as a "
         "query condition reads it), ++, -- and op= read and write it, any "
         "other selector reads it.",
+    )
+)
+GORM_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-column-key",
+        "pattern_matched",
+        "A column a *gorm.DB call names in a string, in a chain whose model "
+        "GORM's call rules give (data-contracts.gorm-call): the SQL "
+        "fragments of Where, Or, Not, Having, Select, Pluck, Distinct, "
+        "Group and Order (their values folded by the Go type checker) read "
+        "the columns sqlglot resolves in them against the model table's "
+        "columns (Select in a chain that writes names written columns); "
+        "Update and UpdateColumn's column and the string keys of a "
+        "map[string]... literal passed to Updates, UpdateColumns or Create "
+        "write; those of one passed to Where, Not, Or or a finder read.",
     )
 )
 GORM_CALL_RULE = register_rule(
@@ -2950,6 +2966,9 @@ class DataContractTool(AnalysisTool):
             return None
 
         gorm_access = {"linked": 0, "not_a_model": 0}
+        # Each call chain's model tables, by where the chain starts (every
+        # call of a chain starts there), and the chains that write.
+        gorm_chains, gorm_chain_writes = defaultdict(set), set()
         for use in gorm_uses:
             directory = (
                 use.file.rpartition("/")[0]
@@ -2961,6 +2980,9 @@ class DataContractTool(AnalysisTool):
                 gorm_access["not_a_model"] += 1
                 continue
             gorm_access["linked"] += 1
+            gorm_chains[(use.file, use.line, use.column)].add(target)
+            if use.writes:
+                gorm_chain_writes.add((use.file, use.line, use.column))
             source = code(use.file, use.caller_id)
             for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                 if used:
@@ -2999,6 +3021,7 @@ class DataContractTool(AnalysisTool):
         for key, struct in sorted(gorm_model_structs.items()):
             gorm_by_module[facts.module_of(struct.file)].append((key, struct))
         gorm_field_at, gorm_field_name = defaultdict(dict), {}
+        gorm_table_columns = defaultdict(dict)  # table -> {column: DbColumn}
         gorm_attrs = {}  # model key -> {Go field name: DbColumn}
         GORM_MODEL = ("gorm.io/gorm", "Model")
         GORM_MODEL_FIELDS = ("ID", "CreatedAt", "UpdatedAt", "DeletedAt")
@@ -3073,6 +3096,9 @@ class DataContractTool(AnalysisTool):
                     if column_target is None:
                         continue
                     attrs[name] = column_target
+                    gorm_table_columns[target][
+                        column_target.rsplit("::column::", 1)[1]
+                    ] = column_target
                     if f is not None:
                         site = (owner_struct.file, f.line, f.column)
                         gorm_field_at[site][target] = column_target
@@ -3164,6 +3190,141 @@ class DataContractTool(AnalysisTool):
             gorm_columns_counts,
             go_direction,
         )
+        # Columns *gorm.DB calls name in strings.
+        GORM_FRAGMENTS = {
+            "Where": "SELECT 1 FROM {t} WHERE {f}",
+            "Or": "SELECT 1 FROM {t} WHERE {f}",
+            "Not": "SELECT 1 FROM {t} WHERE {f}",
+            "Having": "SELECT 1 FROM {t} WHERE {f}",
+            "Select": "SELECT {f} FROM {t}",
+            "Pluck": "SELECT {f} FROM {t}",
+            "Distinct": "SELECT {f} FROM {t}",
+            "Group": "SELECT 1 FROM {t} GROUP BY {f}",
+            "Order": "SELECT 1 FROM {t} ORDER BY {f}",
+        }
+        GORM_MAP_READS = {"Where", "Not", "Or", "First", "Last", "Take", "Find"}
+        GORM_MAP_WRITES = {"Updates", "UpdateColumns", "Create"}
+        gorm_owners = defaultdict(list)
+        for d in result.definitions:
+            if d.file.endswith(".go"):
+                gorm_owners[d.file].append(d)
+
+        def gorm_key(file, line, column, target, name, writes, method):
+            column_target = gorm_table_columns[target].get(name) or next(
+                (
+                    c
+                    for n, c in gorm_table_columns[target].items()
+                    if n.lower() == name.lower()
+                ),
+                None,
+            )
+            if column_target is None:
+                gorm_columns_counts["keys_unknown"] += 1
+                return
+            gorm_columns_counts["string_keys"] += 1
+            link(
+                "WRITES_COLUMN" if writes else "READS_COLUMN",
+                code(file, _owner_at(gorm_owners[file], file, line, column)),
+                column_target,
+                GORM_COLUMN_KEY_RULE,
+                {"line": line, "column": column, "method": method, "column_name": name},
+                labels=("DbColumn", "Contract"),
+            )
+
+        for call in facts.calls if gorm_table_columns else ():
+            if call.declared != "gorm.io/gorm" or call.receiver != (
+                "gorm.io/gorm",
+                "DB",
+            ):
+                continue
+            method = call.method
+            if not (
+                method in GORM_FRAGMENTS
+                or method in ("Update", "UpdateColumn")
+                or method in GORM_MAP_READS | GORM_MAP_WRITES
+            ):
+                continue
+            chain = (call.file, call.line, call.column)
+            targets = gorm_chains.get(chain, set()) & set(gorm_table_columns)
+            if len(targets) != 1:
+                gorm_columns_counts["chain_model_unknown"] += 1
+                continue
+            target = next(iter(targets))
+            line = call.name_line or call.line
+            column = call.name_column if call.name_column is not None else call.column
+            texts = call.texts[0] if call.texts else None
+            if method in ("Update", "UpdateColumn"):
+                for text in texts or ():
+                    if PLACEHOLDER not in text:
+                        gorm_key(call.file, line, column, target, text, True, method)
+                continue
+            if method in GORM_FRAGMENTS and texts:
+                key = target.rsplit("::", 1)[1]
+                schema = {key: list(gorm_table_columns[target])}
+                writes = method == "Select" and chain in gorm_chain_writes
+                for text in texts:
+                    sql = GORM_FRAGMENTS[method].format(
+                        t=key, f=text.replace(PLACEHOLDER, "NULL")
+                    )
+                    statement = statement_tables(sql)
+                    found = (
+                        statement_columns(statement, schema)
+                        if statement.reader == "sqlglot"
+                        else None
+                    )
+                    if found is None:
+                        gorm_columns_counts["fragments_unread"] += 1
+                        continue
+                    for use in found[0]:
+                        gorm_key(
+                            call.file, line, column, target, use.column, writes, method
+                        )
+                continue
+            # A map[string]... literal argument: its string keys.
+            entry = go_tree_map.get(call.file)
+            if entry is None:
+                continue
+            node = entry[1].root_node.descendant_for_point_range(
+                (line - 1, column), (line - 1, column)
+            )
+            node = node.parent.parent if node is not None and node.parent else None
+            arguments = (
+                node.child_by_field_name("arguments")
+                if node is not None and node.type == "call_expression"
+                else None
+            )
+            for argument in arguments.named_children if arguments else ():
+                if argument.type == "unary_expression":
+                    argument = argument.child_by_field_name("operand")
+                if (
+                    argument is None
+                    or argument.type != "composite_literal"
+                    or argument.child_by_field_name("type") is None
+                    or argument.child_by_field_name("type").type != "map_type"
+                ):
+                    continue
+                body = argument.child_by_field_name("body")
+                for element in body.named_children if body else ():
+                    key = element.child_by_field_name("key")
+                    if element.type != "keyed_element" or key is None:
+                        continue
+                    if key.named_children:
+                        key = key.named_children[0]
+                    if key.type not in (
+                        "interpreted_string_literal",
+                        "raw_string_literal",
+                    ):
+                        continue
+                    name = key.text.decode("utf-8", "replace")[1:-1]
+                    gorm_key(
+                        call.file,
+                        key.start_point.row + 1,
+                        key.start_point.column,
+                        target,
+                        name,
+                        method in GORM_MAP_WRITES,
+                        method,
+                    )
         # Prisma models and the client calls that use them.
         prisma_targets, prisma_by_accessor = {}, defaultdict(set)
         for model in sorted(prisma, key=lambda m: (m.file, m.line)):
