@@ -704,6 +704,23 @@ OAPI_CODEGEN_REQUEST_RULES = {
     )
     for rule in REQUEST_RULES
 }
+_ORVAL = (
+    "orval generated this file from an OpenAPI spec (its header says so) and "
+    "sends the operation through the configured mutator, called with the "
+    "request config orval builds ({url, method, ...}); the path is the one "
+    "orval wrote, under the base URL the mutator adds at run time, which is "
+    "not read. "
+)
+ORVAL_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.orval-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _ORVAL + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -2632,6 +2649,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-java": OPENAPI_REQUEST_RULES,
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
+                                    "orval": ORVAL_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
