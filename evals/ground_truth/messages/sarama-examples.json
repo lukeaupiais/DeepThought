@@ -1,0 +1,92 @@
+{
+  "corpus": "sarama-examples",
+  "repo": "https://github.com/IBM/sarama",
+  "commit": "66eb733b16d2448dddb501a2c58b4a3d98c0da7c",
+  "license": "MIT",
+  "root": "examples",
+  "client": "sarama",
+  "scope": "labelled",
+  "sources": [
+    "manual reading of every broker-client call and literal under root at the pinned commit"
+  ],
+  "notes": [
+    "Each example is its own module. Topics are flags unless written as literals; a package variable a flag sets has only its zero value in the source."
+  ],
+  "not_counted": [],
+  "sites": [
+    {
+      "file": "consumer_load_aware/main.go",
+      "line": 78,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "consumergroup/main.go",
+      "line": 116,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "exactly_once/main.go",
+      "line": 134,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "exactly_once/main.go",
+      "line": 244,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "http_server/http_server.go",
+      "line": 127,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "important"
+      ]
+    },
+    {
+      "file": "http_server/http_server.go",
+      "line": 187,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "access_log"
+      ]
+    },
+    {
+      "file": "interceptors/main.go",
+      "line": 72,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time (default_topic is only the flag's default)"
+    },
+    {
+      "file": "sasl_scram_client/main.go",
+      "line": 124,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time (default_topic is only the flag's default)"
+    },
+    {
+      "file": "sasl_scram_client/main.go",
+      "line": 162,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time (default_topic is only the flag's default)"
+    },
+    {
+      "file": "txn_producer/main.go",
+      "line": 129,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    }
+  ]
+}
