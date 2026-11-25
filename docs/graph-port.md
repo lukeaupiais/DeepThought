@@ -199,7 +199,9 @@ it, so a line read in the source, a stack trace or a diff names exactly one
 declaration. Qualified names always hold `::`, so the two never clash. More
 than one declaration named on that line (`class P { a() {} b() {} }`) is
 refused as ambiguous, listing their qualified names; a line no declaration
-spans is refused too.
+spans is refused too. A Python declaration's span starts at `def` or `class`, not at its
+decorators, so a decorator line names the enclosing declaration (or none at
+module level), as calls in decorators belong to the enclosing scope.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
 covers are bound from the index (`deepthought.scip_calls.bind_calls`).
