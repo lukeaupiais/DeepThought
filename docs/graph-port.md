@@ -4020,7 +4020,7 @@ component roll-up like HTTP routes and message destinations:
 
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
-| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file (temporary tables, comments and string literals skipped) |
+| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
