@@ -1230,6 +1230,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "  route(p: string) { return this }\n"
                     "  hidden() {}\n"
                     "  shared() {}\n"
+                    "  shadow() {}\n"
                     "}\n"
                 ),
                 "app.ts": (
@@ -1237,6 +1238,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "import { Ext } from 'external';\n"
                     "export class App extends Base {\n"
                     "  hidden = () => 1;\n"
+                    "  shadow = 1;\n"
                     "  constructor(private shared: number, n: number) { super() }\n"
                     "  run() {}\n"
                     "  static make() {}\n"
@@ -1258,7 +1260,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "app.route('/'); app.run();\n"  # 5
                     "function f(a: App, b?: Base, g: Map<string, App>, s: Shape) {\n"
                     "  a.route('x'); b.route('y'); g.get('k'); s.area();\n"  # 7
-                    "  a.hidden(); a.shared(); a.make(); a.missing();\n"  # 8
+                    "  a.hidden(); a.shared(); a.make(); a.missing(); a.shadow();\n"  # 8
                     "}\n"
                     "let w: Wrapped = new Wrapped(); w.go();\n"  # 10
                     "const m = new Merged(); m.a();\n"  # 11
@@ -1292,6 +1294,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (7, "b.route", "base.ts::Base.route"),
             (15, "local.own", "main.ts::h.App.own"),
             (21, "st.get", "app.ts::Store.get"),
+            # A field holding a function is a method.
+            (8, "a.hidden", "app.ts::App.hidden"),
             # An interface declares the method signature called.
             (7, "s.area", "main.ts::Shape.area"),
         ):
@@ -1302,7 +1306,7 @@ class TypeScriptCallTests(unittest.TestCase):
                 )
         for line, callee, reason in (
             # A field hides the method App inherits.
-            (8, "a.hidden", "field_not_method"),
+            (8, "a.shadow", "field_not_method"),
             (8, "a.shared", "field_not_method"),
             # A static method is not an instance's.
             (8, "a.make", "not_declared_on_type"),
@@ -1334,7 +1338,7 @@ class TypeScriptCallTests(unittest.TestCase):
             ("unresolved", None, None, "attribute_call"),
         )
         apps = {d.symbol: d.properties for d in result.definitions}
-        self.assertEqual(apps["App"], ("hidden", "shared"))
+        self.assertEqual(apps["App"], ("hidden", "shadow", "shared"))
         self.assertIsNone(apps["Base"])
         self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
         # Unset fields are left out of artifacts.
