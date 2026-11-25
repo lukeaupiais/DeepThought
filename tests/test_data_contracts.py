@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -16,10 +17,12 @@ from deepthought.analysis_tools import (
     TreeSitterTool,
 )
 from deepthought.analysis_tools.evidence import get_rule
+from deepthought.go_facts import GoFacts, GoMissing
 from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
     extract_ddl,
+    extract_foreign_keys,
     mongoose_majors,
     mongoose_pluralize,
     statement_tables,
@@ -29,6 +32,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_java"
@@ -73,6 +77,9 @@ DJANGO = {
     "    return list(Urgent.objects.all())\n"
     "def other():\n"
     "    return Plain.objects.all()\n",
+    "shop/migrations/0002_close.py": "def close(apps, schema_editor):\n"
+    '    Order = apps.get_model("store", "Order")\n'
+    "    Order.objects.filter(open=True).update(open=False)\n",
 }
 
 MODEL = "store/src/main/java/shop/model/"
@@ -180,6 +187,109 @@ class DdlTests(unittest.TestCase):
             ["mixed case"],
         )
         self.assertIsNone(extract_ddl("bad.sql", b"\xff\xfe"))
+
+    def test_create_table_readers(self):
+        text = b"""-- a comment; not a statement end
+CREATE TEMPORARY TABLE scratch (x INT);
+CREATE FUNCTION f() RETURNS void AS $$ BEGIN CREATE TABLE inner_t (x INT); END $$ LANGUAGE plpgsql;
+CREATE TABLE IF NOT EXISTS events
+(
+  id String CODEC(ZSTD(1))
+) ENGINE = MergeTree ORDER BY id;
+CREATE TABLE "Ids" (
+  seq bigint GENERATED ALWAYS AS IDENTITY (sequence name "s" INCREMENT BY 1),
+  n int
+);
+"""
+        found = extract_ddl("m.sql", text)
+        self.assertEqual(
+            [(d.line, d.name, d.schema, d.reader) for d in found],
+            [
+                (4, "events", None, "sqlglot"),
+                (8, "ids", None, "tokens_not_parsed"),
+            ],
+        )
+
+    def test_foreign_keys(self):
+        text = b"""CREATE TABLE users (id int PRIMARY KEY);
+CREATE TABLE orders (
+  id int,
+  user_id int REFERENCES public.users (id) ON DELETE CASCADE,
+  a int, b int,
+  CONSTRAINT pair FOREIGN KEY (a, b) REFERENCES "Pairs" (x, y)
+);
+CREATE TEMPORARY TABLE scratch (u int REFERENCES users (id));
+ALTER TABLE ONLY public.orders
+  ADD CONSTRAINT owner FOREIGN KEY (user_id) REFERENCES public.users(id);
+CREATE TABLE `m` (`x` int, FOREIGN KEY (`x`) REFERENCES `users` (`id`));
+CREATE TABLE odd (x int REFERENCES users NOT SQL AT ALL (((;
+"""
+        found, unparsed = extract_foreign_keys("m.sql", text)
+        self.assertEqual(
+            sorted(
+                (
+                    k.line,
+                    k.table,
+                    k.references,
+                    k.columns,
+                    k.referenced_columns,
+                    k.on_delete,
+                )
+                for k in found
+            ),
+            [
+                (4, "orders", "users", ("user_id",), ("id",), "CASCADE"),
+                (6, "orders", "pairs", ("a", "b"), ("x", "y"), None),
+                (10, "orders", "users", ("user_id",), ("id",), None),
+                (11, "m", "users", ("x",), ("id",), None),
+            ],
+        )
+        self.assertEqual(unparsed, [12])
+        self.assertIsNone(extract_foreign_keys("bad.sql", b"\xff\xfe"))
+
+    def test_foreign_key_edges(self):
+        files = {
+            "pyproject.toml": '[project]\nname = "shop"\n',
+            "db/schema.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE orders (id int, user_id int REFERENCES users (id));\n"
+            "CREATE TABLE odd (x int REFERENCES users NOT SQL (((;\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        keys = [r for r in output.relationships if r.type == "REFERENCES_TABLE"]
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.properties["rule_id"],
+                    r.properties["columns"],
+                    r.properties["line"],
+                )
+                for r in keys
+            ],
+            [
+                (
+                    "orders",
+                    "users",
+                    "data-contracts.sql-foreign-key",
+                    ["user_id"],
+                    2,
+                )
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["foreign_keys"],
+            {"sql": 1, "prisma": 0, "sql_not_parsed": 1},
+        )
+        self.assertIn(
+            "foreign_key_not_parsed: db/schema.sql:3: no sqlglot dialect parses "
+            "this statement, so its foreign keys are not read",
+            output.metadata.warnings,
+        )
 
     def test_default_physical_names(self):
         self.assertEqual(
@@ -367,11 +477,21 @@ class ToolTests(unittest.TestCase):
 
 @unittest.skipUnless(PYTHON, "Provision the python grammar")
 class DjangoTests(unittest.TestCase):
-    def test_models_tables_and_manager_calls(self):
+    TABLES = [
+        ("MAPS_TO", "Line", "sales_line", "django-default-table-name", None),
+        ("MAPS_TO", "Order", "store_order", "django-default-table-name", None),
+        ("MAPS_TO", "Order", "store_order_tags", "django-many-to-many-table", "tags"),
+        ("MAPS_TO", "Tag", "shop_tags", "django-db-table", None),
+    ]
+
+    def analyze(self, with_index):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, DJANGO)
+            indexes = (self.index(directory),) if with_index else ()
             output = asyncio.run(
-                DataContractTool(directory).analyze("r", languages=["python"])
+                DataContractTool(directory).analyze(
+                    "r", languages=["python"], scip_indexes=indexes
+                )
             )
         edges = sorted(
             (
@@ -383,31 +503,108 @@ class DjangoTests(unittest.TestCase):
             )
             for r in output.relationships
         )
+        return edges, output.metadata
+
+    def index(self, directory):
+        """A scip-python index of DJANGO's model names, ingested. Urgent is
+        not imported in views.py, so the index records no reference there."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        orders = "scip-python python site 0 `shop.models.orders`/"
+        documents = {
+            "shop/models/orders.py": [
+                (3, "Tag", orders + "Tag#", True),
+                (6, "Order", orders + "Order#", True),
+                (8, "Line", orders + "Line#", True),
+                (11, "Urgent", orders + "Urgent#", True),
+                (11, "Order", orders + "Order#", False),
+                (14, "Plain", orders + "Plain#", True),
+            ],
+            "shop/migrations/0002_close.py": [
+                (1, "Order", "local 0", True),
+                (2, "Order", "local 0", False),
+            ],
+            "shop/views.py": [
+                (0, "Order", orders + "Order#", False),
+                (0, "Tag", orders + "Tag#", False),
+                (1, "Order", orders + "Order#", False),
+                (3, "Order", orders + "Order#", False),
+                (4, "Tag", orders + "Tag#", False),
+                (8, "Plain", orders + "Plain#", False),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        for path, occurrences in documents.items():
+            lines = DJANGO[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition in occurrences:
+                column = lines[line].index(text)
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, column, column + len(text)],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_models_and_tables_without_an_index(self):
+        edges, metadata = self.analyze(False)
+        self.assertEqual(edges, self.TABLES)
+        metrics = metadata.custom_metrics
+        self.assertEqual(metrics["django_models"], 4)
+        # The indexer decides what a name is: no manager call is read, and
+        # the run says so.
+        self.assertEqual(
+            metrics["django_access_resolution"],
+            {
+                "linked_scip": 0,
+                "historical": 0,
+                "not_a_model": 0,
+                "scip_no_reference": 0,
+                "no_scip_index": 6,
+            },
+        )
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertIn(
+            "no_scip_index: 2 files calling Django managers have no scip-python "
+            "index, so their queries are not read; run deepthought index-scip "
+            "and pass the index",
+            metadata.warnings,
+        )
+
+    def test_manager_calls_resolved_through_a_scip_index(self):
+        edges, metadata = self.analyze(True)
+        rule = "django-scip-manager-call"
+        # The migration's Order is the store app's model, by get_model.
+        historical = "django-historical-manager-call"
         self.assertEqual(
             edges,
-            [
-                ("MAPS_TO", "Line", "sales_line", "django-default-table-name", None),
-                ("MAPS_TO", "Order", "store_order", "django-default-table-name", None),
-                (
-                    "MAPS_TO",
-                    "Order",
-                    "store_order_tags",
-                    "django-many-to-many-table",
-                    "tags",
-                ),
-                ("MAPS_TO", "Tag", "shop_tags", "django-db-table", None),
-                ("READS", "close", "shop_tags", "django-manager-call", None),
-                ("READS", "close", "store_order", "django-manager-call", None),
-                ("READS", "shop/views.py", "store_order", "django-manager-call", None),
-                ("READS", "urgent", "store_order", "django-manager-call", None),
-                ("WRITES", "close", "shop_tags", "django-manager-call", None),
-                ("WRITES", "close", "store_order", "django-manager-call", None),
-            ],
+            sorted(
+                self.TABLES
+                + [
+                    ("READS", "close", "shop_tags", rule, None),
+                    ("READS", "close", "store_order", rule, None),
+                    ("READS", "close", "store_order", historical, None),
+                    ("READS", "shop/views.py", "store_order", rule, None),
+                    ("WRITES", "close", "shop_tags", rule, None),
+                    ("WRITES", "close", "store_order", rule, None),
+                    ("WRITES", "close", "store_order", historical, None),
+                ]
+            ),
         )
-        metrics = output.metadata.custom_metrics
-        self.assertEqual(metrics["django_models"], 4)
         self.assertEqual(
-            metrics["django_access_resolution"], {"linked": 4, "not_a_model": 1}
+            metadata.custom_metrics["django_access_resolution"],
+            {
+                "linked_scip": 3,
+                "historical": 1,
+                "not_a_model": 1,
+                "scip_no_reference": 1,
+                "no_scip_index": 0,
+            },
         )
 
 
@@ -473,6 +670,10 @@ class SqlAlchemyTests(unittest.TestCase):
                 "linked_scip": 0,
                 "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 0,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 0,
+                "instance_type_unknown": 0,
             },
         )
 
@@ -504,7 +705,27 @@ SQLMODEL = {
     "def heroes():\n"
     "    return Hero.query.all()\n"
     "def missing(session):\n"
-    "    return session.get(Missing, 1)\n",
+    "    return session.get(Missing, 1)\n"
+    "def create(session):\n"
+    "    hero = Hero()\n"
+    "    session.add(hero)\n"
+    "    session.refresh(hero)\n"
+    "def other(cache):\n"
+    "    item = Item()\n"
+    "    cache.add(item)\n"
+    "def untyped(session, x):\n"
+    "    session.delete(x)\n"
+    "Dep = Annotated[Hero, object()]\n"
+    "def typed(session, hero: Dep):\n"
+    "    session.add(hero)\n"
+    "def fetched(session, key):\n"
+    "    item = session.get(Item, key)\n"
+    "    session.delete(item)\n"
+    "def made() -> Hero | None:\n"
+    "    return None\n"
+    "def from_call(session):\n"
+    "    hero = made()\n"
+    "    session.refresh(hero)\n",
 }
 
 
@@ -537,6 +758,10 @@ class SqlModelTests(unittest.TestCase):
 
         package = "scip-python python app 0 "
         models = package + "`app.models`/"
+        routes = package + "`app.routes`/"
+        session = (
+            "scip-python python SQLAlchemy 2.0.0 `sqlalchemy.orm.session`/Session#"
+        )
         documents = {
             "app/models.py": [
                 (1, "ItemBase", models + "ItemBase#", True),
@@ -551,14 +776,60 @@ class SqlModelTests(unittest.TestCase):
                 (3, "Item", models + "Item#", False),
                 (5, "Item", models + "Item#", False),
                 (7, "Hero", models + "Hero#", False),
+                (11, "hero", "local 0", True),
+                (11, "Hero", models + "Hero#", False),
+                (12, "add", session + "add().", False),
+                (12, "hero", "local 0", False),
+                (13, "refresh", session + "refresh().", False),
+                (13, "hero", "local 0", False),
+                (15, "item", "local 1", True),
+                (
+                    16,
+                    "add",
+                    "scip-python python stdlib 3.11 `builtins`/set#add().",
+                    False,
+                ),
+                (16, "item", "local 1", False),
+                (18, "delete", session + "delete().", False),
+                (18, "x", package + "`app.routes`/untyped().(x)", False),
+                (19, "Dep", routes + "Dep.", True),
+                (
+                    19,
+                    "Annotated",
+                    "scip-python python stdlib 3.11 typing/Annotated.",
+                    False,
+                ),
+                (19, "Hero", models + "Hero#", False),
+                (20, "hero", routes + "typed().(hero)", True),
+                (20, "Dep", routes + "Dep.", False),
+                (21, "add", session + "add().", False),
+                (21, "hero", routes + "typed().(hero)", False),
+                (23, "item", "local 2", True),
+                (23, "get", session + "get().", False),
+                (23, "Item", models + "Item#", False),
+                (24, "delete", session + "delete().", False),
+                (24, "item", "local 2", False),
+                (25, "made", routes + "made().", True),
+                (25, "Hero", models + "Hero#", False),
+                (28, "hero", "local 3", True),
+                (28, "made", routes + "made().", False),
+                (29, "refresh", session + "refresh().", False),
+                (29, "hero", "local 3", False),
             ],
         }
+        # scip-python documents locals with the type pyright infers.
+        types = {"local 0": "app.models.Hero", "local 1": "app.models.Item"}
         index = wire.Index()
         index.metadata.tool_info.name = "scip-python"
         index.metadata.tool_info.version = "0.6.8"
         for path, occurrences in documents.items():
             lines = SQLMODEL[path].split("\n")
             document = index.documents.add(relative_path=path)
+            if path == "app/routes.py":
+                for local, qualified in types.items():
+                    document.symbols.add(
+                        symbol=local, documentation=[f"```python\n{qualified}\n```"]
+                    )
             for line, text, symbol, definition in occurrences:
                 column = lines[line].index(text)
                 document.occurrences.add(
@@ -581,14 +852,19 @@ class SqlModelTests(unittest.TestCase):
                 ("READS", "heroes", "heroes", "flask-sqlalchemy-model-query"),
             ],
         )
-        # select(Item) names two mapped classes; get() needs an index.
+        # select(Item) names two mapped classes; get() and instances passed
+        # to a Session need an index.
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
                 "linked": 1,
                 "linked_scip": 0,
-                "not_a_mapped_class": 3,
+                "not_a_mapped_class": 4,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 7,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 0,
+                "instance_type_unknown": 0,
             },
         )
 
@@ -600,24 +876,633 @@ class SqlModelTests(unittest.TestCase):
                 ("MAPS_TO", "Hero", "heroes", "sqlalchemy-tablename"),
                 ("MAPS_TO", "Item", "item", "sqlmodel-default-table"),
                 ("MAPS_TO", "Item", "old_items", "sqlalchemy-tablename"),
+                ("READS", "create", "heroes", "sqlalchemy-scip-instance"),
+                ("READS", "fetched", "item", "sqlalchemy-scip-get"),
+                ("READS", "from_call", "heroes", "sqlalchemy-scip-instance"),
                 ("READS", "heroes", "heroes", "sqlalchemy-scip-model-query"),
                 ("READS", "list_items", "item", "sqlalchemy-scip-statement"),
                 ("READS", "one", "item", "sqlalchemy-scip-get"),
+                ("WRITES", "create", "heroes", "sqlalchemy-scip-instance"),
+                ("WRITES", "fetched", "item", "sqlalchemy-scip-instance"),
+                ("WRITES", "typed", "heroes", "sqlalchemy-scip-instance"),
             ],
         )
-        # Missing has no occurrence in the index and no mapped class.
+        # Missing has no occurrence in the index and no mapped class;
+        # cache.add is not a Session's, and untyped's x has no inferred or
+        # declared type. typed's hero is declared through an Annotated
+        # alias, fetched's item by Session.get and from_call's hero by
+        # made()'s return annotation.
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
                 "linked": 0,
-                "linked_scip": 3,
+                "linked_scip": 9,
                 "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 0,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 1,
+                "instance_type_unknown": 1,
             },
         )
 
 
+TYPEORM_SCIP = {
+    "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    "src/user.entity.ts": "import { Entity } from 'typeorm';\n"
+    "@Entity('users')\n"
+    "export class User {}\n",
+    "src/user.service.ts": "import { Repository, DataSource, EntityManager } from 'typeorm';\n"
+    "import { InjectRepository } from '@nestjs/typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserService {\n"
+    "  constructor(@InjectRepository(User) private repo: Repository<User>, private ds: DataSource, private em: EntityManager) {}\n"
+    "  list() { return this.repo.find(); }\n"
+    "  add(u: User) { return this.repo.save(u); }\n"
+    "  build() { return this.repo.create({}); }\n"
+    "  count() { return this.ds.getRepository(User).count(); }\n"
+    "  held() { const r = this.ds.getRepository(User); return r.delete(1); }\n"
+    "  managed() { return this.em.findOneBy(User, {}); }\n"
+    "  other(c: any) { return c.find(); }\n"
+    "}\n"
+    "export class UserRepo extends Repository<User> {\n"
+    "  mine() { return this.findBy({}); }\n"
+    "}\n",
+    "src/builder.ts": "import { Repository, DataSource } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class Builders {\n"
+    "  constructor(private repo: Repository<User>, private ds: DataSource) {}\n"
+    "  rows() { return this.repo.createQueryBuilder('u').where('1').getMany(); }\n"
+    "  purge() { return this.ds.createQueryBuilder().delete().from(User).execute(); }\n"
+    "  links() { return this.ds.createQueryBuilder().insert().into('user_links').execute(); }\n"
+    "  cte(q: any) { return this.ds.createQueryBuilder().addCommonTableExpression(q, '_u').from('_u', 'x').getRawMany(); }\n"
+    "  raw() { return this.repo.query('DELETE FROM sessions'); }\n"
+    "  rel(u: User) { return this.repo.createQueryBuilder().relation('tags').of(u).add(1); }\n"
+    "}\n",
+}
+
+
+DRIZZLE_SCIP = {
+    "src/schema.ts": """import { pgTable, text } from "drizzle-orm/pg-core";
+export const users = pgTable("users", { id: text("id") });
+export const orders = pgTable("orders", { id: text("id") });
+""",
+    "src/repo.ts": """import { db } from "./db";
+import { users, orders as o } from "@app/schema";
+import * as schema from "./schema";
+import { cache } from "./cache";
+export async function list() {
+  return db.select().from(users);
+}
+export async function add() {
+  await db.insert(o).values({});
+}
+export async function joined() {
+  return db.query.users.findMany();
+}
+export async function other() {
+  return cache.from(users);
+}
+export async function member() {
+  return db.delete(schema.orders);
+}
+""",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class DrizzleScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["drizzle_scip"], metrics["drizzle_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of DRIZZLE_SCIP's names: drizzle-orm's
+        query builder methods, except other()'s from, and the table
+        variables through the package import and the namespace. The names
+        in ``unresolved`` get no symbol."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        drizzle = "scip-typescript npm drizzle-orm 0.45.3 pg-core/"
+        database = drizzle + "`db.d.ts`/PgDatabase#"
+        select = drizzle + "query-builders/`select.d.ts`/PgSelectBuilder#from()."
+        query = drizzle + "query-builders/`query.d.ts`/RelationalQueryBuilder#"
+        schema = "scip-typescript npm app 1 src/`schema.ts`/"
+        documents = {
+            "src/schema.ts": [
+                (1, "users", schema + "users.", True, 0),
+                (2, "orders", schema + "orders.", True, 0),
+            ],
+            "src/repo.ts": [
+                (5, "select", database + "select().", False, 0),
+                (5, "from", select, False, 0),
+                (5, "users", schema + "users.", False, 0),
+                (8, "insert", database + "insert().", False, 0),
+                (8, "o", schema + "orders.", False, 0),
+                (11, "query", database + "query.", False, 0),
+                (11, "users", schema + "users.", False, 0),
+                (11, "findMany", query + "findMany().", False, 0),
+                (
+                    14,
+                    "from",
+                    "scip-typescript npm other 1 `c.d.ts`/C#from().",
+                    False,
+                    0,
+                ),
+                (14, "users", schema + "users.", False, 0),
+                (17, "delete", database + "delete().", False, 0),
+                (17, "orders", schema + "orders.", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = DRIZZLE_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_uses_resolved_through_a_scip_index(self):
+        edges, counts, by_name = self.analyze(True)
+        # other()'s from is not drizzle-orm's: the index drops it.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "joined", "users", "drizzle-scip"),
+                ("READS", "list", "users", "drizzle-scip"),
+                ("WRITES", "add", "orders", "drizzle-scip"),
+                ("WRITES", "member", "orders", "drizzle-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 4,
+                "no_scip_index": 0,
+                "index_unresolved": 0,
+                "not_drizzle": 1,
+                "not_a_table": 0,
+            },
+        )
+        self.assertEqual(by_name, {"linked": 0, "not_a_table": 0})
+
+    def test_uses_the_index_could_not_type_are_counted(self):
+        # No symbol at findMany: the index read nothing there, and the name
+        # rule reads that use.
+        edges, counts, by_name = self.analyze(True, unresolved=("findMany",))
+        self.assertEqual(counts["index_unresolved"], 1)
+        self.assertIn(("READS", "joined", "users", "drizzle-query"), edges)
+        self.assertEqual(by_name["linked"], 1)
+
+    def test_without_an_index_the_name_rule_reads_uses(self):
+        edges, counts, by_name = self.analyze(False)
+        # The name rule does not check the receiver: other() reads users.
+        self.assertIn(("READS", "other", "users", "drizzle-query"), edges)
+        self.assertEqual(counts["no_scip_index"], 5)
+        self.assertEqual(by_name, {"linked": 5, "not_a_table": 0})
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class TypeormScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["typeorm_scip"], metrics["orm_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of TYPEORM_SCIP's names: TypeORM's
+        repository, data source and entity manager methods, except
+        other()'s find. The names in ``unresolved`` get no symbol, as in a
+        file whose imports the indexer could not follow."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        typeorm = "scip-typescript npm typeorm 0.3.28 "
+        repository = typeorm + "repository/`Repository.d.ts`/Repository#"
+        source = typeorm + "data-source/`DataSource.d.ts`/DataSource#getRepository()."
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        nest = (
+            "scip-typescript npm @nestjs/typeorm 11.0.1 "
+            "dist/common/`typeorm.decorators.d.ts`/InjectRepository."
+        )
+        app = "scip-typescript npm app 1 src/"
+        user = app + "`user.entity.ts`/User#"
+        service = app + "`user.service.ts`/UserService#"
+        builders = app + "`builder.ts`/Builders#"
+        source_builder = (
+            typeorm + "data-source/`DataSource.d.ts`/DataSource#createQueryBuilder()."
+        )
+
+        def qb(method):
+            return (
+                typeorm
+                + "query-builder/`SelectQueryBuilder.d.ts`/SelectQueryBuilder#"
+                + method
+                + "()."
+            )
+
+        documents = {
+            "src/builder.ts": [
+                (1, "User", user, False, 0),
+                (3, "repo", builders + "repo.", True, 0),
+                (3, "Repository", repository, False, 0),
+                (3, "User", user, False, 0),
+                (3, "ds", builders + "ds.", True, 0),
+                (4, "repo", builders + "repo.", False, 0),
+                (
+                    4,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (4, "where", qb("where"), False, 0),
+                (4, "getMany", qb("getMany"), False, 0),
+                (5, "ds", builders + "ds.", False, 0),
+                (5, "createQueryBuilder", source_builder, False, 0),
+                (5, "delete", qb("delete"), False, 0),
+                (5, "from", qb("from"), False, 0),
+                (5, "User", user, False, 0),
+                (6, "ds", builders + "ds.", False, 0),
+                (6, "createQueryBuilder", source_builder, False, 0),
+                (6, "insert", qb("insert"), False, 0),
+                (6, "into", qb("into"), False, 0),
+                (7, "ds", builders + "ds.", False, 0),
+                (7, "createQueryBuilder", source_builder, False, 0),
+                (
+                    7,
+                    "addCommonTableExpression",
+                    qb("addCommonTableExpression"),
+                    False,
+                    0,
+                ),
+                (7, "from", qb("from"), False, 0),
+                (8, "repo", builders + "repo.", False, 0),
+                (8, "query", repository + "query().", False, 0),
+                (9, "repo", builders + "repo.", False, 0),
+                (
+                    9,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (9, "relation", qb("relation"), False, 0),
+            ],
+            "src/user.entity.ts": [(2, "User", user, True, 0)],
+            "src/user.service.ts": [
+                (2, "User", user, False, 0),
+                (4, "InjectRepository", nest, False, 0),
+                (4, "User", user, False, 0),
+                (4, "repo", service + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 1),
+                (4, "ds", service + "ds.", True, 0),
+                (4, "em", service + "em.", True, 0),
+                (5, "repo", service + "repo.", False, 0),
+                (5, "find", repository + "find().", False, 0),
+                (6, "repo", service + "repo.", False, 0),
+                (6, "save", repository + "save().", False, 0),
+                (8, "ds", service + "ds.", False, 0),
+                (8, "getRepository", source, False, 0),
+                (8, "User", user, False, 0),
+                (8, "count", repository + "count().", False, 1),
+                (9, "r", "local 1", True, 0),
+                (9, "ds", service + "ds.", False, 0),
+                (9, "getRepository", source, False, 0),
+                (9, "User", user, False, 0),
+                (9, "r", "local 1", False, 1),
+                (9, "delete", repository + "delete().", False, 0),
+                (10, "em", service + "em.", False, 0),
+                (10, "findOneBy", manager + "findOneBy().", False, 0),
+                (10, "User", user, False, 0),
+                (
+                    11,
+                    "find",
+                    "scip-typescript npm other 1 `c.d.ts`/C#find().",
+                    False,
+                    0,
+                ),
+                (13, "Repository", repository, False, 0),
+                (13, "User", user, False, 0),
+                (14, "findBy", repository + "findBy().", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = TYPEORM_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_calls_resolved_through_a_scip_index(self):
+        edges, counts, orm = self.analyze(True)
+        # Each call is read where its method is written; create() touches
+        # no table and other()'s find is not TypeORM's. A query builder
+        # reads or writes its root table: the repository's entity, or what
+        # its from/into names (a literal too), never a CTE's name; the
+        # builders' own delete and insert are not repository calls.
+        # A relation builder writes the related side, not its root: no edge.
+        # Raw SQL given to TypeORM's query is read as SQL.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "Builders.rows", "users", "typeorm-scip"),
+                ("READS", "UserRepo.mine", "users", "typeorm-scip"),
+                ("READS", "UserService.count", "users", "typeorm-scip"),
+                ("READS", "UserService.list", "users", "typeorm-scip"),
+                ("READS", "UserService.managed", "users", "typeorm-scip"),
+                ("WRITES", "Builders.links", "user_links", "typeorm-scip"),
+                ("WRITES", "Builders.purge", "users", "typeorm-scip"),
+                ("WRITES", "Builders.raw", "sessions", "typeorm-sql"),
+                ("WRITES", "UserService.add", "users", "typeorm-scip"),
+                ("WRITES", "UserService.held", "users", "typeorm-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 9,
+                "no_scip_index": 0,
+                "not_typeorm": 3,
+                "entity_unknown": 1,
+                "not_an_entity": 0,
+                "builders": 3,
+                "relation_builders": 1,
+            },
+        )
+        # The decorator and getRepository name rule gives way in the file.
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 3)
+        self.assertEqual(orm["typeorm_linked"], 0)
+
+    def test_calls_the_index_could_not_type_are_counted(self):
+        # Without symbols at the repository's names, the index read nothing
+        # there: those uses are counted, and the name rule reads them.
+        edges, counts, orm = self.analyze(
+            True, unresolved=("InjectRepository", "getRepository")
+        )
+        self.assertEqual(orm["typeorm_index_unresolved"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+        self.assertIn(
+            ("READS", "UserService.constructor", "users", "typeorm-repository"),
+            edges,
+        )
+
+    def test_without_an_index_the_name_rule_reads_repositories(self):
+        edges, counts, orm = self.analyze(False)
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "UserService.constructor", "users", "typeorm-repository"),
+                ("READS", "UserService.count", "users", "typeorm-repository"),
+                ("READS", "UserService.held", "users", "typeorm-repository"),
+                ("WRITES", "UserService.constructor", "users", "typeorm-repository"),
+                ("WRITES", "UserService.held", "users", "typeorm-repository"),
+            ],
+        )
+        self.assertEqual(counts["no_scip_index"], 14)
+        self.assertEqual(orm["typeorm_linked"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+
+
+KYSELY = {
+    "package.json": '{"name": "app", "dependencies": {"kysely": "0.29.8"}}',
+    "src/repo.ts": "import { Kysely } from 'kysely';\n"
+    "export class Repo {\n"
+    "  constructor(private db: Kysely<any>) {}\n"
+    "  list() { return this.db.selectFrom('asset as a').innerJoin('user', 'user.id', 'a.ownerId').execute(); }\n"
+    "  add(v: any) { return this.db.insertInto('album').values(v).execute(); }\n"
+    "  cte() { return this.db.with('asset', (qb) => qb.selectFrom('asset')).selectFrom('asset').execute(); }\n"
+    "  rec() { return this.db.withRecursive('tree', (qb) => qb.selectFrom('tag').union(qb.selectFrom('tree'))).selectFrom('tree').execute(); }\n"
+    "  shadow() { return this.db.with('album', (d) => d.insertInto('album').values({})).selectFrom('album').execute(); }\n"
+    "  many() { return this.db.selectFrom(['person', 'pet']).execute(); }\n"
+    "}\n",
+    # Not kysely: no import, and in the index another library's method.
+    "src/other.ts": "export const other = (client: any) => client.selectFrom('nope');\n",
+    # tree-sitter cannot parse the tagged template's object type argument.
+    "src/partial.ts": "import { sql } from 'kysely';\n"
+    "export function f(db: any) {\n"
+    "  return db.selectFrom('face').select(sql<{ a: string }>`x`.as('a'));\n"
+    "}\n",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class KyselyTests(unittest.TestCase):
+    def analyze(self, with_index, metrics=False):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, KYSELY)
+            indexes = (self.index(directory),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        found = output.metadata.custom_metrics
+        if metrics:
+            return edges, found["kysely"], found
+        return edges, found["kysely"]
+
+    def index(self, directory):
+        """A scip-typescript index whose method references are Kysely's,
+        except add()'s insertInto and other.ts's selectFrom."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        kysely = "scip-typescript npm kysely 0.29.8 dist/`query-creator.d.ts`/"
+        builder = (
+            "scip-typescript npm kysely 0.29.8 "
+            "dist/query-builder/`select-query-builder.d.ts`/SelectQueryBuilder#"
+        )
+        documents = {
+            "src/repo.ts": [
+                (3, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (3, "innerJoin", builder + "innerJoin().", 0),
+                (
+                    4,
+                    "insertInto",
+                    "scip-typescript npm app 1 src/`fake.ts`/Fake#insertInto().",
+                    0,
+                ),
+                (5, "with", kysely + "QueryCreator#with().", 0),
+                (5, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (5, "selectFrom", kysely + "QueryCreator#selectFrom().", 1),
+                (6, "withRecursive", kysely + "QueryCreator#withRecursive().", 0),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 1),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 2),
+                (7, "with", kysely + "QueryCreator#with().", 0),
+                (7, "insertInto", kysely + "QueryCreator#insertInto().", 0),
+                (7, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (8, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+            ],
+            "src/other.ts": [
+                (
+                    0,
+                    "selectFrom",
+                    "scip-typescript npm other 2 Client#selectFrom().",
+                    0,
+                ),
+            ],
+            "src/partial.ts": [
+                (2, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = KYSELY[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, nth in occurrences:
+                column = -1
+                for _ in range(nth + 1):
+                    column = lines[line].index("." + text + "(", column + 1)
+                document.occurrences.add(
+                    symbol=symbol, range=[line, column + 1, column + 1 + len(text)]
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_without_an_index_kysely_is_not_read_and_the_run_says_so(self):
+        edges, counts, metrics = self.analyze(False, metrics=True)
+        self.assertEqual(edges, [])
+        # repo.ts and partial.ts (repaired); other.ts does not import kysely.
+        self.assertEqual(counts, {"calls_scip": 0, "not_kysely": 0, "no_scip_index": 8})
+        self.assertEqual(metrics["analysis_status"], "partial")
+
+    def test_methods_resolved_through_a_scip_index(self):
+        edges, counts = self.analyze(True)
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "Repo.cte", "asset", "kysely-scip"),
+                ("READS", "Repo.list", "asset", "kysely-scip"),
+                ("READS", "Repo.list", "user", "kysely-scip"),
+                ("READS", "Repo.many", "person", "kysely-scip"),
+                ("READS", "Repo.many", "pet", "kysely-scip"),
+                ("READS", "Repo.rec", "tag", "kysely-scip"),
+                ("READS", "f", "face", "kysely-scip"),
+                ("WRITES", "Repo.shadow", "album", "kysely-scip"),
+            ],
+        )
+        self.assertEqual(counts, {"calls_scip": 7, "not_kysely": 2, "no_scip_index": 0})
+
+
 class StatementTests(unittest.TestCase):
+    def test_readers(self):
+        # sqlglot reads SQL; the token reader only what no parser accepts.
+        read = statement_tables("SELECT * FROM pets p JOIN visits v ON p.id = v.pet")
+        self.assertEqual(
+            (read.reads, read.writes, read.reader), (("pets", "visits"), (), "sqlglot")
+        )
+        held = statement_tables("SELECT * FROM \x00 JOIN visits v ON true")
+        self.assertEqual((held.reads, held.reader), (("visits",), "tokens"))
+        jpql = statement_tables("SELECT o FROM Owner o", jpql=True)
+        self.assertEqual((jpql.reads, jpql.reader), (("Owner",), "tokens"))
+        # SQL no dialect accepts is read by tokens, and says so.
+        bad = statement_tables("UPDATE owners SET city = 1 WHERE id = ? FOR UPDATE")
+        self.assertEqual(
+            (bad.reads, bad.writes, bad.reader), ((), ("owners",), "tokens_not_parsed")
+        )
+        locked = statement_tables(
+            "SELECT e.* FROM events e JOIN handled he ON true FOR UPDATE OF he"
+        )
+        self.assertEqual(locked.reads, ("events", "handled"))
+        # Positional parameters, and a multi-table DELETE's aliases.
+        positional = statement_tables("DELETE FROM visits WHERE pet_id = ?1")
+        self.assertEqual(positional.writes, ("visits",))
+        aliased = statement_tables(
+            "DELETE i, c FROM items i JOIN cache c ON c.id = i.id WHERE c.t < 1"
+        )
+        self.assertEqual(sorted(aliased.writes), ["cache", "items"])
+
     def test_tables_read_and_written(self):
         cases = {
             "SELECT p.id FROM pets p LEFT OUTER JOIN visits v ON p.id = v.pet": (
@@ -628,7 +1513,7 @@ class StatementTests(unittest.TestCase):
                 ("visits",),
                 ("visits",),
             ),
-            "UPDATE owners SET city = 'FROM x' WHERE id = ? FOR UPDATE": (
+            "UPDATE owners SET city = 'FROM x' WHERE id = ?": (
                 (),
                 ("owners",),
             ),
@@ -641,7 +1526,7 @@ class StatementTests(unittest.TestCase):
             "JOIN pg_catalog.pg_class c ON true JOIN pg_attribute a ON true "
             "JOIN users u ON true": (("users",), ()),
             "SELECT name FROM sqlite_master UNION SELECT name FROM sys.databases "
-            "UNION SELECT table_name FROM all_tables "
+            "UNION SELECT table_name FROM all_tables UNION SELECT mview_name FROM user_mviews "
             "UNION SELECT name FROM user_settings": (("user_settings",), ()),
             "WITH recent (id) AS (SELECT id FROM visits) SELECT * FROM recent": (
                 ("visits",),
@@ -651,7 +1536,8 @@ class StatementTests(unittest.TestCase):
                 ("pets", "owners"),
                 (),
             ),
-            "MERGE INTO stock s USING deliveries d ON s.id = d.id": (
+            "MERGE INTO stock s USING deliveries d ON s.id = d.id "
+            "WHEN MATCHED THEN UPDATE SET qty = d.qty": (
                 ("deliveries",),
                 ("stock",),
             ),
@@ -781,7 +1667,14 @@ class JavaSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 9, "not_fixed": 1, "unknown_entity": 1},
+            {
+                "statements": 9,
+                "not_fixed": 1,
+                "unknown_entity": 1,
+                "sqlglot": 4,
+                "tokens": 4,
+                "tokens_not_parsed": 0,
+            },
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
@@ -905,7 +1798,14 @@ class PythonSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 6, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 6,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 4,
+                "tokens": 1,
+                "tokens_not_parsed": 0,
+            },
         )
 
 
@@ -913,7 +1813,7 @@ TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spe
     "tree_sitter_typescript"
 )
 SCRIPT_ORMS = {
-    "package.json": '{"name": "shop"}',
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
     "prisma/schema.prisma": """// The shop's tables.
 datasource db {
   provider = "postgresql"
@@ -930,6 +1830,7 @@ model User {
 model UserProfile {
   id     Int  @id
   userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
 }
 """,
     "src/users.ts": """import { PrismaClient } from "@prisma/client";
@@ -983,8 +1884,34 @@ export class AuditService {
 }
 
 
+def _npm_registry():
+    """node and npm, and the npm registry reachable: the engine fetches the
+    prisma-schema-wasm build a schema's Prisma pins. The acceptance sandbox
+    has no network; the database job, which has, runs these tests."""
+    npm = shutil.which("npm")
+    if not (shutil.which("node") and npm):
+        return False
+    try:
+        return (
+            subprocess.run(
+                [npm, "view", "prisma@6.19.0", "version"],
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+NODE = _npm_registry()
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
     def test_prisma_and_typeorm(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SCRIPT_ORMS)
@@ -1031,6 +1958,8 @@ class ScriptOrmTests(unittest.TestCase):
                     "typeorm-repository",
                 ),
                 ("READS", "listUsers", "users", "prisma-client"),
+                # The profile's relation holds the foreign key to users.
+                ("REFERENCES_TABLE", "db-table", "users", "prisma-foreign-key"),
                 (
                     "WRITES",
                     "AuditService.constructor",
@@ -1046,6 +1975,17 @@ class ScriptOrmTests(unittest.TestCase):
             (metrics["prisma_models"], metrics["typeorm_entities"]), (2, 2)
         )
         self.assertEqual(
+            metrics["prisma_schema"],
+            {
+                "engines": {
+                    "prisma/schema.prisma": (
+                        "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+                    )
+                },
+                "unread": 0,
+            },
+        )
+        self.assertEqual(
             metrics["orm_access_resolution"],
             {
                 "prisma_linked": 3,
@@ -1053,6 +1993,8 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 2,
                 "typeorm_not_an_entity": 1,
                 "typeorm_wrapper_not_an_entity": 0,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
@@ -1107,10 +2049,209 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 5,
                 "typeorm_not_an_entity": 0,
                 "typeorm_wrapper_not_an_entity": 1,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+PRISMA_FOLDER = {
+    "apps/package-lock.json": """{"packages": {
+  "node_modules/@prisma/engines-version": {
+    "version": "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+  }
+}}""",
+    "apps/api/package.json": '{"dependencies": {"@prisma/client": "^5.0.0"}}',
+    # A multi-file schema: the datasource file's folder holds the models.
+    "apps/api/prisma/schema/main.prisma": """datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+""",
+    "apps/api/prisma/schema/models/post.prisma": """model Post {
+  id       Int    @id
+  authorId Int    @map("author_id")
+  author   Author @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  @@map(name: "posts")
+}
+""",
+    "apps/api/prisma/schema/author.prisma": """
+// model Author is declared below.
+model Author {
+  id    Int    @id
+  posts Post[]
+}
+""",
+    # The engine rejects this schema (a relation with no opposite field).
+    "tools/broken/package.json": '{"devDependencies": {"prisma": "6.19.0"}}',
+    "tools/broken/schema.prisma": """datasource db {
+  provider = "sqlite"
+  url      = "file:dev.db"
+}
+
+model Orphan {
+  id   Int  @id
+  peer Peer?
+}
+
+model Peer {
+  id Int @id
+}
+""",
+    # No Prisma version anywhere up the tree.
+    "scratch/loose.prisma": """model Loose {
+  id Int @id
+}
+""",
+}
+
+
+class PrismaVersionTests(unittest.TestCase):
+    def test_installed_and_locked_versions_win_over_declared_ranges(self):
+        from deepthought.prisma_schema import project_version
+
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PRISMA_FOLDER)
+            file = "apps/api/prisma/schema/main.prisma"
+            self.assertEqual(
+                project_version(directory, file),
+                ("engines", "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"),
+            )
+            os.remove(Path(directory) / "apps" / "package-lock.json")
+            self.assertEqual(project_version(directory, file), ("prisma", "^5.0.0"))
+            write(
+                directory,
+                {"apps/api/node_modules/prisma/package.json": '{"version": "5.22.0"}'},
+            )
+            self.assertEqual(project_version(directory, file), ("prisma", "5.22.0"))
+            self.assertIsNone(project_version(directory, "scratch/loose.prisma"))
+            write(
+                directory,
+                {"scratch/deno.json": '{"imports": {"prisma": "npm:prisma@7.10.0"}}'},
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"), ("prisma", "7.10.0")
+            )
+            os.remove(Path(directory) / "scratch" / "deno.json")
+            write(
+                directory,
+                {
+                    "pnpm-lock.yaml": "packages:\n  '@prisma/engines-version@7.1.1-3.abc':\n"
+                },
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"),
+                ("engines", "7.1.1-3.abc"),
+            )
+
+
+@unittest.skipUnless(
+    NODE, "Prisma schemas are read with node, npm and the npm registry"
+)
+class PrismaSchemaTests(unittest.TestCase):
+    def test_folders_rejections_and_missing_versions(self):
+        from deepthought.prisma_schema import read_schemas
+
+        with tempfile.TemporaryDirectory() as directory:
+            files = {k: v for k, v in PRISMA_FOLDER.items() if k.endswith(".prisma")}
+            write(directory, PRISMA_FOLDER)
+            read = read_schemas(directory, files)
+        self.assertEqual(
+            [
+                (m.file, m.model, m.table, m.explicit, m.line, m.foreign_keys)
+                for m in read.models
+            ],
+            [
+                (
+                    "apps/api/prisma/schema/author.prisma",
+                    "Author",
+                    "Author",
+                    False,
+                    3,
+                    (),
+                ),
+                (
+                    "apps/api/prisma/schema/models/post.prisma",
+                    "Post",
+                    "posts",
+                    True,
+                    1,
+                    # Post holds the foreign key; @map names its column.
+                    (("Author", ("author_id",), ("id",), "Cascade"),),
+                ),
+            ],
+        )
+        self.assertEqual(
+            sorted(read.unread), ["scratch/loose.prisma", "tools/broken/schema.prisma"]
+        )
+        self.assertIn("no Prisma version", read.unread["scratch/loose.prisma"])
+        self.assertIn(
+            "opposite relation field", read.unread["tools/broken/schema.prisma"]
+        )
+        self.assertEqual(
+            sorted(read.engines),
+            [
+                "apps/api/prisma/schema/author.prisma",
+                "apps/api/prisma/schema/main.prisma",
+                "apps/api/prisma/schema/models/post.prisma",
+            ],
+        )
+
+    @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+    def test_unread_schema_makes_the_run_partial(self):
+        call = 'import { PrismaClient } from "@prisma/client";\n'
+        call += "export const posts = () => new PrismaClient().post.findMany();\n"
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "scratch/package.json": '{"name": "scratch"}',
+                    "scratch/loose.prisma": "model Post {\n  id Int @id\n}\n",
+                    "scratch/app.ts": call,
+                    "shop/package.json": '{"dependencies": {"prisma": "6.19.0"}}',
+                    "shop/schema.prisma": "model Post {\n  id Int @id\n}\n",
+                    "shop/app.ts": call,
+                },
+            )
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["prisma_models"], 1)
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 1,
+                "prisma_ambiguous": 0,
+                "prisma_schema_unread": 1,
+                "typeorm_index_unresolved": 0,
+                "typeorm_linked": 0,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_not_an_entity": 0,
+                "typeorm_wrapper_not_an_entity": 0,
+            },
+        )
+        # The scratch caller is not linked to the shop's Post.
+        self.assertEqual(
+            sorted(
+                r.source_match["qualified_name"].split("::")[1]
+                for r in output.relationships
+                if r.type == "READS"
+            ),
+            ["shop/app.ts"],
+        )
+        self.assertTrue(
+            any(
+                w.startswith(
+                    "prisma_schema_unread: scratch/loose.prisma: no Prisma version"
+                )
+                for w in output.metadata.warnings
+            ),
+            output.metadata.warnings,
+        )
 
 
 TYPEORM_WRAPPERS = {
@@ -1292,12 +2433,25 @@ def go_edges(output):
 
 @unittest.skipUnless(GO, "Install the go grammar")
 class GoSqlTests(unittest.TestCase):
-    """The tree-sitter rules, as they read Go without the Go toolchain."""
+    """The tree-sitter rules, as they read Go files the type checker did
+    not check."""
 
-    def test_sql_text_and_gorm_table_names(self):
+    def test_missing_go_fails_loudly(self):
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch("deepthought.go_facts.toolchain", return_value=None),
+        ):
+            write(directory, GO_SQL)
+            with self.assertRaises(GoMissing):
+                asyncio.run(DataContractTool(directory).analyze("r", languages=["go"]))
+
+    def test_sql_text_and_gorm_table_names(self):
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch("deepthought.go_facts.collect", side_effect=unchecked),
         ):
             write(directory, GO_SQL)
             output = asyncio.run(
@@ -1327,10 +2481,17 @@ class GoSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 3,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 2,
+                "tokens": 0,
+                "tokens_not_parsed": 0,
+            },
         )
         self.assertEqual(
-            metrics["go_type_facts"]["files_not_checked"], {"go_not_installed": 2}
+            metrics["go_type_facts"]["files_not_checked"], {"not_checked": 2}
         )
 
 
@@ -1388,6 +2549,32 @@ type User struct{ ID int }
 
 func (User) TableName() string { return usersTable }
 """,
+    "store/built.go": """package store
+
+import "strings"
+
+// Queries built in steps: reassigned, appended to, joined over branches.
+func (q *Queries) Steps(where []string, limit bool) {
+\tquery := "SELECT count(*) FROM categories"
+\tq.db.QueryRowContext(nil, query)
+\tquery = "UPDATE feeds SET category_id = 1"
+\tq.db.ExecContext(nil, query)
+\tjobs := `SELECT id FROM jobs`
+\tif len(where) > 0 {
+\t\tjobs += " WHERE " + strings.Join(where, " AND ")
+\t}
+\tjobs += " ORDER BY id"
+\tif limit {
+\t\tjobs += " LIMIT 10"
+\t}
+\tq.db.QueryRowContext(nil, jobs)
+\tvar loop string
+\tfor _, w := range where {
+\t\tloop = "DELETE FROM " + w
+\t}
+\tq.db.ExecContext(nil, loop)
+}
+""",
     "store/migrations.go": """package store
 
 import "database/sql"
@@ -1436,24 +2623,41 @@ class GoTypeFactsTests(unittest.TestCase):
             [
                 ("MAPS_TO", "User", "users", "gorm-table-name-types"),
                 ("READS", "Queries.GetAccount", "accounts", "go-sql-types"),
+                ("READS", "Queries.Steps", "categories", "go-sql-types"),
+                ("READS", "Queries.Steps", "jobs", "go-sql-types"),
                 ("WRITES", "Purge", "tokens", "go-sql-types"),
                 ("WRITES", "Queries.Archive", "archive", "go-sql-types"),
+                ("WRITES", "Queries.Steps", "feeds", "go-sql-types"),
+                # Either table, by the path taken.
+                ("WRITES", "Queries.Twice", "audit", "go-sql-types"),
+                ("WRITES", "Queries.Twice", "sessions", "go-sql-types"),
                 ("WRITES", "store/migrations.go", "schema_version", "go-sql-types"),
             ],
         )
         metrics = output.metadata.custom_metrics
-        # Twice's query is assigned twice: its text is not fixed.
+        # The loop's query is assigned in the loop: not known.
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 4, "not_fixed": 0, "unknown_entity": 0},
+            {
+                "statements": 8,
+                "not_fixed": 0,
+                "unknown_entity": 0,
+                "sqlglot": 8,
+                "tokens": 0,
+                "tokens_not_parsed": 0,
+            },
         )
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
-        self.assertEqual(metrics["go_type_facts"]["files_checked"], 5)
+        self.assertEqual(metrics["go_type_facts"]["files_checked"], 6)
 
-    def test_same_calls_without_go(self):
-        # Without go/types none of these is read: the files that run SQL do
-        # not import a SQL package, and the TableName is a constant.
-        with mock.patch("deepthought.go_facts.toolchain", return_value=None):
+    def test_same_calls_unchecked(self):
+        # In files go/types did not check none of these is read: the files
+        # that run SQL do not import a SQL package, and the TableName is a
+        # constant.
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with mock.patch("deepthought.go_facts.collect", side_effect=unchecked):
             output = self.analyze(GO_TYPED)
         self.assertEqual(go_edges(output), [])
 
@@ -1487,11 +2691,23 @@ func Load(db *sql.DB, other dep.Conn) {
         )
 
     def test_files_outside_a_module(self):
-        files = {"main.go": "package main\n\nfunc main() {}\n"}
+        # A GOPATH-era package: checked as a module of its own.
+        files = {
+            "cmd/load/main.go": """package main
+
+import "database/sql"
+
+func Load(db *sql.DB) {
+\tdb.Query("SELECT id FROM accounts")
+}
+""",
+        }
         output = self.analyze(files)
         self.assertEqual(
-            output.metadata.custom_metrics["go_type_facts"]["files_not_checked"],
-            {"no_go_module": 1},
+            go_edges(output), [("READS", "Load", "accounts", "go-sql-types")]
+        )
+        self.assertFalse(
+            output.metadata.custom_metrics["go_type_facts"].get("files_not_checked")
         )
 
 
@@ -1576,6 +2792,7 @@ func {_service.capitalize()}(db *sql.DB) {{
 
 
 class ComposeDatabaseTests(unittest.TestCase):
+    @needs_go
     def test_services_naming_one_compose_database_share_its_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SHARED_COMPOSE_DATABASE)
@@ -2131,6 +3348,7 @@ class GormTests(unittest.TestCase):
         ):
             self.assertEqual(gorm_table_name(name), table)
 
+    @needs_go
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
@@ -2167,6 +3385,7 @@ class GormTests(unittest.TestCase):
             metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
         )
 
+    @needs_go
     def test_naming_strategy_leaves_defaults_out(self):
         files = {
             **GORM,
@@ -2716,7 +3935,14 @@ class PhpSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 8, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 8,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 6,
+                "tokens": 1,
+                "tokens_not_parsed": 0,
+            },
         )
 
 

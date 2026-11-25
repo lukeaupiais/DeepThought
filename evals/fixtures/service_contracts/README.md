@@ -58,8 +58,10 @@ artifact URLs. Clone each repository at its pinned commit into `$CORPORA/<dir>` 
 ## GraphQL client labels
 
 The `graphql-*` corpora are labelled by a parser, not by reading every call.
-`tools/graphql_client_oracle.py` parses each `gql`/`graphql` template literal
-and `.graphql`/`.gql` file under a client root with graphql-core, takes each
+`tools/graphql_client_oracle.py` parses each `gql`/`graphql` template literal,
+found by the TypeScript compiler (`tools/graphql_documents.cjs`),
+and `.graphql`/`.gql` file under a client root with graphql-js, the reference
+GraphQL implementation (the engine reads GraphQL with graphql-core), takes each
 root field of each operation as a call site, and links it to the server scope
 whose Query, Mutation or Subscription type declares that field. The judgment
 calls live in `graphql-specs.json` and were made by reading the deployment
@@ -70,8 +72,8 @@ introspection fields are not call sites. A field declared by more than one
 reachable scope is listed under `ambiguous_clients`; one declared by none is
 listed under `unmatched_clients`, so a link from it is wrong. To regenerate:
 
-    pip install graphql-core==3.2.6
-    python tools/graphql_client_oracle.py evals/fixtures/service_contracts/graphql-specs.json CORPUS CHECKOUT
+    npm install --prefix DIR graphql@16.9.0 typescript@5.6.3
+    NODE_PATH=DIR/node_modules python tools/graphql_client_oracle.py evals/fixtures/service_contracts/graphql-specs.json CORPUS CHECKOUT
 
 ## JSON fields beyond the requested schema
 

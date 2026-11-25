@@ -7,9 +7,20 @@
 //     declaring the method (also when promoted from an embedded field), the
 //     packages of its named result types, and for each of its first three
 //     arguments its named type (through pointers and slices) and the string
-//     value it has: a constant expression's, or that of a local variable
-//     assigned exactly once, of a + join (operands without a value written
-//     as Placeholder) or of sqlx's Rebind.
+//     value it has: a constant expression's, that a local variable holds
+//     there (followed through assignments, += and branches; see flow), of a
+//   - join (operands without a value written as Placeholder) or of sqlx's
+//     Rebind.
+//     A package variable initialized to a constant string has that value
+//     when nothing in the package assigns it or takes its address and it is
+//     unexported (or the package is main).
+//     An argument that is a []string literal (or a local assigned one once)
+//     has the value of each element instead; one that is field F of a local
+//     assigned from one call (q, err := ch.QueueDeclare(...); q.Name) names
+//     that call's position, result index and F.
+//   - "literal": every keyed composite literal of a named struct type
+//     declared in another package, with its type and, per key, the value its
+//     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
 //   - "error": a package that did not type-check completely; its facts are
@@ -51,9 +62,23 @@ type namedType struct {
 	Line    int    `json:"line,omitempty"`
 }
 
+type resultField struct {
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
+	Index  int    `json:"index"`
+	Field  string `json:"field"`
+}
+
 type argument struct {
-	Text *string    `json:"text,omitempty"`
-	Type *namedType `json:"type,omitempty"`
+	Texts   []string     `json:"texts,omitempty"`
+	Strings [][]string   `json:"strings,omitempty"`
+	Result  *resultField `json:"result,omitempty"`
+	Type    *namedType   `json:"type,omitempty"`
+}
+
+type element struct {
+	Key string `json:"key"`
+	argument
 }
 
 type fact struct {
@@ -68,6 +93,7 @@ type fact struct {
 	Receiver  *namedType `json:"receiver,omitempty"`
 	Arguments []argument `json:"arguments,omitempty"`
 	Type      *namedType `json:"type,omitempty"`
+	Elements  []element  `json:"elements,omitempty"`
 	Table     string     `json:"table,omitempty"`
 	Package   string     `json:"package,omitempty"`
 	Message   string     `json:"message,omitempty"`
@@ -190,8 +216,10 @@ func main() {
 		}
 		var problems []string
 		conf := types.Config{
-			Importer: imp,
-			Error:    func(err error) { problems = append(problems, err.Error()) },
+			// import "C" in the module's own cgo files: C.x is not resolved.
+			FakeImportC: true,
+			Importer:    imp,
+			Error:       func(err error) { problems = append(problems, err.Error()) },
 		}
 		path := name
 		if module != "" && !strings.HasSuffix(name, "_test") {
@@ -249,17 +277,18 @@ func main() {
 			if c == nil || c.pkg == nil {
 				continue
 			}
+			fixed := packageValues(c.files, c.info, c.pkg)
 			for _, file := range c.files {
 				f, _, _ := where(file.Pos())
 				emit(fact{Kind: "file", File: f, Package: name})
-				facts(file, c.info, emit, where, named)
+				facts(file, c.info, emit, where, named, c.pkg.Path(), fixed)
 			}
 		}
 	}
 }
 
 // facts prints the call and TableName facts of one file.
-func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType) {
+func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -280,8 +309,70 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	}
 	// Calls anywhere in the file: functions, and func literals in package
 	// variables (a migration table).
-	assigned := assignments(file, info)
+	flows := newFlow(file, info)
+	flows.fixed = fixed
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			flows.function(d.Body, state{})
+		case *ast.GenDecl:
+			flows.expressions(d, nil)
+		}
+	}
+	literals, results := once(file, info)
+	describe := func(arg ast.Expr) argument {
+		a := argument{}
+		if val := stringValue(arg, info, flows); val.known {
+			a.Texts = val.texts
+		} else if values, ok := stringsValue(arg, info, flows, literals); ok {
+			a.Strings = values
+		} else if selector, ok := ast.Unparen(arg).(*ast.SelectorExpr); ok {
+			if id, ok := selector.X.(*ast.Ident); ok {
+				if v, ok := info.Uses[id].(*types.Var); ok {
+					if r, ok := results[v]; ok {
+						_, line, column := where(r.call.Pos())
+						a.Result = &resultField{line, column, r.index, selector.Sel.Name}
+					}
+				}
+			}
+		}
+		return a
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
+		if literal, ok := node.(*ast.CompositeLit); ok {
+			t := info.TypeOf(literal)
+			if t == nil {
+				return true
+			}
+			if _, ok := t.Underlying().(*types.Struct); !ok {
+				return true
+			}
+			n := named(t)
+			if n == nil || n.Package == own {
+				return true
+			}
+			out := fact{Kind: "literal", Type: n}
+			out.File, out.Line, out.Column = where(literal.Pos())
+			for _, e := range literal.Elts {
+				kv, ok := e.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				value := kv.Value
+				if unary, ok := value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+					value = unary.X
+				}
+				out.Elements = append(out.Elements, element{key.Name, describe(value)})
+			}
+			if len(out.Elements) > 0 {
+				emit(out)
+			}
+			return true
+		}
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -309,10 +400,8 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if i == 3 {
 				break
 			}
-			a := argument{Type: named(info.TypeOf(arg))}
-			if text, ok := stringValue(arg, info, assigned); ok {
-				a.Text = &text
-			}
+			a := describe(arg)
+			a.Type = named(info.TypeOf(arg))
 			out.Arguments = append(out.Arguments, a)
 		}
 		emit(out)
@@ -320,29 +409,720 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	})
 }
 
-// assignments maps each local variable of a file's functions to the one expression
-// assigned to it, or to nil when it is assigned more than once, assigned
-// without one expression of its own, or has its address taken.
-func assignments(body ast.Node, info *types.Info) map[*types.Var]ast.Expr {
-	found := map[*types.Var]ast.Expr{}
-	seen := map[*types.Var]int{}
-	set := func(id *ast.Ident, value ast.Expr) {
+// Placeholder stands for text the code does not fix inside a string.
+const Placeholder = "\x00"
+
+// value is what a string variable holds at a point of the program: the
+// texts it may hold, one per path that reaches the point (Placeholder where
+// the code does not fix the text), or nothing known.
+type value struct {
+	texts []string
+	known bool
+}
+
+var unknown = value{}
+
+// paths is how many texts a value keeps before they are folded into one.
+const paths = 16
+
+func known(texts ...string) value {
+	seen, out := map[string]bool{}, []string{}
+	for _, t := range texts {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
+	if len(out) > paths {
+		out = []string{fold(out)}
+	}
+	return value{out, true}
+}
+
+// fold is one text for many: their common start and end around a
+// Placeholder.
+func fold(texts []string) string {
+	first := texts[0]
+	i, j := len(first), len(first)
+	for _, t := range texts[1:] {
+		k := 0
+		for k < i && k < len(t) && first[k] == t[k] {
+			k++
+		}
+		i = k
+		k = 0
+		for k < j && k < len(t) && first[len(first)-1-k] == t[len(t)-1-k] {
+			k++
+		}
+		j = k
+	}
+	if i+j > len(first) {
+		j = len(first) - i
+	}
+	return first[:i] + Placeholder + first[len(first)-j:]
+}
+
+// join is the value a variable holds where two paths meet.
+func join(a, b value) value {
+	if !a.known || !b.known {
+		return unknown
+	}
+	return known(append(append([]string{}, a.texts...), b.texts...)...)
+}
+
+// concat is the value of a + b, each text of one followed by each of the
+// other.
+func concat(a, b value) value {
+	out := []string{}
+	for _, x := range a.texts {
+		for _, y := range b.texts {
+			out = append(out, x+y)
+		}
+	}
+	return known(out...)
+}
+
+type state map[*types.Var]value
+
+func (s state) copy() state {
+	out := state{}
+	for k, v := range s {
+		out[k] = v
+	}
+	return out
+}
+
+// merge joins the states of the paths that reach one point.
+func merge(states []state) state {
+	if len(states) == 0 {
+		return nil // no path reaches it
+	}
+	out := states[0].copy()
+	for _, other := range states[1:] {
+		for k, v := range out {
+			if w, ok := other[k]; ok {
+				out[k] = join(v, w)
+			} else {
+				out[k] = unknown
+			}
+		}
+		for k := range other {
+			if _, ok := out[k]; !ok {
+				out[k] = unknown
+			}
+		}
+	}
+	return out
+}
+
+// flow follows the string values of a function's local variables through
+// its statements, in order (constant propagation): an assignment sets a
+// value, += appends to it, the branches of an if or switch are joined, and
+// a variable assigned in a loop body is not known in or after the loop. A
+// variable whose address is taken, that a func literal assigns, or that a
+// function with goto or labels holds, is never known. A func literal starts
+// from the values its enclosing function has where the literal is, of the
+// variables written only once (their declaration): those hold that value
+// whenever the literal runs. It records the value each use of a variable
+// reads.
+type flow struct {
+	info    *types.Info
+	escaped map[*types.Var]bool
+	writes  map[*types.Var]int
+	uses    map[*ast.Ident]value
+	fixed   map[*types.Var]string // see packageValues
+}
+
+// packageValues maps each package variable whose initializer is a constant
+// string to that string, when nothing else can change it: no assignment,
+// ++/--, range or address-of (other than as a keyed element of a composite
+// literal) in the package touches it, and it is
+// unexported (or the package is main, which nothing imports).
+func packageValues(files []*ast.File, info *types.Info, pkg *types.Package) map[*types.Var]string {
+	found := map[*types.Var]string{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if len(vs.Values) != len(vs.Names) {
+					continue
+				}
+				for i, id := range vs.Names {
+					v, ok := info.Defs[id].(*types.Var)
+					if !ok || (id.IsExported() && pkg.Name() != "main") {
+						continue
+					}
+					if c := info.Types[vs.Values[i]].Value; c != nil && c.Kind() == constant.String {
+						found[v] = constant.StringVal(c)
+					}
+				}
+			}
+		}
+	}
+	drop := func(e ast.Expr) {
+		if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+			if v, ok := info.Uses[id].(*types.Var); ok {
+				delete(found, v)
+			}
+		}
+	}
+	stored := map[*ast.UnaryExpr]bool{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				// &x as a keyed element, as for locals (see newFlow).
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
+			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					drop(left)
+				}
+			case *ast.IncDecStmt:
+				drop(n.X)
+			case *ast.RangeStmt:
+				drop(n.Key)
+				drop(n.Value)
+			case *ast.UnaryExpr:
+				if n.Op == token.AND && !stored[n] {
+					drop(n.X)
+				}
+			}
+			return true
+		})
+	}
+	return found
+}
+
+// packageValue is the value of a package variable packageValues fixes.
+func (f *flow) packageValue(id *ast.Ident) (value, bool) {
+	if v, ok := f.info.Uses[id].(*types.Var); ok {
+		if text, ok := f.fixed[v]; ok {
+			return known(text), true
+		}
+	}
+	return unknown, false
+}
+
+func newFlow(file *ast.File, info *types.Info) *flow {
+	f := &flow{info: info, escaped: map[*types.Var]bool{}, writes: map[*types.Var]int{}, uses: map[*ast.Ident]value{}}
+	written := func(e ast.Expr) {
+		if id, ok := e.(*ast.Ident); ok {
+			if v := f.local(id); v != nil {
+				f.writes[v]++
+			}
+		}
+	}
+	// Variables a func literal assigns, or whose address is taken other
+	// than as a keyed element of a composite literal
+	// (kafka.TopicPartition{Topic: &topic}, read as topic's value there).
+	stored := map[*ast.UnaryExpr]bool{}
+	var visit func(node ast.Node, inside []*ast.FuncLit)
+	visit = func(node ast.Node, inside []*ast.FuncLit) {
+		ast.Inspect(node, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
+			case *ast.FuncLit:
+				if n != node {
+					visit(n.Body, append(inside, n))
+					return false
+				}
+			case *ast.UnaryExpr:
+				if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
+					if v := f.local(id); v != nil {
+						f.escaped[v] = true
+					}
+				}
+			case *ast.ValueSpec:
+				for _, id := range n.Names {
+					written(id)
+				}
+			case *ast.RangeStmt:
+				written(n.Key)
+				written(n.Value)
+			case *ast.IncDecStmt:
+				written(n.X)
+			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					written(left)
+				}
+				if len(inside) > 0 {
+					literal := inside[len(inside)-1]
+					for _, left := range n.Lhs {
+						if id, ok := left.(*ast.Ident); ok {
+							if v := f.local(id); v != nil && !(literal.Pos() <= v.Pos() && v.Pos() < literal.End()) {
+								f.escaped[v] = true
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+	visit(file, nil)
+	return f
+}
+
+// local is the local variable an identifier names, or nil.
+func (f *flow) local(id *ast.Ident) *types.Var {
+	obj := f.info.Defs[id]
+	if obj == nil {
+		obj = f.info.Uses[id]
+	}
+	v, ok := obj.(*types.Var)
+	if !ok || v.IsField() || v.Pkg() == nil || v.Parent() == nil || v.Parent() == v.Pkg().Scope() {
+		return nil
+	}
+	return v
+}
+
+// captured is the part of a state a func literal starts from: the known
+// values of variables written once.
+func (f *flow) captured(st state) state {
+	out := state{}
+	for v, val := range st {
+		if val.known && f.writes[v] == 1 && !f.escaped[v] {
+			out[v] = val
+		}
+	}
+	return out
+}
+
+// function follows one function body from the values it captures.
+func (f *flow) function(body *ast.BlockStmt, captured state) {
+	if body == nil {
+		return
+	}
+	jumps := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.LabeledStmt:
+			jumps = true
+		case *ast.BranchStmt:
+			if n.Tok == token.GOTO {
+				jumps = true
+			}
+		}
+		return true
+	})
+	if jumps {
+		f.expressions(body, captured) // every other variable stays unknown
+		return
+	}
+	f.block(body.List, captured.copy())
+}
+
+// expressions records the uses in a node with no variable known, and
+// follows the func literals in it.
+func (f *flow) expressions(node ast.Node, st state) {
+	if node == nil {
+		return
+	}
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			f.function(n.Body, f.captured(st))
+			return false
+		case *ast.Ident:
+			if v := f.local(n); v != nil && f.info.Uses[n] != nil {
+				if val, ok := st[v]; ok && !f.escaped[v] {
+					f.uses[n] = val
+				}
+			}
+		}
+		return true
+	})
+}
+
+// eval is the string value of an expression in a state.
+func (f *flow) eval(e ast.Expr, st state) value {
+	return valueOf(e, f.info, func(id *ast.Ident) (value, bool) {
+		v := f.local(id)
+		if v == nil {
+			return f.packageValue(id)
+		}
+		if f.escaped[v] {
+			return unknown, false
+		}
+		val, ok := st[v]
+		return val, ok && val.known
+	}, 0)
+}
+
+func (f *flow) assigned(nodes ...ast.Node) map[*types.Var]bool {
+	found := map[*types.Var]bool{}
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		ast.Inspect(node, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					if id, ok := left.(*ast.Ident); ok {
+						if v := f.local(id); v != nil {
+							found[v] = true
+						}
+					}
+				}
+			case *ast.RangeStmt:
+				for _, e := range []ast.Expr{n.Key, n.Value} {
+					if id, ok := e.(*ast.Ident); ok {
+						if v := f.local(id); v != nil {
+							found[v] = true
+						}
+					}
+				}
+			case *ast.IncDecStmt:
+				if id, ok := n.X.(*ast.Ident); ok {
+					if v := f.local(id); v != nil {
+						found[v] = true
+					}
+				}
+			}
+			return true
+		})
+	}
+	return found
+}
+
+// block follows a statement list from a state; it returns the state at its
+// end, or nil when no path gets there (return, break, continue, panic).
+func (f *flow) block(list []ast.Stmt, st state) state {
+	for _, stmt := range list {
+		if st == nil {
+			return nil
+		}
+		st = f.statement(stmt, st)
+	}
+	return st
+}
+
+func (f *flow) statement(stmt ast.Stmt, st state) state {
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		for _, right := range s.Rhs {
+			f.expressions(right, st)
+		}
+		values := make([]value, len(s.Lhs))
+		for i, left := range s.Lhs {
+			id, ok := left.(*ast.Ident)
+			if !ok {
+				f.expressions(left, st)
+				continue
+			}
+			switch {
+			case len(s.Lhs) == len(s.Rhs) && (s.Tok == token.ASSIGN || s.Tok == token.DEFINE):
+				values[i] = f.eval(s.Rhs[i], st)
+			case s.Tok == token.ADD_ASSIGN && len(s.Rhs) == 1:
+				if v := f.local(id); v != nil && st[v].known {
+					f.uses[id] = st[v]
+					right := f.eval(s.Rhs[0], st)
+					if !right.known {
+						right = known(Placeholder)
+					}
+					values[i] = concat(st[v], right)
+				}
+			}
+		}
+		for i, left := range s.Lhs {
+			if id, ok := left.(*ast.Ident); ok {
+				if v := f.local(id); v != nil {
+					st[v] = values[i]
+				}
+			}
+		}
+		return st
+	case *ast.DeclStmt:
+		gen, ok := s.Decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			f.expressions(s, st)
+			return st
+		}
+		for _, spec := range gen.Specs {
+			spec := spec.(*ast.ValueSpec)
+			for _, e := range spec.Values {
+				f.expressions(e, st)
+			}
+			for i, id := range spec.Names {
+				v := f.local(id)
+				if v == nil {
+					continue
+				}
+				switch {
+				case len(spec.Values) == len(spec.Names):
+					st[v] = f.eval(spec.Values[i], st)
+				case len(spec.Values) == 0:
+					if b, ok := v.Type().Underlying().(*types.Basic); ok && b.Info()&types.IsString != 0 {
+						st[v] = known("") // a string's zero value
+					} else {
+						st[v] = unknown
+					}
+				default:
+					st[v] = unknown
+				}
+			}
+		}
+		return st
+	case *ast.ExprStmt:
+		f.expressions(s, st)
+		if call, ok := s.X.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "panic" && f.info.Uses[id] == types.Universe.Lookup("panic") {
+				return nil
+			}
+		}
+		return st
+	case *ast.ReturnStmt:
+		f.expressions(s, st)
+		return nil
+	case *ast.BranchStmt:
+		return nil // the path continues after its loop or switch, already joined
+	case *ast.BlockStmt:
+		return f.block(s.List, st)
+	case *ast.IfStmt:
+		if s.Init != nil {
+			st = f.statement(s.Init, st)
+			if st == nil {
+				return nil
+			}
+		}
+		f.expressions(s.Cond, st)
+		paths := []state{}
+		if then := f.block(s.Body.List, st.copy()); then != nil {
+			paths = append(paths, then)
+		}
+		if s.Else != nil {
+			if other := f.statement(s.Else, st.copy()); other != nil {
+				paths = append(paths, other)
+			}
+		} else {
+			paths = append(paths, st)
+		}
+		return merge(paths)
+	case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		var init ast.Stmt
+		var body *ast.BlockStmt
+		var tag ast.Node
+		switch s := s.(type) {
+		case *ast.SwitchStmt:
+			init, body, tag = s.Init, s.Body, s.Tag
+		case *ast.TypeSwitchStmt:
+			init, body, tag = s.Init, s.Body, s.Assign
+		case *ast.SelectStmt:
+			body = s.Body
+		}
+		if init != nil {
+			st = f.statement(init, st)
+			if st == nil {
+				return nil
+			}
+		}
+		f.expressions(tag, st)
+		paths, all := []state{}, false
+		for _, clause := range body.List {
+			var list []ast.Stmt
+			switch c := clause.(type) {
+			case *ast.CaseClause:
+				for _, e := range c.List {
+					f.expressions(e, st)
+				}
+				list, all = c.Body, all || c.List == nil
+			case *ast.CommClause:
+				f.expressions(c.Comm, st)
+				list, all = c.Body, all || c.Comm == nil
+			}
+			end := f.block(list, st.copy())
+			if end != nil {
+				paths = append(paths, end)
+			}
+			// A break leaves the switch from somewhere in the clause.
+			if len(f.breaks(list)) > 0 {
+				paths = append(paths, f.forget(st.copy(), list))
+			}
+		}
+		if !all || len(paths) == 0 {
+			paths = append(paths, st)
+		}
+		return merge(paths)
+	case *ast.ForStmt, *ast.RangeStmt:
+		changed := f.assigned(s)
+		for v := range changed {
+			st[v] = unknown
+		}
+		switch s := s.(type) {
+		case *ast.ForStmt:
+			if s.Init != nil {
+				f.expressions(s.Init, st)
+			}
+			f.expressions(s.Cond, st)
+			f.expressions(s.Post, st)
+			f.block(s.Body.List, st.copy())
+		case *ast.RangeStmt:
+			f.expressions(s.X, st)
+			f.block(s.Body.List, st.copy())
+		}
+		return st
+	case *ast.DeferStmt, *ast.GoStmt, *ast.SendStmt, *ast.IncDecStmt, *ast.EmptyStmt:
+		f.expressions(s, st)
+		for v := range f.assigned(s) {
+			st[v] = unknown
+		}
+		return st
+	}
+	f.expressions(stmt, st)
+	for v := range f.assigned(stmt) {
+		st[v] = unknown
+	}
+	return st
+}
+
+// breaks lists the break statements of a clause body that leave its switch.
+func (f *flow) breaks(list []ast.Stmt) []*ast.BranchStmt {
+	found := []*ast.BranchStmt{}
+	for _, stmt := range list {
+		ast.Inspect(stmt, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncLit, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+				return false
+			case *ast.BranchStmt:
+				if n.Tok == token.BREAK && n.Label == nil {
+					found = append(found, n)
+				}
+			}
+			return true
+		})
+	}
+	return found
+}
+
+// forget is a state with every variable a statement list assigns unknown.
+func (f *flow) forget(st state, list []ast.Stmt) state {
+	for _, stmt := range list {
+		for v := range f.assigned(stmt) {
+			st[v] = unknown
+		}
+	}
+	return st
+}
+
+// stringValue is the texts an argument may have: a constant expression's;
+// those flow recorded for a variable; a + join of strings in which operands
+// without a value are written as Placeholder (when at least one operand has
+// one); or those of the one argument of sqlx's Rebind, which only rewrites
+// bind markers.
+func stringValue(arg ast.Expr, info *types.Info, f *flow) value {
+	return valueOf(arg, info, func(id *ast.Ident) (value, bool) {
+		if f.local(id) == nil {
+			return f.packageValue(id)
+		}
+		val, ok := f.uses[id]
+		return val, ok && val.known
+	}, 0)
+}
+
+func valueOf(arg ast.Expr, info *types.Info, variable func(*ast.Ident) (value, bool), depth int) value {
+	if depth > 8 {
+		return unknown
+	}
+	if c := info.Types[arg].Value; c != nil {
+		if c.Kind() == constant.String {
+			return known(constant.StringVal(c))
+		}
+		return unknown
+	}
+	switch e := ast.Unparen(arg).(type) {
+	case *ast.Ident:
+		val, ok := variable(e)
+		if !ok {
+			return unknown
+		}
+		return val
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return unknown
+		}
+		t := info.TypeOf(e)
+		if t == nil {
+			return unknown
+		}
+		if b, ok := t.Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+			return unknown
+		}
+		left := valueOf(e.X, info, variable, depth+1)
+		right := valueOf(e.Y, info, variable, depth+1)
+		if !left.known && !right.known {
+			return unknown
+		}
+		if !left.known {
+			left = known(Placeholder)
+		}
+		if !right.known {
+			right = known(Placeholder)
+		}
+		return concat(left, right)
+	case *ast.CallExpr:
+		selector, ok := e.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "Rebind" || len(e.Args) != 1 {
+			return unknown
+		}
+		selection := info.Selections[selector]
+		if selection == nil || selection.Obj().Pkg() == nil || !strings.HasPrefix(selection.Obj().Pkg().Path(), "github.com/jmoiron/sqlx") {
+			return unknown
+		}
+		return valueOf(e.Args[0], info, variable, depth+1)
+	}
+	return unknown
+}
+
+// resultOf is the call a local variable is assigned from, and which of the
+// call's results it holds.
+type resultOf struct {
+	call  *ast.CallExpr
+	index int
+}
+
+// once maps each local variable of a file that is assigned exactly once,
+// from a composite literal, to that literal; and each local assigned exactly
+// once, from one result of a multi-value call, to that call. A variable
+// whose address is taken (other than as a keyed element of a composite
+// literal) is in neither.
+func once(file ast.Node, info *types.Info) (map[*types.Var]*ast.CompositeLit, map[*types.Var]resultOf) {
+	count := map[*types.Var]int{}
+	literals := map[*types.Var]*ast.CompositeLit{}
+	calls := map[*types.Var]resultOf{}
+	escaped := map[*types.Var]bool{}
+	stored := map[*ast.UnaryExpr]bool{}
+	variable := func(id *ast.Ident) *types.Var {
 		obj := info.Defs[id]
 		if obj == nil {
 			obj = info.Uses[id]
 		}
-		v, ok := obj.(*types.Var)
-		if !ok || v.Parent() == nil || v.Pkg() == nil || v.Parent() == v.Pkg().Scope() {
-			return // a field, or a package variable other files may assign
-		}
-		seen[v]++
-		if seen[v] == 1 {
-			found[v] = value
-		} else {
-			found[v] = nil
-		}
+		v, _ := obj.(*types.Var)
+		return v
 	}
-	ast.Inspect(body, func(node ast.Node) bool {
+	ast.Inspect(file, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.AssignStmt:
 			for i, left := range n.Lhs {
@@ -350,112 +1130,120 @@ func assignments(body ast.Node, info *types.Info) map[*types.Var]ast.Expr {
 				if !ok {
 					continue
 				}
-				var value ast.Expr
-				if len(n.Lhs) == len(n.Rhs) && (n.Tok == token.ASSIGN || n.Tok == token.DEFINE) {
-					value = n.Rhs[i]
+				v := variable(id)
+				if v == nil {
+					continue
 				}
-				set(id, value)
-				if value == nil {
-					set(id, nil) // compound or multi-value assignment
+				count[v]++
+				if n.Tok != token.ASSIGN && n.Tok != token.DEFINE {
+					count[v]++
+					continue
+				}
+				if len(n.Rhs) == len(n.Lhs) {
+					if literal, ok := ast.Unparen(n.Rhs[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if call, ok := n.Rhs[0].(*ast.CallExpr); ok && len(n.Rhs) == 1 {
+					calls[v] = resultOf{call, i}
 				}
 			}
 		case *ast.ValueSpec:
 			for i, id := range n.Names {
-				var value ast.Expr
-				if len(n.Names) == len(n.Values) {
-					value = n.Values[i]
+				v := variable(id)
+				if v == nil {
+					continue
 				}
-				set(id, value)
+				count[v]++
+				if len(n.Values) == len(n.Names) {
+					if literal, ok := ast.Unparen(n.Values[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if len(n.Values) == 1 {
+					if call, ok := n.Values[0].(*ast.CallExpr); ok {
+						calls[v] = resultOf{call, i}
+					}
+				}
 			}
 		case *ast.RangeStmt:
 			for _, e := range []ast.Expr{n.Key, n.Value} {
 				if id, ok := e.(*ast.Ident); ok {
-					set(id, nil)
-					set(id, nil)
+					if v := variable(id); v != nil {
+						count[v] += 2
+					}
 				}
-			}
-		case *ast.UnaryExpr:
-			if id, ok := n.X.(*ast.Ident); ok && n.Op == token.AND {
-				set(id, nil)
-				set(id, nil)
 			}
 		case *ast.IncDecStmt:
 			if id, ok := n.X.(*ast.Ident); ok {
-				set(id, nil)
-				set(id, nil)
+				if v := variable(id); v != nil {
+					count[v] += 2
+				}
+			}
+		case *ast.CompositeLit:
+			// &x as a keyed element (kafka.TopicPartition{Topic: &topic})
+			// stores the pointer in a field; it is not read as a write.
+			for _, e := range n.Elts {
+				if kv, ok := e.(*ast.KeyValueExpr); ok {
+					if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+						stored[unary] = true
+					}
+				}
+			}
+		case *ast.UnaryExpr:
+			if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
+				if v := variable(id); v != nil {
+					escaped[v] = true
+				}
 			}
 		}
 		return true
 	})
-	return found
+	for v := range literals {
+		if count[v] != 1 || escaped[v] {
+			delete(literals, v)
+		}
+	}
+	for v := range calls {
+		if count[v] != 1 || escaped[v] {
+			delete(calls, v)
+		}
+	}
+	return literals, calls
 }
 
-// Placeholder stands for text the code does not fix inside a + join.
-const Placeholder = "\x00"
-
-// stringValue is the string an argument has: a constant expression's
-// value; that of the one expression assigned to a local variable assigned
-// once; a + join of strings in which operands without a value are written
-// as Placeholder (when at least one operand has one); or the value of the
-// one argument of sqlx's Rebind, which only rewrites bind markers.
-func stringValue(arg ast.Expr, info *types.Info, assigned map[*types.Var]ast.Expr) (string, bool) {
-	return valueOf(arg, info, assigned, 0)
-}
-
-func valueOf(arg ast.Expr, info *types.Info, assigned map[*types.Var]ast.Expr, depth int) (string, bool) {
-	if depth > 8 {
-		return "", false
+// stringsValue is the texts of each element of a []string literal, or of
+// the one such literal assigned to a local variable assigned once; nil for
+// an element without one.
+func stringsValue(arg ast.Expr, info *types.Info, f *flow, literals map[*types.Var]*ast.CompositeLit) ([][]string, bool) {
+	arg = ast.Unparen(arg)
+	if id, ok := arg.(*ast.Ident); ok {
+		v, ok := info.Uses[id].(*types.Var)
+		if !ok || literals[v] == nil {
+			return nil, false
+		}
+		arg = literals[v]
 	}
-	if value := info.Types[arg].Value; value != nil {
-		if value.Kind() == constant.String {
-			return constant.StringVal(value), true
-		}
-		return "", false
+	literal, ok := arg.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
 	}
-	switch e := ast.Unparen(arg).(type) {
-	case *ast.Ident:
-		v, ok := info.Uses[e].(*types.Var)
-		if !ok {
-			return "", false
-		}
-		value, ok := assigned[v]
-		if !ok || value == nil {
-			return "", false
-		}
-		return valueOf(value, info, assigned, depth+1)
-	case *ast.BinaryExpr:
-		if e.Op != token.ADD {
-			return "", false
-		}
-		t := info.TypeOf(e)
-		if t == nil {
-			return "", false
-		}
-		if b, ok := t.Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
-			return "", false
-		}
-		left, lok := valueOf(e.X, info, assigned, depth+1)
-		right, rok := valueOf(e.Y, info, assigned, depth+1)
-		if !lok && !rok {
-			return "", false
-		}
-		if !lok {
-			left = Placeholder
-		}
-		if !rok {
-			right = Placeholder
-		}
-		return left + right, true
-	case *ast.CallExpr:
-		selector, ok := e.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != "Rebind" || len(e.Args) != 1 {
-			return "", false
-		}
-		selection := info.Selections[selector]
-		if selection == nil || selection.Obj().Pkg() == nil || !strings.HasPrefix(selection.Obj().Pkg().Path(), "github.com/jmoiron/sqlx") {
-			return "", false
-		}
-		return valueOf(e.Args[0], info, assigned, depth+1)
+	t := info.TypeOf(literal)
+	if t == nil {
+		return nil, false
 	}
-	return "", false
+	slice, ok := t.Underlying().(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	if b, ok := slice.Elem().Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+		return nil, false
+	}
+	values := [][]string{}
+	for _, e := range literal.Elts {
+		if val := stringValue(e, info, f); val.known {
+			values = append(values, val.texts)
+		} else {
+			values = append(values, nil)
+		}
+	}
+	return values, true
 }

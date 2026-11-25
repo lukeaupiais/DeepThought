@@ -136,5 +136,21 @@ class RenameAndCheckTests(unittest.TestCase):
         self.assertNotIn(("tests/test_a.py", 11), lines)
 
 
+class UnignoreTests(unittest.TestCase):
+    def test_type_ignore_comments_are_blanked_in_place(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "tests").mkdir()
+        (root / "docs").mkdir()
+        line = "f(None)  # type: ignore[arg-type]\n"
+        (root / "tests" / "test_a.py").write_text(line, "utf-8")
+        (root / "docs" / "b.py").write_text(line, "utf-8")
+        py_check_truth.unignore(root, ["tests"])
+        blanked = (root / "tests" / "test_a.py").read_text("utf-8")
+        self.assertEqual(blanked.rstrip(), "f(None)")
+        self.assertEqual(len(blanked), len(line))
+        self.assertEqual((root / "docs" / "b.py").read_text("utf-8"), line)
+
+
 if __name__ == "__main__":
     unittest.main()

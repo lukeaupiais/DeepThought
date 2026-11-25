@@ -120,11 +120,6 @@ def main(argv=None) -> int:
     )
     scip_index.add_argument("--project-name")
     scip_index.add_argument("--timeout", type=int, default=600)
-    scip_index.add_argument(
-        "--allow-uncovered",
-        action="store_true",
-        help="Exit 0 even when some source files have no index",
-    )
     subcommands.add_parser(
         "indexers", help="List the pinned SCIP indexers and whether each is installed"
     )
@@ -193,13 +188,14 @@ def main(argv=None) -> int:
                         + (f": {run['detail']}" if run["detail"] else ""),
                         file=sys.stderr,
                     )
-            if report["uncovered"]:
-                print(
-                    f"{report['uncovered']} source files have no SCIP index; "
-                    "see coverage",
-                    file=sys.stderr,
-                )
-            return 0 if args.allow_uncovered or not report["uncovered"] else 3
+            from .indexers import failed_files
+
+            for path, entry in sorted(report["coverage"].items()):
+                if entry["status"] != "covered":
+                    print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+            # A missing or failing indexer is an error; a file no compiler can
+            # index (no go.mod, built on no platform) is reported, not fatal.
+            return 3 if failed_files(report) else 0
         if args.command == "index-typescript":
             from .scip_indexing import index_typescript
 
