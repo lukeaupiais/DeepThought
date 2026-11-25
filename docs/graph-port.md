@@ -2132,8 +2132,19 @@ with `__metadata` is Yarn 2 or later: the project's own release runs (the
 corepack, which reads `COREPACK_NPM_REGISTRY`) as `yarn install --immutable
 --mode=skip-build`, with `YARN_ENABLE_SCRIPTS=false` and the `node-modules`
 linker, since the compiler cannot read Plug'n'Play. A directory inside a
-workspace root with a lockfile installs from the root, and a workspace with no lockfile
-runs `npm install --ignore-scripts` at the root. scip-typescript then indexes
+directory with a lockfile, or inside a workspace root (`workspaces` in its
+package.json, or `pnpm-workspace.yaml`), installs from there; any other
+directory whose package.json declares packages installs where it is, so a
+repository of separate packages with no lockfile (grpc-node's `packages/*`)
+gets each package's dependencies. Every install also runs with
+`npm_config_script_shell` set to `true`: npm 10.9 runs a `file:`
+dependency's `prepare` script even with `--ignore-scripts`, and a shell
+that does nothing keeps it from running. On grpc-node (ca7f83f) the
+`grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
+tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
+files `indexer_failed`; now every file is covered. A directory without a
+lockfile runs `npm install --ignore-scripts --no-package-lock`.
+scip-typescript then indexes
 the copy, so the workspace is left as it was and document paths are the
 same. Packages are installed once per `index_workspace`, for both
 scip-typescript passes. The run and receipt record `dependencies`: `status`

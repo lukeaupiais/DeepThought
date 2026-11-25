@@ -37,6 +37,30 @@ class InstallDirectoriesTest(unittest.TestCase):
                 shutil.rmtree(Path(scratch) / name)
             self.assertEqual(install_directories(scratch), ["."])
 
+    def test_packages_that_are_not_workspaces_install_where_they_are(self):
+        declares = json.dumps({"dependencies": {"x": "1"}})
+        with tempfile.TemporaryDirectory() as scratch:
+            write(
+                scratch,
+                {
+                    "package.json": json.dumps({"devDependencies": {"gulp": "4"}}),
+                    "packages/a/package.json": declares,
+                    "packages/b/package.json": declares,
+                    "packages/b/test/package.json": declares,
+                    "packages/c/package.json": "{}",
+                },
+            )
+            self.assertEqual(
+                install_directories(scratch),
+                [".", "packages/a", "packages/b", "packages/b/test"],
+            )
+            # A workspace root installs its packages.
+            write(
+                scratch,
+                {"package.json": json.dumps({"workspaces": ["packages/*"]})},
+            )
+            self.assertEqual(install_directories(scratch), ["."])
+
 
 class ManagerTest(unittest.TestCase):
     def manager(self, files):
@@ -151,6 +175,17 @@ class InstalledPackagesTest(unittest.TestCase):
         receipt = json.loads(Path(run["index"] + ".sources.json").read_text())
         self.assertEqual(receipt["producer"]["dependencies"]["status"], "installed")
         self.assertEqual(receipt["producer"]["arguments"][:3], ["index", "--cwd", "."])
+
+    def test_a_file_dependencys_prepare_script_does_not_run(self):
+        marker = Path(self.scratch.name) / "prepare-ran"
+        package = self.root / "vendor" / "tinylib" / "package.json"
+        manifest = json.loads(package.read_text())
+        manifest["scripts"] = {"prepare": f"touch {marker}"}
+        package.write_text(json.dumps(manifest))
+        _, run, symbols = self.index({"tinylib": "file:./vendor/tinylib"})
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertFalse(marker.exists())
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
 
     @unittest.skipUnless(shutil.which("bun"), "Install bun")
     def test_a_bun_lockfile_installs_with_bun(self):

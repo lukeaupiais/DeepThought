@@ -57,25 +57,32 @@ NO_LOCKFILE = (
 _COPY_SKIP = {".git", ".hg", ".svn", "node_modules"}
 
 
+_DEPENDENCY_KEYS = (
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+)
+
+
+def _package(directory):
+    try:
+        package = json.loads((Path(directory) / "package.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return package if isinstance(package, dict) else None
+
+
+def _declares(package):
+    return package is not None and any(package.get(k) for k in _DEPENDENCY_KEYS)
+
+
 def declares_packages(root):
     """Whether any package.json outside node_modules declares a dependency."""
     for directory, names, filenames in os.walk(root):
         names[:] = [n for n in names if n not in _COPY_SKIP and not n.startswith(".")]
-        if "package.json" in filenames:
-            try:
-                package = json.loads((Path(directory) / "package.json").read_text())
-            except (OSError, ValueError):
-                continue
-            if isinstance(package, dict) and any(
-                package.get(key)
-                for key in (
-                    "dependencies",
-                    "devDependencies",
-                    "peerDependencies",
-                    "optionalDependencies",
-                )
-            ):
-                return True
+        if "package.json" in filenames and _declares(_package(directory)):
+            return True
     return False
 
 
@@ -86,6 +93,19 @@ def _manager(directory):
                 return "yarn", YARN_BERRY, lockfile
             return manager, arguments, lockfile
     return (*NO_LOCKFILE, None)
+
+
+def _no_scripts():
+    """Settings that keep every package's scripts from running.
+
+    npm runs a ``file:`` dependency's ``prepare`` script even with
+    ``--ignore-scripts`` (npm 10.9); a shell that does nothing makes any
+    script npm still starts a no-op."""
+    settings = {"CI": "1", "npm_config_ignore_scripts": "true"}
+    noop = shutil.which("true")
+    if noop is not None:
+        settings["npm_config_script_shell"] = noop
+    return settings
 
 
 def _yarn_berry(directory):
@@ -118,21 +138,31 @@ def _yarn_berry_command(directory, environ):
 def install_directories(root):
     """Workspace-relative directories to install in, in a fixed order.
 
-    Each directory with a lockfile, except one inside another lockfile's
-    directory (a pnpm or yarn workspace installs its packages from the root);
-    the root alone when no lockfile exists anywhere."""
+    Each directory with a lockfile, and each directory whose package.json
+    declares packages, except one inside a directory that installs it: a
+    directory with a lockfile, or a workspace root (``workspaces`` in its
+    package.json, or a ``pnpm-workspace.yaml``), installs its packages from
+    there. A repository of packages that are not workspaces, with no
+    lockfile, so installs each package where it is. The root alone when
+    nothing declares packages."""
     root = Path(root)
-    found = []
+    found, covering = [], []
     for directory, names, filenames in os.walk(root):
         names[:] = sorted(
             n for n in names if n not in _COPY_SKIP and not n.startswith(".")
         )
         relative = Path(directory).relative_to(root).as_posix()
-        if any(lockfile in filenames for lockfile, _, _ in LOCKFILES):
-            if not any(
-                relative == d or relative.startswith(d + "/") or d == "." for d in found
-            ):
-                found.append(relative)
+        if any(relative.startswith(d + "/") or d == "." for d in covering):
+            continue
+        locked = any(lockfile in filenames for lockfile, _, _ in LOCKFILES)
+        package = _package(directory) if "package.json" in filenames else None
+        workspace = "pnpm-workspace.yaml" in filenames or bool(
+            package and package.get("workspaces")
+        )
+        if locked or _declares(package):
+            found.append(relative)
+        if locked or workspace:
+            covering.append(relative)
     return found or ["."]
 
 
@@ -203,7 +233,7 @@ def prepare(root, scratch, *, environ=None, timeout=600):
                 text=True,
                 timeout=timeout,
                 check=False,
-                env={**env, "CI": "1", "npm_config_ignore_scripts": "true", **extra},
+                env={**env, **_no_scripts(), **extra},
             )
         except subprocess.TimeoutExpired:
             install["detail"] = f"{manager} timed out"
