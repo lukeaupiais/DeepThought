@@ -2045,7 +2045,8 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
             (root / "main.py").write_text(
                 "def helper(): pass\ndef run():\n    helper()\nhelper()\n"
             )
-            output = await TreeSitterTool(root).analyze(self.repo)
+            # The parser's own rules, which bind calls in files no index covers.
+            output = await TreeSitterTool(root).analyze(self.repo, scip_indexes=())
         result = await self.coordinator.write_tool_output(
             "tree-sitter", output, self.repo
         )
@@ -2125,7 +2126,8 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
             (root / "dup.py").write_text(
                 "if x:\n    def dup(): pass\nelse:\n    def dup(): pass\ndup()\n"
             )
-            output = await TreeSitterTool(root).analyze(self.repo)
+            # The parser's own rules, which bind calls in files no index covers.
+            output = await TreeSitterTool(root).analyze(self.repo, scip_indexes=())
         result = await self.coordinator.write_tool_output(
             "tree-sitter", output, self.repo
         )
