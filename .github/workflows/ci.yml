@@ -1,12 +1,20 @@
 name: Standalone acceptance
 
 on:
+  # Branches get CI through their pull request; pushing them as well would run it twice.
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A new push to a pull request supersedes its running checks; main keeps every run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   attribution:

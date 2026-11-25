@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -682,21 +683,34 @@ def run_indexer(
                     "without_dependencies",
                 )
             }
-        try:
-            result = subprocess.run(
-                [str(executable), *argv],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                env=_environment(spec, root, environ, platform, dependencies),
+        while True:
+            try:
+                result = subprocess.run(
+                    [str(executable), *argv],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    env=_environment(spec, root, environ, platform, dependencies),
+                )
+            except subprocess.TimeoutExpired:
+                run.reason = "indexer_timeout"
+                run.wall_seconds = time.monotonic() - started
+                return run
+            log = (result.stdout + result.stderr)[-4000:]
+            if spec.name != "scip-typescript" or indexed_root == root:
+                break
+            missing = _missing_generated_configs(
+                result.stdout + result.stderr, indexed_root
             )
-        except subprocess.TimeoutExpired:
-            run.reason = "indexer_timeout"
-            run.wall_seconds = time.monotonic() - started
-            return run
-        log = (result.stdout + result.stderr)[-4000:]
+            if not missing:
+                break
+            _write_placeholder_configs(indexed_root, missing)
+        if spec.name == "scip-typescript" and indexed_root != root:
+            placeholders = _placeholder_configs(indexed_root)
+            if placeholders:
+                run.dependencies["placeholder_configs"] = placeholders
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
             run.wall_seconds = time.monotonic() - started
@@ -821,6 +835,53 @@ def _prepared_packages(root, directory, environ, timeout):
     prepared = prepare(root, target, environ=environ, timeout=timeout)
     record.write_text(json.dumps(prepared))
     return prepared
+
+
+# The compiler's report of a configuration file it could not read, such as
+# the target of an ``extends``.
+_UNREADABLE_CONFIG = re.compile(r"error TS5083: Cannot read file '([^']+)'")
+
+
+def _missing_generated_configs(log, indexed_root):
+    """Workspace-relative paths of configuration files the compiler could not
+    read, inside the workspace copy, outside node_modules, and absent.
+
+    A SvelteKit project's tsconfig.json extends .svelte-kit/tsconfig.json,
+    which only ``svelte-kit sync`` writes, and sync runs the repository's own
+    svelte.config.js, which the engine never runs (install scripts are off
+    for the same reason). The compiler names each such file, so an empty
+    configuration stands in for it and the project's files index without the
+    options it would add (SvelteKit's $lib alias stays unresolved)."""
+    copy = Path(indexed_root).resolve()
+    found = set()
+    for match in _UNREADABLE_CONFIG.finditer(log):
+        path = Path(match.group(1)).resolve()
+        if not path.is_relative_to(copy) or path.exists():
+            continue
+        relative = path.relative_to(copy)
+        if "node_modules" in relative.parts or path.suffix != ".json":
+            continue
+        found.add(relative.as_posix())
+    return sorted(found)
+
+
+def _placeholder_record(indexed_root):
+    return Path(indexed_root).parent / "placeholder-configs.json"
+
+
+def _placeholder_configs(indexed_root):
+    """The empty configurations written into this workspace copy so far."""
+    record = _placeholder_record(indexed_root)
+    return json.loads(record.read_text()) if record.is_file() else []
+
+
+def _write_placeholder_configs(indexed_root, missing):
+    for relative in missing:
+        path = Path(indexed_root) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n")
+    written = sorted(set(_placeholder_configs(indexed_root)) | set(missing))
+    _placeholder_record(indexed_root).write_text(json.dumps(written))
 
 
 def _root_config(root):

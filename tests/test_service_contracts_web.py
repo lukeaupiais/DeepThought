@@ -15,6 +15,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from typescript_ready import needs_typescript
 
 READY = importlib.util.find_spec("tree_sitter") and all(
     importlib.util.find_spec(f"tree_sitter_{name}")
@@ -238,6 +239,7 @@ class FoldingTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class WebContractTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -407,6 +409,7 @@ class WebContractTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class ImportCommentTests(unittest.TestCase):
     def test_comment_inside_import_braces(self):
         # JHipster frontends keep a "needle" comment between the braces.

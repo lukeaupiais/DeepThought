@@ -2055,6 +2055,17 @@ writes in a scratch directory: `allowJs`, every file outside
 declarations it infers `{}` instead of `allowJs` and indexes no file, which
 left graphql-js, Ackee, node-express-boilerplate and robot-shop (424 files)
 `indexer_failed`; all are now covered.
+A configuration the compiler cannot read (`error TS5083`) that an `extends`
+names inside the workspace, outside `node_modules`, and that does not exist
+is written as an empty `{}` in the scratch copy and the run repeated; the
+receipt lists each under `dependencies.placeholder_configs`. A SvelteKit
+project's `tsconfig.json` extends `.svelte-kit/tsconfig.json`, which only
+`svelte-kit sync` writes, by running the repository's own `svelte.config.js`;
+the engine runs no repository code, as with install scripts. On immich
+(8c2195c) all 117 web files were `indexer_failed` and stopped the run; they
+now index, without the options the generated file adds (SvelteKit's `$lib`
+alias stays unresolved). A workspace indexed in place (no packages to
+install) is never written to, and such a run still fails.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.
@@ -2636,20 +2647,32 @@ a constant another module exports (`deepthought.service_contracts.web`,
   that extends the enclosing class declares NAME again, or inside a
   `function` or a static member (where `this` is something else). A
   subclass in another file is not seen.
-- **Constants across modules.** A module exports `export const NAME = value`
-  (folded in its own module), `export { a as b }` of a name bound once there,
-  and what it re-exports with `export { a } from` and `export * from` (a name
-  two `export *` give differently is not exported, as in ECMAScript). An
-  import by name takes the exported value when the module specifier resolves
-  to an analysed file: a relative path, or a `compilerOptions.paths` alias of
-  the nearest `tsconfig.json` (as for data contracts). `let`/`var` exports,
-  default exports and namespace imports are not read.
-- **Build-time globals.** A name no scope binds or imports
-  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives it
-  in `angular.json` (the project's `build` target, options and every
+- **Constants across modules.** The TypeScript compiler resolves them
+  (`deepthought.ts_facts`, `src/deepthought/tsfacts/main.js`). The engine
+  builds one program per `tsconfig.json`/`jsconfig.json` (the compiler parses
+  `extends`, `paths`, `baseUrl`, `include` and `exclude`) and one inferred
+  program (`allowJs`) for the other files, and asks the checker what each
+  name or member access refers to, through imports, re-exports, aliases,
+  namespace imports and path aliases. Its value is the constant of a string
+  enum member, the initializer of a `const` (a string, a template or a `+`
+  join, each part followed the same way), a property of an object literal
+  that initializes a `const` (`as const` or not), or the single string
+  literal type the checker gives it. A name two `export *` give is
+  ambiguous (the compiler's TS2308) and has no value. `let` and `var` take
+  none. The folders of JavaScript/TypeScript files take the compiler's
+  value before anything else. Node.js and the compiler are required:
+  `typescript` (pinned, `ts_facts.TYPESCRIPT_VERSION`) is installed with npm
+  into the cache directory on first use, or read from
+  `DEEPTHOUGHT_TYPESCRIPT`, and without them the analysis raises
+  `TypeScriptMissing`. Imports used to find `axios.create` instances are
+  resolved by the compiler too. No lib or `@types` package is loaded, and
+  nothing is emitted or type-checked in full.
+- **Build-time globals.** An ambient `declare const NAME` without a value
+  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives
+  it in `angular.json` (the project's `build` target, options and every
   configuration), for files under the project's `sourceRoot` (else `root`).
   Only a string literal is read; a name defined differently in two
-  configurations is unknown text. `declare const` gives no value.
+  configurations is unknown text. A name a file imports is not a global.
 
 On jhipster/jhipster-sample-app (commit `6b000b5`) and
 jhipster-sample-app-websocket (`410a632`), whose URLs are
@@ -3494,47 +3517,55 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### Contract coverage
 
 The contracts a repository's query returns are only those its readers
-found, so the graph also says which readers ran. For each contract family
-and each language of the repository's source files there is one
-`ContractCoverage` node (`qualified_name`
-`<repo>::contract-coverage::<family>::<language>`) with:
+found, so the graph also says which readers ran. For each contract edge
+family and protocol, and each language of the repository's source files,
+there is one `EdgeCoverage` node (`qualified_name`
+`<repo>::edge-coverage::<family>::<protocol>::<language>`), in the shape the
+call and import coverage uses too:
 
-- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
-  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+- `family` and `protocol`: `HANDLES` or `REQUESTS` with `http`, `grpc` or
+  `graphql`, and `PUBLISHES` or `CONSUMES` with `messaging`;
 - `language` and `files`, the number of the repository's files in it, for
   every language the engine recognises by suffix (C, C++, C#, Go, Java,
   JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
   `engine.source_languages` over the same selection as the analysis; other
   languages get no statement;
-- `status`: `read` when this tool has a reader for the family in that
-  language, else `not_read` with `reason` `no_reader`;
+- `status`: always `not_linked`. Every contract site rule is
+  `pattern_matched`: the engine's own readers find the sites, and a reader
+  counts only the sites it recognises, so it can neither say every site was
+  decided by a deterministic tool (`linked`) nor that there are none
+  (`no_sites`). The `reason` is `parser_rules` when this tool reads the
+  family in that language, `sites` 0 included, and `not_supported` when it
+  has no reader;
+- `resolver`: `["service-contracts@<version>"]` where a reader ran, else
+  empty; `files_linked`: 0;
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
-  found in that language; for `http_requests` and `grpc_calls` also
-  `linked`, how many of them were linked.
+  found; for `REQUESTS` also how many were `linked`, `ambiguous` and
+  `unresolved`.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
 
 | Family | Languages read |
 | --- | --- |
-| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
-| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
-| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
-| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `http` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `HANDLES`/`REQUESTS` `grpc` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `graphql` | JavaScript, TypeScript |
+| `PUBLISHES`/`CONSUMES` `messaging` | Java, Python, Go, JavaScript, TypeScript |
 
 A contract query can return the coverage of the languages present next to
 what it found:
 
 ```cypher
-MATCH (c:ContractCoverage {family: 'grpc_calls'})
+MATCH (c:EdgeCoverage {family: 'REQUESTS', protocol: 'grpc'})
 RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
 ```
 
-`read` with no sites means the reader ran and found nothing it recognises,
-not that the language has no such calls. In online-boutique, the C# cart
-service's tests call `new CartServiceClient(channel)` where the client type
-comes from `using static Hipstershop.CartService;`, which the C# stub
-reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+`no_sites` means the reader ran and found nothing it recognises, not that
+the language has no such calls. In online-boutique, the C# cart service's
+tests call `new CartServiceClient(channel)` where the client type comes from
+`using static Hipstershop.CartService;`, which the C# stub reader does not
+follow, so `REQUESTS grpc csharp` is `no_sites`.
 
 ### OpenAPI Go clients (oapi-codegen)
 
