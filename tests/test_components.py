@@ -22,7 +22,7 @@ from deepthought.storage.graph.write_coordinator import (
     _combine,
 )
 from deepthought.deployments import compose_declarations
-from go_ready import needs_go
+from deploy_tools_ready import needs_deploy_tools
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
@@ -685,7 +685,7 @@ class ComposeTests(unittest.TestCase):
             write(directory, files)
             return asyncio.run(ComponentsTool(directory).analyze("repo"))
 
-    @needs_go
+    @needs_deploy_tools
     def test_services_contexts_and_images(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, COMPOSE)
@@ -704,7 +704,7 @@ class ComposeTests(unittest.TestCase):
             ],
         )
 
-    @needs_go
+    @needs_deploy_tools
     def test_edges(self):
         output = self.analyze(COMPOSE)
         edges = sorted(
@@ -771,7 +771,7 @@ class ComposeTests(unittest.TestCase):
         )
         self.assertEqual(part_of, ["api", "api", "python_project", "worker"])
 
-    @needs_go
+    @needs_deploy_tools
     def test_invalid_compose_file(self):
         output = self.analyze({"compose.yaml": "services: [\n"})
         self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
@@ -803,7 +803,7 @@ RENDERED = {
 }
 
 
-@needs_go
+@needs_deploy_tools
 @unittest.skipUnless(YAML, "Provision PyYAML")
 class RenderedDeploymentTests(unittest.TestCase):
     def test_charts_kustomizations_and_override_files(self):
