@@ -5098,9 +5098,11 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
-A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`.
-It does not repeat the repository, snapshot, scope, capabilities and analysis
-status with every call; `describeSnapshot` (CLI `snapshot`) gives them once.
+A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,
+and `analysis_status` when the snapshot's analysis did not wholly succeed
+(`partial`, for example). It does not repeat the repository, snapshot, scope
+and capabilities with every call; `describeSnapshot` (CLI `snapshot`) gives
+them once.
 
 ## Verification and validation
 

@@ -292,6 +292,32 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                         "truncated": False,
                     },
                 )
+                # A partial snapshot says so in every answer.
+                async with driver.session(database=database) as session:
+                    marked = await session.run(
+                        "MATCH (s:AnalysisSnapshot {repo_url:$repo,snapshot_id:$id})"
+                        " SET s.metadata_json=$metadata",
+                        repo=repo,
+                        id=snapshot,
+                        metadata=json.dumps(
+                            {"custom_metrics": {"analysis_status": "partial"}}
+                        ),
+                    )
+                    await marked.consume()
+                raw = await service.query_cypher(
+                    "RETURN 1 AS n",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    (sorted(raw), raw["analysis_status"]),
+                    (
+                        ["analysis_status", "items", "returned", "status", "truncated"],
+                        "partial",
+                    ),
+                )
                 raw = await service.query_cypher(
                     "RETURN $value AS value",
                     {"value": {"nested": [1, 2]}},

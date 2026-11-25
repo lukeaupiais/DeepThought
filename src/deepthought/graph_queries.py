@@ -246,10 +246,11 @@ class GraphQueryService:
                 if bare:
                     # The snapshot's facts are read once (describe_snapshot),
                     # not repeated with every answer.
-                    response = {
-                        key: response[key]
-                        for key in ("status", "items", "returned", "truncated")
-                    }
+                    # A snapshot that is not wholly analyzed says so still.
+                    kept = ("status", "items", "returned", "truncated")
+                    if response["analysis_status"] != "succeeded":
+                        kept += ("analysis_status",)
+                    response = {key: response[key] for key in kept}
                 async for record in result:
                     if len(response["items"]) >= limit:
                         response["truncated"] = True
