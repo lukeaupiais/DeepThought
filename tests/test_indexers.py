@@ -19,7 +19,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 FAKE = textwrap.dedent(
     """\
     #!{python}
-    import os, sys
+    import json, os, sys
     sys.path.insert(0, {src!r})
     from deepthought._scip import scip_pb2
     argv = sys.argv[1:]
@@ -31,7 +31,13 @@ FAKE = textwrap.dedent(
     index = scip_pb2.Index()
     index.metadata.tool_info.name = os.environ["FAKE_NAME"]
     index.metadata.tool_info.version = os.environ["FAKE_VERSION"]
-    for path in reversed(os.environ["FAKE_DOCUMENTS"].split(",")):
+    documents = os.environ["FAKE_DOCUMENTS"].split(",")
+    if argv[-1].endswith("tsconfig.json"):
+        # A pass over chosen files: its project names them, absolute.
+        with open(argv[-1]) as config:
+            project = json.load(config)
+        documents = [os.path.relpath(f) for f in project["files"]] + documents
+    for path in reversed(documents):
         document = index.documents.add()
         document.relative_path = path
         for line in (0,):
@@ -166,6 +172,63 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(report["runs"][0]["status"], "indexed")
         self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
         self.assertFalse((self.root / "tsconfig.json").exists())
+
+    def test_files_outside_every_tsconfig_get_a_second_pass(self):
+        (self.root / "tsconfig.json").write_text("{}")
+        (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "deno.ts").write_text("export const b = 1;\n")
+        self.fake("scip-typescript")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("typescript",),
+            environ=self.environ(
+                FAKE_NAME="scip-typescript",
+                FAKE_VERSION="0.6.2",
+                FAKE_DOCUMENTS="web.ts",
+            ),
+        )
+        self.assertEqual(report["uncovered"], 0)
+        self.assertEqual(
+            report["coverage"]["scripts/deno.ts"],
+            {
+                "language": "typescript",
+                "status": "covered",
+                "indexer": "scip-typescript",
+                "pass": "outside_tsconfig",
+            },
+        )
+        self.assertNotIn("pass", report["coverage"]["web.ts"])
+        first, second = report["runs"]
+        self.assertEqual((first["documents"], second["documents"]), (1, 1))
+        receipt = indexers.validate_receipt(self.root, second["index"])
+        self.assertEqual(receipt["documents"], ["scripts/deno.ts"])
+        self.assertEqual(
+            receipt["producer"]["project"],
+            {
+                "compilerOptions": {
+                    "allowImportingTsExtensions": True,
+                    "allowJs": True,
+                    "noEmit": True,
+                },
+                "extends": "tsconfig.json",
+                "files": ["scripts/deno.ts"],
+            },
+        )
+        # The passes cover disjoint files, so the scip tool reads both.
+        import asyncio
+
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        tool = ScipAnalysisTool(
+            self.root, index_paths=[first["index"], second["index"]]
+        )
+        self.assertEqual(asyncio.run(tool.analyze("repo")).metadata.files_processed, 2)
+        with self.assertRaisesRegex(ValueError, "scip-typescript"):
+            indexers.run_indexer(
+                indexers.INDEXERS["scip-python"], self.root, self.out / "p", files=[]
+            )
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):

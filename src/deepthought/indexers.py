@@ -308,8 +308,16 @@ def run_indexer(
     project_name=None,
     timeout=600,
     environ=None,
+    files=None,
 ):
-    """Run one pinned indexer; return an IndexRun, never raise for tool failures."""
+    """Run one pinned indexer; return an IndexRun, never raise for tool failures.
+
+    ``files`` (scip-typescript only) indexes just those workspace files, as one
+    project that extends the workspace's root tsconfig.json: the pass for
+    files no tsconfig of the workspace includes.
+    """
+    if files is not None and spec.name != "scip-typescript":
+        raise ValueError("Only scip-typescript indexes a chosen set of files")
     from ._scip import scip_pb2
 
     started = time.monotonic()
@@ -333,6 +341,25 @@ def run_indexer(
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
         argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
+        project = None
+        if files is not None:
+            project = _uncovered_project(root, files)
+            config = Path(scratch) / "tsconfig.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        **project,
+                        "files": [str(root / f) for f in project["files"]],
+                        **(
+                            {"extends": str(root / project["extends"])}
+                            if "extends" in project
+                            else {}
+                        ),
+                    }
+                )
+            )
+            argv = [a for a in argv[:5] if a != "--infer-tsconfig"]
+            argv += ["--no-progress-bar", str(config)]
         # --infer-tsconfig writes a tsconfig.json into the workspace; the run
         # must leave the workspace as it found it.
         inferred = root / "tsconfig.json" if "--infer-tsconfig" in argv else None
@@ -367,7 +394,16 @@ def run_indexer(
         # scip-go also indexes test mains it generates in the Go build cache;
         # those paths leave the workspace and name the machine, so drop them.
         outside = [d for d in parsed.documents if not is_relative_file(d.relative_path)]
-        for document in outside:
+        # A pass over chosen files keeps only those: their imports belong to
+        # the first pass.
+        other = [
+            d
+            for d in parsed.documents
+            if project is not None
+            and is_relative_file(d.relative_path)
+            and d.relative_path not in project["files"]
+        ]
+        for document in outside + other:
             parsed.documents.remove(document)
         data = canonical_bytes(parsed)
         produced = (parsed.metadata.tool_info.name, parsed.metadata.tool_info.version)
@@ -407,6 +443,7 @@ def run_indexer(
                     for a in argv
                     if not a.startswith(str(Path(scratch)))
                 ],
+                **({"project": project} if project is not None else {}),
             },
             "documents": list(documents),
             "dropped_outside_workspace": len(outside),
@@ -418,6 +455,20 @@ def run_indexer(
     run.documents = documents
     run.wall_seconds = time.monotonic() - started
     return run
+
+
+def _uncovered_project(root, files):
+    """The project a scip-typescript pass over ``files`` indexes, with paths
+    relative to the workspace: those files, allowing JavaScript and imports
+    by .ts names, with the compiler options of the root tsconfig.json if there
+    is one."""
+    # Files outside every tsconfig are often Deno or Bun scripts, which import
+    # modules by their .ts names; the compiler accepts that only when told.
+    options = {"allowJs": True, "allowImportingTsExtensions": True, "noEmit": True}
+    project = {"compilerOptions": options, "files": sorted(files)}
+    if (root / "tsconfig.json").is_file():
+        project["extends"] = "tsconfig.json"
+    return project
 
 
 def canonical_bytes(index):
@@ -526,8 +577,10 @@ def index_workspace(
     Returns ``{"runs": [...], "coverage": {file: {...}}, "uncovered": n}``.
     A file is ``covered`` when its indexer's index has a document for it;
     otherwise ``reason`` says why (indexer not installed, failed, wrong
-    version, or the indexer did not include the file, e.g. outside every
-    tsconfig).
+    version, or the indexer did not include the file). TypeScript and
+    JavaScript files outside every tsconfig.json of the workspace are indexed
+    by a second scip-typescript pass (``scip-typescript-uncovered.scip``,
+    coverage ``pass: outside_tsconfig``).
     """
     root = Path(workspace).resolve(strict=True)
     directory = Path(output_directory).absolute()
@@ -552,6 +605,27 @@ def index_workspace(
             )
         )
     by_language = {language: run for run in runs for language in run.languages}
+    # Files outside every tsconfig of the workspace get a second
+    # scip-typescript pass of their own, so they are compiled too.
+    typescript = next((r for r in runs if r.indexer == "scip-typescript"), None)
+    second = None
+    if typescript is not None and typescript.status == "indexed":
+        missing = sorted(
+            path
+            for path, language in sources.items()
+            if language in typescript.languages and path not in typescript.documents
+        )
+        if missing:
+            second = run_indexer(
+                INDEXERS["scip-typescript"],
+                root,
+                directory / "scip-typescript-uncovered.scip",
+                project_name=project_name,
+                timeout=timeout,
+                environ=environ,
+                files=missing,
+            )
+            runs.append(second)
     coverage = {}
     for path, language in sorted(sources.items()):
         run = by_language[language]
@@ -561,12 +635,24 @@ def index_workspace(
                 "status": "covered",
                 "indexer": run.indexer,
             }
+        elif second is not None and path in second.documents:
+            coverage[path] = {
+                "language": language,
+                "status": "covered",
+                "indexer": run.indexer,
+                "pass": "outside_tsconfig",
+            }
         else:
             coverage[path] = {
                 "language": language,
                 "status": "uncovered",
                 "indexer": run.indexer,
                 "reason": run.reason if run.status != "indexed" else "not_in_index",
+                **(
+                    {"outside_tsconfig_pass": second.reason}
+                    if second is not None and second.status != "indexed"
+                    else {}
+                ),
             }
     return {
         "runs": [run.to_dict() for run in runs],
