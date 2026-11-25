@@ -1,0 +1,391 @@
+{
+  "corpus": "confluent-kafka-go-examples",
+  "repo": "https://github.com/confluentinc/confluent-kafka-go",
+  "commit": "eb0eb146321701ab7d90873f6856bc173628683a",
+  "license": "Apache-2.0",
+  "root": "examples",
+  "client": "confluent-kafka-go",
+  "scope": "labelled",
+  "sources": [
+    "manual reading of every broker-client call and literal under root at the pinned commit"
+  ],
+  "notes": [
+    "A TopicPartition is a publish only as the TopicPartition of a message given to Produce or ProduceChannel; commits, offset queries, seeks and admin requests take TopicPartitions too and send nothing.",
+    "transactions_example names its topics in package variables with literal initial values that nothing reassigns; those are their destinations.",
+    "legacy/ is not counted (older API samples)."
+  ],
+  "not_counted": [
+    {
+      "file": "legacy",
+      "line": null
+    }
+  ],
+  "sites": [
+    {
+      "file": "admin_alter_consumer_group_offsets/admin_alter_consumer_group_offsets.go",
+      "line": 62,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "admin_delete_records/admin_delete_records.go",
+      "line": 78,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "admin_elect_leaders/admin_elect_leaders.go",
+      "line": 76,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "admin_list_consumer_group_offsets/admin_list_consumer_group_offsets.go",
+      "line": 65,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "admin_list_offsets/admin_list_offsets.go",
+      "line": 56,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "avrov3_consumer_encryption_example/avrov3_consumer_encryption_example.go",
+      "line": 96,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "avrov3_consumer_example/avrov3_consumer_example.go",
+      "line": 74,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "avrov3_consumer_migration_example/avrov3_consumer_migration_example.go",
+      "line": 84,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "avrov3_producer_encryption_example/avrov3_producer_encryption_example.go",
+      "line": 153,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "avrov3_producer_example/avrov3_producer_example.go",
+      "line": 68,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "avrov3_producer_migration_example/avrov3_producer_migration_example.go",
+      "line": 171,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "confluent_cloud_example/confluent_cloud_example.go",
+      "line": 128,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ],
+      "also_at": [
+        127
+      ]
+    },
+    {
+      "file": "confluent_cloud_example/confluent_cloud_example.go",
+      "line": 165,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ]
+    },
+    {
+      "file": "consumer_example/consumer_example.go",
+      "line": 71,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "consumer_offset_metadata/consumer_offset_metadata.go",
+      "line": 81,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "consumer_offset_metadata/consumer_offset_metadata.go",
+      "line": 96,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "consumer_rebalance_example/consumer_rebalance_example.go",
+      "line": 65,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "cooperative_consumer_example/cooperative_consumer_example.go",
+      "line": 72,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "docker_aws_lambda_example/producer_example.go",
+      "line": 112,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the environment"
+    },
+    {
+      "file": "go-kafkacat/go-kafkacat.go",
+      "line": 50,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "go-kafkacat/go-kafkacat.go",
+      "line": 135,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from a flag, set at run time"
+    },
+    {
+      "file": "idempotent_producer_example/idempotent_producer_example.go",
+      "line": 139,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "json_consumer_encryption_example/json_consumer_encryption_example.go",
+      "line": 97,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "json_consumer_example/json_consumer_example.go",
+      "line": 74,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "json_producer_encryption_example/json_producer_encryption_example.go",
+      "line": 145,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "json_producer_example/json_producer_example.go",
+      "line": 69,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "mockcluster_example/mockcluster.go",
+      "line": 51,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "Test"
+      ],
+      "also_at": [
+        50
+      ]
+    },
+    {
+      "file": "mockcluster_example/mockcluster.go",
+      "line": 85,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "Test"
+      ]
+    },
+    {
+      "file": "mockcluster_failure_example/mockcluster_failure.go",
+      "line": 119,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "Test"
+      ],
+      "also_at": [
+        118
+      ]
+    },
+    {
+      "file": "oauthbearer_consumer_example/oauthbearer_consumer_example.go",
+      "line": 151,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "oauthbearer_oidc_azure_imds_example/oauthbearer_oidc_azure_imds_example.go",
+      "line": 79,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ]
+    },
+    {
+      "file": "oauthbearer_oidc_azure_imds_example/oauthbearer_oidc_azure_imds_example.go",
+      "line": 102,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ],
+      "also_at": [
+        101
+      ]
+    },
+    {
+      "file": "oauthbearer_oidc_example/oauthbearer_oidc_example.go",
+      "line": 78,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ]
+    },
+    {
+      "file": "oauthbearer_oidc_example/oauthbearer_oidc_example.go",
+      "line": 101,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "go-test-topic"
+      ],
+      "also_at": [
+        100
+      ]
+    },
+    {
+      "file": "oauthbearer_producer_example/oauthbearer_producer_example.go",
+      "line": 174,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "producer_custom_channel_example/producer_custom_channel_example.go",
+      "line": 106,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "producer_example/producer_example.go",
+      "line": 85,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "protobuf_consumer_encryption_example/protobuf_consumer_encryption_example.go",
+      "line": 96,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "protobuf_consumer_example/protobuf_consumer_example.go",
+      "line": 74,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "protobuf_producer_encryption_example/protobuf_producer_encryption_example.go",
+      "line": 148,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "protobuf_producer_example/protobuf_producer_example.go",
+      "line": 67,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "stats_example/stats_example.go",
+      "line": 65,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the command line"
+    },
+    {
+      "file": "transactions_example/generator.go",
+      "line": 90,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "go-transactions-example-ingress-cars"
+      ],
+      "also_at": [
+        49
+      ]
+    },
+    {
+      "file": "transactions_example/processor.go",
+      "line": 237,
+      "role": "publish",
+      "broker": "kafka",
+      "destinations": [
+        "go-transactions-example-traffic-light-states"
+      ],
+      "also_at": [
+        235,
+        236
+      ]
+    },
+    {
+      "file": "transactions_example/processor.go",
+      "line": 289,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "go-transactions-example-ingress-cars"
+      ]
+    },
+    {
+      "file": "transactions_example/txnhelpers.go",
+      "line": 143,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "transactions_example/txnhelpers.go",
+      "line": 167,
+      "none": "a TopicPartition passed to an offset or admin call, not a produced message"
+    },
+    {
+      "file": "transactions_example/visualizer.go",
+      "line": 348,
+      "role": "consume",
+      "broker": "kafka",
+      "destinations": [
+        "go-transactions-example-traffic-light-states"
+      ]
+    }
+  ]
+}

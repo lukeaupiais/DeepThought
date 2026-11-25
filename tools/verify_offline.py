@@ -90,6 +90,21 @@ print('Verified core-only installation, consistency CLI and explicit missing-ext
 """
 
 
+def tool_directories():
+    """Directories of the pinned SCIP indexers and the runtimes they need.
+
+    The indexers are engine dependencies, so the offline sandbox sees the
+    ones installed on the host, and node and go, which they run on."""
+    found = []
+    for name in ("scip-python", "scip-typescript", "scip-go", "node", "go"):
+        path = shutil.which(name)
+        if path is not None:
+            directory = str(Path(path).parent)
+            if directory not in found and directory not in {"/usr/bin", "/bin"}:
+                found.append(directory)
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", type=Path, required=True)
@@ -138,7 +153,9 @@ def main():
             "--clearenv",
             "--setenv",
             "PATH",
-            f"{interpreter.parent}:/usr/bin:/bin",
+            ":".join(
+                [str(interpreter.parent), *tool_directories(), "/usr/bin", "/bin"]
+            ),
             "--setenv",
             "TMPDIR",
             str(scratch),

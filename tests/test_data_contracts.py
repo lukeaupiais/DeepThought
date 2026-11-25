@@ -181,6 +181,28 @@ class DdlTests(unittest.TestCase):
         )
         self.assertIsNone(extract_ddl("bad.sql", b"\xff\xfe"))
 
+    def test_create_table_readers(self):
+        text = b"""-- a comment; not a statement end
+CREATE TEMPORARY TABLE scratch (x INT);
+CREATE FUNCTION f() RETURNS void AS $$ BEGIN CREATE TABLE inner_t (x INT); END $$ LANGUAGE plpgsql;
+CREATE TABLE IF NOT EXISTS events
+(
+  id String CODEC(ZSTD(1))
+) ENGINE = MergeTree ORDER BY id;
+CREATE TABLE "Ids" (
+  seq bigint GENERATED ALWAYS AS IDENTITY (sequence name "s" INCREMENT BY 1),
+  n int
+);
+"""
+        found = extract_ddl("m.sql", text)
+        self.assertEqual(
+            [(d.line, d.name, d.schema, d.reader) for d in found],
+            [
+                (4, "events", None, "sqlglot"),
+                (8, "ids", None, "tokens_not_parsed"),
+            ],
+        )
+
     def test_default_physical_names(self):
         self.assertEqual(
             [
@@ -1197,6 +1219,33 @@ class KyselyTests(unittest.TestCase):
 
 
 class StatementTests(unittest.TestCase):
+    def test_readers(self):
+        # sqlglot reads SQL; the token reader only what no parser accepts.
+        read = statement_tables("SELECT * FROM pets p JOIN visits v ON p.id = v.pet")
+        self.assertEqual(
+            (read.reads, read.writes, read.reader), (("pets", "visits"), (), "sqlglot")
+        )
+        held = statement_tables("SELECT * FROM \x00 JOIN visits v ON true")
+        self.assertEqual((held.reads, held.reader), (("visits",), "tokens"))
+        jpql = statement_tables("SELECT o FROM Owner o", jpql=True)
+        self.assertEqual((jpql.reads, jpql.reader), (("Owner",), "tokens"))
+        # SQL no dialect accepts is read by tokens, and says so.
+        bad = statement_tables("UPDATE owners SET city = 1 WHERE id = ? FOR UPDATE")
+        self.assertEqual(
+            (bad.reads, bad.writes, bad.reader), ((), ("owners",), "tokens_not_parsed")
+        )
+        locked = statement_tables(
+            "SELECT e.* FROM events e JOIN handled he ON true FOR UPDATE OF he"
+        )
+        self.assertEqual(locked.reads, ("events", "handled"))
+        # Positional parameters, and a multi-table DELETE's aliases.
+        positional = statement_tables("DELETE FROM visits WHERE pet_id = ?1")
+        self.assertEqual(positional.writes, ("visits",))
+        aliased = statement_tables(
+            "DELETE i, c FROM items i JOIN cache c ON c.id = i.id WHERE c.t < 1"
+        )
+        self.assertEqual(sorted(aliased.writes), ["cache", "items"])
+
     def test_tables_read_and_written(self):
         cases = {
             "SELECT p.id FROM pets p LEFT OUTER JOIN visits v ON p.id = v.pet": (
@@ -1207,7 +1256,7 @@ class StatementTests(unittest.TestCase):
                 ("visits",),
                 ("visits",),
             ),
-            "UPDATE owners SET city = 'FROM x' WHERE id = ? FOR UPDATE": (
+            "UPDATE owners SET city = 'FROM x' WHERE id = ?": (
                 (),
                 ("owners",),
             ),
@@ -1230,7 +1279,8 @@ class StatementTests(unittest.TestCase):
                 ("pets", "owners"),
                 (),
             ),
-            "MERGE INTO stock s USING deliveries d ON s.id = d.id": (
+            "MERGE INTO stock s USING deliveries d ON s.id = d.id "
+            "WHEN MATCHED THEN UPDATE SET qty = d.qty": (
                 ("deliveries",),
                 ("stock",),
             ),
@@ -1360,7 +1410,14 @@ class JavaSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 9, "not_fixed": 1, "unknown_entity": 1},
+            {
+                "statements": 9,
+                "not_fixed": 1,
+                "unknown_entity": 1,
+                "sqlglot": 4,
+                "tokens": 4,
+                "tokens_not_parsed": 0,
+            },
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
@@ -1484,7 +1541,14 @@ class PythonSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 6, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 6,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 4,
+                "tokens": 1,
+                "tokens_not_parsed": 0,
+            },
         )
 
 
@@ -1910,7 +1974,14 @@ class GoSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 3,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 2,
+                "tokens": 0,
+                "tokens_not_parsed": 0,
+            },
         )
         self.assertEqual(
             metrics["go_type_facts"]["files_not_checked"], {"go_not_installed": 2}
@@ -2060,7 +2131,14 @@ class GoTypeFactsTests(unittest.TestCase):
         # The loop's query is assigned in the loop: not known.
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 8, "not_fixed": 0, "unknown_entity": 0},
+            {
+                "statements": 8,
+                "not_fixed": 0,
+                "unknown_entity": 0,
+                "sqlglot": 8,
+                "tokens": 0,
+                "tokens_not_parsed": 0,
+            },
         )
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
         self.assertEqual(metrics["go_type_facts"]["files_checked"], 6)
@@ -3331,7 +3409,14 @@ class PhpSqlTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sql_text"],
-            {"statements": 8, "not_fixed": 1, "unknown_entity": 0},
+            {
+                "statements": 8,
+                "not_fixed": 1,
+                "unknown_entity": 0,
+                "sqlglot": 6,
+                "tokens": 1,
+                "tokens_not_parsed": 0,
+            },
         )
 
 

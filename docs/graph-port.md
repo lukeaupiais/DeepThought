@@ -2014,8 +2014,26 @@ with a reason:
 | `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
-| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
+| `no_go_module` | No `go.mod` in the file's directory or any directory above it |
+| `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+scip-go indexes one module per run, so each `go.mod` in the workspace
+(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+own directory, written to `scip-go.scip` for the root module and
+`scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
+made workspace-relative and the receipt names the module. A Go file belongs to
+the innermost module above it. Global symbols name the module, so a call from
+one module into another binds across their indexes.
+
+Go runs are pinned to `linux/amd64` with `CGO_ENABLED=0`, so the files a
+module compiles do not depend on the machine or on a C toolchain; the receipt
+records the platform and `go env GOVERSION`. A file the go command ignores on
+that platform (`command_windows.go`) gets a scip-go pass for the first
+platform in `go tool dist list` (first-class ports first) whose `go list`
+compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
+files' documents; coverage says `pass: platform` and the platform. On cobra
+this covers `command_win.go`.
 
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
@@ -2031,8 +2049,8 @@ The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
 indexer is never read as a file without references. A file no compiler can
-index (`no_go_module`, `not_in_index`) is named on stderr
-with its reason and does not fail the run. On the
+index (`no_go_module`, `build_constraints`, `not_in_index`) is named on
+stderr with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
@@ -2048,7 +2066,11 @@ stderr with its reason. When an indexer is missing or failed, the run stops
 before importing anything; only files no compiler can index keep the parser's
 call rules. The import report carries a
 `scip` object: each indexer run, the covered file count and the uncovered
-files with their reasons. `--include` and `--exclude` limit which files must
+files with their reasons. The indexes a run writes are checked against their
+receipts again before they are read, and are read whole: the 50 MB cap
+`ingest_scip` keeps for an index from elsewhere does not apply to them
+(scip-python writes over 100 MB for a large monorepo such as superset).
+`--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
 
@@ -3998,7 +4020,7 @@ component roll-up like HTTP routes and message destinations:
 
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
-| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file (temporary tables, comments and string literals skipped) |
+| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
@@ -4095,12 +4117,22 @@ SQL and JPQL text is read where the code fixes it: literals, text blocks,
 concatenation and the constants and single-assignment locals that service
 contract paths are folded through. In Python only the call's own argument is read,
 not variables holding SQL, and driver parameter markers (`%s`, `%(name)s`)
-never name a table. Tables are named after `FROM`, `JOIN`,
+never name a table. Fixed SQL text is parsed by sqlglot (a required
+dependency), trying the PostgreSQL, MySQL, SQLite, T-SQL and Oracle dialects
+and then the generic one; JPA's `?1` markers are read as `?`. The targets of
+`INSERT`, `UPDATE`, `DELETE` (with its `USING` tables, aliases resolved),
+`MERGE` and `TRUNCATE` are written and every other table the parse names is
+read. Common table expressions, `dual`, catalog names, functions in `FROM`
+and the `FOR UPDATE OF` lock list are not tables. The hand-written token
+reader is kept only where no parser can read the text: SQL holding a part the
+code does not fix (that name is dropped), JPQL, and statements sqlglot cannot
+parse (PostgreSQL 18's `RETURNING WITH`, SQLite's `VARYING CHARACTER`). The
+`sql_text` metric counts each reader (`sqlglot`, `tokens` for holes and JPQL,
+`tokens_not_parsed` for statements no dialect parses), so a fall to the token
+reader shows in every run. The token reader names tables after `FROM`, `JOIN`,
 `USING`, `INSERT`/`MERGE`/`REPLACE INTO`, a statement's `UPDATE`, `DELETE
-FROM` and `TRUNCATE`; the targets of the last five are written and the rest
-read. Common table expressions, functions in `FROM`, `FROM` inside function
-arguments, comments and string literals are skipped, and a name holding text
-the code does not fix is dropped. SQL built at run time, entities passed
+FROM` and `TRUNCATE`, writing the targets of the last five and skipping
+common table expressions, functions in `FROM`, comments and string literals. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
