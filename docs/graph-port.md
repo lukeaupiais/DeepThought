@@ -407,7 +407,20 @@ Each dependent also says what the change asks of it. `impact` is `direct`
 when any one-hop path reaches it (it names the changed declaration or file
 itself, so a signature change may need an edit there, even when its
 strongest path is longer) and `transitive` otherwise (its behaviour may
-change, so it needs re-testing). `source_roles` lists `test` and `example`
+change, so it needs re-testing). `action` refines that for the kind of
+change. In `get_impact`, `change` (`--change`, MCP `change`) is `signature`
+(default: the declaration's parameters or results change, so one-hop
+dependents `must_change` and the rest `retest`) or `behaviour` (only its
+body changes, so every dependent is `retest`). In `get_contract_impact` the
+change is to the contract's messages: a dependent `must_change` when it uses
+the contract itself (one hop: a client, or a caller of a provider that
+carries the messages) or reaches it only through declarations that each
+have a `CARRIES_MESSAGE` edge to it, since it builds or reads those
+messages; it is `retest` otherwise when the contract has `message_types`
+(the types are known, so a wrapper that hides them shields its callers),
+and `unknown` when it has not (no type facts for that contract yet: HTTP
+routes, GraphQL fields, message destinations, tables, and gRPC methods with
+clients or handlers outside type-checked Go). `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
@@ -3847,7 +3860,30 @@ neither server nor client; test source files (Go `_test.go`, Python
 `test_*.py`, `src/test/` and the like) are clients only, their calls marked
 `test_source`. The channel's target address is never read, so a stub links to
 the method wherever it is served; interceptors, reflection and dynamically
-loaded service definitions are not followed. Every edge is `pattern_matched`.
+loaded service definitions are not followed. Every HANDLES and REQUESTS
+edge is `pattern_matched`.
+
+**Message carriers.** For impact (see "Impact"), the Go type checker
+(`go_facts`, go/types) reads which protobuf messages each linked Go stub call
+passes and receives: the named types of its arguments and results, through
+pointers, slices, maps, channels and the type arguments of generic stream
+types (`grpc.ClientStreamingClient[Point, RouteSummary]`), that have
+protoc-gen-go's `ProtoReflect` method. The method's GrpcMethod node lists
+them as `message_types` (import path and name, such as
+`google.golang.org/grpc/examples/route_guide/routeguide.Point`) when every
+linked client call and every handler of the method is in a fully
+type-checked Go file and every call matches the checker's call at the
+method's name; otherwise the property is absent. Each Go function or method
+whose parameter or result types are built the same way from one of those
+types gets a `CARRIES_MESSAGE` edge to the method, listing the types it
+carries (`resolved`, rule `service-contracts.go-signature-carries-message`).
+A wrapper such as route_guide's `printFeature(client, point *pb.Point)`
+carries GetFeature's `Point`; `runRecordRoute(client)`, which builds its
+points inside, carries nothing. On grpc-go `9ad6d94` (`examples/` module,
+route_guide), all 4 methods get message types and every client wrapper,
+server handler and helper whose signature names a message carries it; the
+generated getters and stubs carry theirs too. Other languages' clients and
+handlers are not read yet, so their methods have no `message_types`.
 
 On Online Boutique (`evals/fixtures/service_contracts/online-boutique.json`,
 20 labelled gRPC links, all direct; `--kind grpc` scores a call site by client
