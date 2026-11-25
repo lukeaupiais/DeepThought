@@ -127,6 +127,7 @@ class SymbolSourceTests(unittest.TestCase):
                 "def long(\n" + "".join(f"    a{i},\n" for i in range(9)) + "):\n"
                 "    pass\n"
                 "def wide(" + ", ".join(f"argument{i}" for i in range(60)) + "): pass\n"
+                "def noted(a):  # why\n    # first\n    # second\n    return a\n"
             ),
             "b.ts": (
                 "export async function g<T>(x: T): Promise<T> { return x }\n"
@@ -153,6 +154,8 @@ class SymbolSourceTests(unittest.TestCase):
                 "h": "export const h = (a: number) =>",
             },
         )
+        # Comments ahead of a Python body are the body's, not the head's.
+        self.assertEqual(nodes["noted"]["signature"], "def noted(a):")
         # Without a body, the whole declaration is its head.
         self.assertEqual(nodes["I.p"]["signature"], "p(): void")
         self.assertEqual(nodes["U"]["signature"], "export type U = string | number")

@@ -309,7 +309,8 @@ Each Symbol also stores its `signature`: the head of the declaration as
 written, from its decorators or `export` keyword (and the `const`, `let`,
 `var` or Go `type` keyword of a statement that declares only it) to where its
 body starts, such as `export async function g<T>(x: T): Promise<T>` or
-`def f(a: int) -> bool:`. A declaration without a body (a type alias, an
+`def f(a: int) -> bool:`. Comments just before the body are not part of it
+(Python's parser keeps a body's leading comments outside its block). A declaration without a body (a type alias, an
 interface member, a Go struct type) is its whole text. It is cut at 5 lines
 or 400 characters, ending with `…`. With `start_line` and `end_line`, a
 lookup of a declaration can end at the graph without reading the source.

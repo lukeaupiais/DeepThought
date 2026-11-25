@@ -6052,6 +6052,16 @@ def _end_before_comments(node):
     return children[-1].end_byte if children else node.end_byte
 
 
+def _head_end(body):
+    """Where a declaration's head ends: before its body, and before the
+    comments the parser puts ahead of it (Python keeps a body's leading
+    comments outside its block)."""
+    before = body.prev_sibling
+    while before is not None and before.type == "comment":
+        before = before.prev_sibling
+    return before.end_byte if before is not None else body.start_byte
+
+
 def _signature(head):
     """A declaration's head as written, from its decorators or ``export`` to
     where its body starts, trailing space removed, bounded to
@@ -6127,7 +6137,7 @@ def declaration_sources(
         ):
             start = start.parent
         head = content[
-            start.start_byte : body.start_byte if body is not None else end
+            start.start_byte : _head_end(body) if body is not None else end
         ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
