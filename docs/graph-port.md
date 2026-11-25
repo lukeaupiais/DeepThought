@@ -179,10 +179,24 @@ repository. When it gets no edge, the reason is one of these:
 - `compiler_no_import`: the parser sees an import that the compiler does
   not record.
 
-The TypeScript and JavaScript rules above
-still resolve imports for call binding (`deepthought.calls`) and for the
-ground-truth import scorer. Moving those onto the compiler, and removing the
-rules, is the next step.
+TreeSitterTool also binds JavaScript and TypeScript calls through the
+compiler (`ts_modules.with_compiler_modules`). A call through an import binds
+in the module the compiler resolves that import to, and the compiler says what
+that module exports under the name. It follows `export ... from`,
+`export *`, `export { x }` and `export =` to the declaration. A declaration
+file (`x.d.ts`, `.d.mts`, `.d.cts`) describes the implementation beside it
+with the same stem (`x.js`, `.mjs`, `.cjs`). When the compiler resolves an
+import, or follows a re-export, to such a file and that implementation is
+analyzed, the call binds to what the implementation exports under the name the
+declaration file gives. A call that binds in the module it imports keeps its
+parser rule. One that the compiler follows to another file is
+`typescript.call-compiler-export` (resolved). One that ends in a declaration
+file with no analyzed implementation is `typescript.call-declaration-file`
+(resolved): it names what the call is typed against, not the code that runs.
+The IMPORTS edge still names the file the compiler resolves, declaration file
+included. Analyses run through the SDK alone (`analyze_repository`) still use
+the JavaScript and TypeScript rules above. Removing those rules, and running
+the compiler for every analysis, is the next step.
 
 An IMPORTS edge says which file a statement imports, not where an imported name
 is defined; a package re-export links to the package's `__init__.py` or index

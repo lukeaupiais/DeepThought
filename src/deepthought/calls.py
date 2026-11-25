@@ -23,6 +23,7 @@ from .imports import (
     resolve_imports,
 )
 from .models import AnalysisResult, Definition
+from .ts_modules import is_declaration_file
 
 CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
 CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
@@ -34,6 +35,8 @@ GO_CALL_CONVERSION = "tree-sitter.go-call-conversion"
 GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
+CALL_TS_COMPILER_EXPORT = "typescript.call-compiler-export"
+CALL_TS_DECLARATION_FILE = "typescript.call-declaration-file"
 CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
 CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
@@ -171,7 +174,25 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
         for alias in d.export_aliases or ():
             aliases[(d.file, alias)].append(d)
     module_files, submodules = {}, {}
+    # JavaScript and TypeScript imports name the module the TypeScript
+    # compiler resolves them to; a call runs the implementation beside a
+    # declaration file (deepthought.ts_modules).
+    compiled = result.compiler_modules
+    script_files = {
+        c.file for c in result.coverage if c.language in {"javascript", "typescript"}
+    }
+    script_imports = (
+        {i.id for i in result.imports if i.file in script_files}
+        if compiled is not None
+        else set()
+    )
     for resolution in resolve_imports(result):
+        if resolution.import_id in script_imports:
+            module_files[resolution.import_id] = compiled.runtime.get(
+                resolution.import_id, ()
+            )
+            submodules[resolution.import_id] = ()
+            continue
         module_files[resolution.import_id] = tuple(
             link.target_file
             for link in resolution.links
@@ -1840,11 +1861,50 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     found[d.id] = d
         return list(found.values())
 
+    compiled = result.compiler_modules
+    callables = defaultdict(list)
+    for d in result.definitions:
+        if d.kind in _CALLABLE:
+            callables[d.file].append(d)
+
+    def declaration_at(file, line, column):
+        """The innermost callable declared in ``file`` around a position."""
+        around = [
+            d
+            for d in callables.get(file, ())
+            if (d.line, d.column) <= (line, column) <= (d.end_line, d.end_column)
+        ]
+        return max(around, key=lambda d: (d.line, d.column), default=None)
+
+    def compiler_exported(module, name, rule, reason):
+        """What the TypeScript compiler says ``module`` exports as ``name``,
+        followed through re-exports to its declarations."""
+        declared = {}
+        for at in compiled.exports.get(module, {}).get(name, ()):
+            found = declaration_at(*at)
+            if found is not None:
+                declared[found.id] = found
+        if any(is_declaration_file(d.file) for d in declared.values()):
+            # No implementation is analyzed beside the declaration file: the
+            # call binds to what it declares.
+            rule = CALL_TS_DECLARATION_FILE
+        elif any(d.file != module for d in declared.values()):
+            rule = CALL_TS_COMPILER_EXPORT
+        return _pick(site.id, list(declared.values()), rule, reason)
+
     def exported(files, name, rule, reason):
         """The resolution of ``name`` as an attribute of the modules in
         ``files``: declared there at top level, or else (Python only) bound
         there by a ``from M import name`` that is followed to M, or
-        (JavaScript and TypeScript) re-exported (``js_exported``)."""
+        (JavaScript and TypeScript) re-exported (``js_exported``). With the
+        TypeScript compiler's modules, a JavaScript or TypeScript module's
+        export is the compiler's (``compiler_exported``)."""
+        if (
+            compiled is not None
+            and len(files) == 1
+            and languages.get(files[0]) in {"javascript", "typescript"}
+        ):
+            return compiler_exported(files[0], name, rule, reason)
         rule_used, seen = rule, set()
         while True:
             declared = declared_in(files, name)

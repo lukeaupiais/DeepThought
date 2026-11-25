@@ -17,7 +17,7 @@ installs, so the engine needs no other install; a missing or different
 version raises ``TypeScriptUnavailable``.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -52,6 +52,56 @@ class CompilerImport:
     # For a file no config includes: the nearest config, whose options
     # (JavaScript allowed) it was resolved with; None when there is none.
     options_from: str | None = None
+
+
+@dataclass(frozen=True)
+class CompilerExport:
+    module: str  # workspace-relative
+    name: str  # the exported name; ``default`` for a default export
+    declared: str | None  # the declaring file, relative to the workspace
+    line: int | None  # 1-based
+    character: int | None  # UTF-16, 0-based, where the declaration's name starts
+    # Instead of a declaration: an export the compiler follows to a
+    # declaration file with an implementation beside it is that
+    # implementation's export of ``runtime_name``.
+    runtime: str | None = None
+    runtime_name: str | None = None
+
+
+# A declaration file and the implementation beside it with the same stem,
+# as the compiler pairs them.
+_DECLARATION_SUFFIXES = {".d.ts": ".js", ".d.mts": ".mjs", ".d.cts": ".cjs"}
+
+
+def is_declaration_file(path):
+    return path.endswith(tuple(_DECLARATION_SUFFIXES))
+
+
+def implementation_of(path, analyzed):
+    """The analyzed file whose declarations the declaration file ``path``
+    describes (``x.d.ts`` for ``x.js``), or None."""
+    for suffix, runtime in _DECLARATION_SUFFIXES.items():
+        if path.endswith(suffix):
+            candidate = path[: -len(suffix)] + runtime
+            return candidate if candidate in analyzed else None
+    return None
+
+
+@dataclass(frozen=True)
+class CompilerModules:
+    """What the compiler says about a workspace's JavaScript and TypeScript
+    modules (``with_compiler_modules``).
+
+    ``resolutions``: an ImportResolution for each JavaScript or TypeScript
+    import. ``runtime``: for each import the compiler resolves to an analyzed
+    file, the module a call through it runs: that file, or, for a
+    declaration file, the analyzed implementation beside it. ``exports``:
+    ``{module: {name: ((file, line, UTF-8 column), ...)}}``, the
+    declarations each analyzed module exports under each name."""
+
+    resolutions: tuple
+    runtime: dict
+    exports: dict
 
 
 def locate_typescript(environ=None):
@@ -106,6 +156,12 @@ def _name(package):
 def compiler_imports(root, files, environ=None, timeout=1800):
     """Every import the compiler records in ``files`` (workspace-relative),
     with the file it resolves to."""
+    return compiler_modules(root, files, environ, timeout)[0]
+
+
+def compiler_modules(root, files, environ=None, timeout=1800):
+    """(``compiler_imports``, and every name each of ``files`` exports, with
+    its declarations: CompilerExport rows)."""
     node, typescript = locate_typescript(environ)
     root = Path(root).resolve()
     completed = subprocess.run(
@@ -118,24 +174,45 @@ def compiler_imports(root, files, environ=None, timeout=1800):
     )
     if completed.returncode:
         raise RuntimeError("TypeScript module resolution failed: " + completed.stderr)
-    return [
-        CompilerImport(
-            row["file"],
-            row["line"] + 1,
-            row["character"],
-            row["specifier"],
-            row["resolved"],
-            row["project"],
-            row["options_from"],
-        )
-        for row in map(json.loads, completed.stdout.splitlines())
-    ]
+    imports, exports = [], []
+    for row in map(json.loads, completed.stdout.splitlines()):
+        if "module" in row:
+            exports.append(
+                CompilerExport(
+                    row["module"],
+                    row["name"],
+                    row.get("declared"),
+                    row["line"] + 1 if "line" in row else None,
+                    row.get("character"),
+                    row.get("runtime"),
+                    row.get("runtime_name"),
+                )
+            )
+        else:
+            imports.append(
+                CompilerImport(
+                    row["file"],
+                    row["line"] + 1,
+                    row["character"],
+                    row["specifier"],
+                    row["resolved"],
+                    row["project"],
+                    row["options_from"],
+                )
+            )
+    return imports, exports
 
 
 def bind_imports(result, root, found, resolutions):
     """``resolutions`` with each JavaScript or TypeScript import replaced by
     the compiler's: the import at the same specifier in ``found``
     (``compiler_imports``)."""
+    return _bind(result, root, found, resolutions)[0]
+
+
+def _bind(result, root, found, resolutions):
+    """(``bind_imports``, {import id: workspace-relative file the compiler
+    resolves it to, or None})."""
     from .scip_calls import _Lines, _to_utf8
 
     root = Path(root).resolve()
@@ -145,7 +222,7 @@ def bind_imports(result, root, found, resolutions):
     for row in found:
         by_file.setdefault(row.file, []).append(row)
     lines = _Lines(root)
-    bound = []
+    bound, targets = [], {}
     for resolution in resolutions:
         item = imports.get(resolution.import_id)
         if (
@@ -171,6 +248,7 @@ def bind_imports(result, root, found, resolutions):
             continue
         row = rows[0]
         target = _relative(root, row.resolved)
+        targets[item.id] = target
         if row.resolved is None:
             bound.append(ImportResolution(item.id, "unresolved", reason=NOT_FOUND))
         elif target is None or "node_modules" in target.split("/"):
@@ -188,7 +266,74 @@ def bind_imports(result, root, found, resolutions):
                     (ImportLink(target, TYPESCRIPT_COMPILER_MODULE),),
                 )
             )
-    return tuple(bound)
+    return tuple(bound), targets
+
+
+def with_compiler_modules(result, root, environ=None):
+    """``result`` carrying the compiler's view of its JavaScript and
+    TypeScript modules (``CompilerModules``), which import resolution and
+    call binding then use for those languages."""
+    from .imports import resolve_imports
+    from .scip_calls import _Lines, _to_utf8
+
+    languages = {c.file: c.language for c in result.coverage}
+    scripts = sorted(f for f, language in languages.items() if language in _LANGUAGES)
+    if not scripts:
+        return result
+    found, exported = compiler_modules(root, scripts, environ)
+    files = {i.id: i.file for i in result.imports}
+    resolutions, targets = _bind(
+        result, root, found, resolve_imports(replace(result, compiler_modules=None))
+    )
+    runtime = {}
+    for import_id, target in targets.items():
+        if target in languages:
+            runtime[import_id] = (implementation_of(target, languages) or target,)
+        elif target is not None and is_declaration_file(target):
+            # A declaration file that is not analyzed describes the analyzed
+            # implementation beside it.
+            implementation = implementation_of(target, languages)
+            if implementation is not None:
+                runtime[import_id] = (implementation,)
+    lines = _Lines(Path(root).resolve())
+    rows = {}
+    for row in exported:
+        rows.setdefault((row.module, row.name), []).append(row)
+
+    def declarations(module, name, seen):
+        found = set()
+        if (module, name) in seen:
+            return found
+        seen = seen | {(module, name)}
+        for row in rows.get((module, name), ()):
+            if row.runtime is not None:
+                found |= declarations(row.runtime, row.runtime_name, seen)
+            elif row.declared in languages:
+                column = _to_utf8(
+                    lines.get(row.declared, row.line), row.character, "utf-16"
+                )
+                found.add((row.declared, row.line, column))
+        return found
+
+    exports = {}
+    for module, name in rows:
+        if module in languages:
+            found = declarations(module, name, frozenset())
+            if found:
+                exports.setdefault(module, {})[name] = tuple(sorted(found))
+    return replace(
+        result,
+        compiler_modules=CompilerModules(
+            tuple(
+                r
+                for r in resolutions
+                if languages[files[r.import_id]] in _LANGUAGES
+                and r.reason != RESOLUTION_CONFIGURATION
+            ),
+            runtime,
+            exports,
+        ),
+    )
 
 
 def _relative(root, path):

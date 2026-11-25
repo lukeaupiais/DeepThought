@@ -11,6 +11,7 @@ from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -92,6 +93,28 @@ class GroundTruthTest(unittest.TestCase):
         truth = ({("a.ts", 3, "run"): {("a.ts", 2, "callable")}}, {"a.ts"})
         report, _ = ground_truth.score(result, truth)
         self.assertEqual((report["confirmed"], report["missed"]), (1, 0))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_typescript")
+        and (
+            os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT")
+            or shutil.which("scip-typescript")
+        ),
+        "The TypeScript grammar and the pinned scip-typescript",
+    )
+    def test_a_call_bound_to_a_declaration_file_is_judged_apart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "t.d.ts").write_text("export declare function f(): void;\n")
+            Path(directory, "a.ts").write_text("import { f } from './t';\nf();\n")
+            result = ground_truth.analyze(Path(directory), ("typescript",))
+        # The runtime truth names code elsewhere; the declaration is no claim
+        # about it.
+        truth = ({("a.ts", 2, "f"): {("lib.js", 1, "callable")}}, {"a.ts"})
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual(
+            (report["confirmed"], report["contradicted"], report["declaration_file"]),
+            (0, 0, 1),
+        )
 
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}

@@ -498,6 +498,19 @@ CALL_RULES.update(
     {
         rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
         for rule_id, text in {
+            call_rules.CALL_TS_COMPILER_EXPORT: "A JavaScript or TypeScript "
+            "callee bound by an import, bare or as 'module.name', names a "
+            "module that the TypeScript compiler resolves the import to; the "
+            "compiler follows the module's export of that name (export ... "
+            "from, export *, export { x }) to the declaration in another "
+            "file. A declaration file's import runs the implementation beside "
+            "it with the same stem.",
+            call_rules.CALL_TS_DECLARATION_FILE: "A JavaScript or TypeScript "
+            "callee bound by an import that the TypeScript compiler resolves "
+            "to a declaration file (.d.ts) with no analyzed implementation "
+            "beside it links to the declaration there that the compiler "
+            "says the file exports under that name: what the call is typed "
+            "against, not the code it runs.",
             call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' or "
             "'x.f.M()' where x is declared in the function around the call (a "
             "parameter, receiver, named result, 'var x T', or 'x := T{...}', "
@@ -733,6 +746,9 @@ class TreeSitterTool(AnalysisTool):
             previous=previous,
             reuse=self.last_reuse,
         )
+        # JavaScript and TypeScript imports, and the calls bound through
+        # them, are the TypeScript compiler's.
+        result = ts_modules.with_compiler_modules(result, self.repo_path)
         self.last_analysis = result
         # Preserve the original engine's Repository -> File -> declaration
         # projection. Extraction still belongs to the unchanged SDK parser.
@@ -758,18 +774,6 @@ class TreeSitterTool(AnalysisTool):
             for r in import_rules.resolve_imports(result)
             if r.reason != import_rules.RESOLUTION_CONFIGURATION
         )
-        scripts = sorted(
-            c.file
-            for c in result.coverage
-            if c.language in ("javascript", "typescript")
-        )
-        if scripts:
-            resolutions = ts_modules.bind_imports(
-                result,
-                self.repo_path,
-                ts_modules.compiler_imports(self.repo_path, scripts),
-                resolutions,
-            )
         undisclosed = {}
         for resolution in resolutions:
             if resolution.status != "linked":

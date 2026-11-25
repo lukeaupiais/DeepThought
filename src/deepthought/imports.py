@@ -1036,6 +1036,11 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     rust = _RustIndex(result, files, languages)
     php = _php_index(result)
     scripts = _ScriptIndex(result, files)
+    compiled = (
+        {r.import_id: r for r in result.compiler_modules.resolutions}
+        if result.compiler_modules is not None
+        else {}
+    )
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -1044,6 +1049,9 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(
                 ImportResolution(item.id, "unresolved", reason=RESOLUTION_CONFIGURATION)
             )
+        elif item.id in compiled:
+            # The TypeScript compiler's (deepthought.ts_modules).
+            resolutions.append(compiled[item.id])
         elif language == "python":
             resolutions.append(_python(item, files, roots))
         elif language == "javascript":

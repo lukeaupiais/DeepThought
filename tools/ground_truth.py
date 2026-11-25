@@ -529,7 +529,7 @@ DISAGREEMENT_COLUMNS = (
 def score(result, truth, examples=10, resolutions=None):
     """Judge every engine call resolution (``resolutions``, by default the
     parser's) against expected calls."""
-    from deepthought.calls import resolve_calls
+    from deepthought.calls import CALL_TS_DECLARATION_FILE, resolve_calls
 
     positions, indexed = truth
     expected = {
@@ -575,7 +575,12 @@ def score(result, truth, examples=10, resolutions=None):
         # A declaration's line can be that of its annotations or modifiers,
         # an oracle's that of its name: one inside the other is a match.
         targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
-        if resolution.status == "linked":
+        if resolution.rule_id == CALL_TS_DECLARATION_FILE:
+            # A declaration file with no implementation analyzed beside it:
+            # the call binds to what it declares, which no runtime truth
+            # judges.
+            outcome = "declaration_file"
+        elif resolution.status == "linked":
             if not keys:
                 outcome = "unjudged" if site.file in indexed else "not_indexed"
             elif ours[0] in targets:
@@ -632,8 +637,9 @@ def score(result, truth, examples=10, resolutions=None):
 
 def analyze(workspace, languages, exclude=()):
     import deepthought
+    from deepthought.ts_modules import with_compiler_modules
 
-    return deepthought.analyze_repository(
+    result = deepthought.analyze_repository(
         Path(workspace).resolve(),
         repository_id="ground-truth",
         languages=tuple(languages),
@@ -641,6 +647,9 @@ def analyze(workspace, languages, exclude=()):
         max_files=100_000,
         max_total_bytes=1_000_000_000,
     )
+    # Imports, and the calls bound through them, as the engine resolves
+    # them: JavaScript and TypeScript by the TypeScript compiler.
+    return with_compiler_modules(result, Path(workspace).resolve())
 
 
 def fetch(corpus, cache):
@@ -1613,7 +1622,7 @@ def score_imports(result, truth, workspace, directory=False, examples=10):
     # TypeScript compiler (deepthought.ts_modules).
     scripts = sorted(c.file for c in result.coverage if c.language in _LANGUAGES)
     resolutions = resolve_imports(result)
-    if scripts:
+    if scripts and result.compiler_modules is None:
         resolutions = bind_imports(
             result, workspace, compiler_imports(workspace, scripts), resolutions
         )

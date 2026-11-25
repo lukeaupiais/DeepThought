@@ -769,13 +769,8 @@ class ScipCallTests(unittest.TestCase):
                     "scip-typescript@1.0",
                     "sha256:ts",
                 ),
-                (
-                    "helper",
-                    "tree-sitter.call-imported-name",
-                    "name_matched",
-                    None,
-                    None,
-                ),
+                # b.ts imports helper from a.ts, which exports it only as
+                # aliasName: the compiler binds nothing.
                 (
                     "inner",
                     "scip.call-local-symbol",
@@ -801,7 +796,7 @@ class ScipCallTests(unittest.TestCase):
                     "unresolved:scip_no_occurrence": 1,
                     "unresolved:scip_target_not_declaration": 1,
                 },
-                "tree-sitter": {"linked": 1},
+                "tree-sitter": {"unresolved:imported_name_not_declared": 1},
             },
         )
         unresolved = sorted(
@@ -819,6 +814,7 @@ class ScipCallTests(unittest.TestCase):
             [
                 ("console.log", "scip", "scip_external", "scip-typescript@1.0"),
                 ("helper", "scip", "scip_no_occurrence", "scip-typescript@1.0"),
+                ("helper", "tree-sitter", "imported_name_not_declared", None),
                 (
                     "hh",
                     "scip",
