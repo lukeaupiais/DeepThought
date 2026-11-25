@@ -42,6 +42,10 @@ FILES = {
         "  one(@Param('id') id: string, @Body() x: number) {\n"
         "    return null;\n"
         "  }\n"
+        "  @Post('bulk')\n"
+        "  bulk(@Body('order') order: { item: CreateOrderDto; n: number }) {\n"
+        "    return null;\n"
+        "  }\n"
         "}\n"
     ),
     "src/events.controller.ts": (
@@ -120,6 +124,13 @@ class PayloadTypeTests(unittest.TestCase):
                 ),
                 (
                     "src/orders.controller.ts",
+                    "CreateOrderDto",
+                    "request",
+                    "service-contracts.nestjs-body-type",
+                    "resolved",
+                ),
+                (
+                    "src/orders.controller.ts",
                     "OrderView",
                     "response",
                     "service-contracts.nestjs-response-type",
@@ -127,7 +138,13 @@ class PayloadTypeTests(unittest.TestCase):
                 ),
             ],
         )
-        self.assertEqual(output.metadata.custom_metrics["payload_types"], 5)
+        self.assertEqual(output.metadata.custom_metrics["payload_types"], 6)
+        keys = sorted(
+            r.properties.get("body_key", "")
+            for r in output.relationships
+            if r.properties.get("rule_id") == "service-contracts.nestjs-body-type"
+        )
+        self.assertEqual(keys, ["", "order"])
 
 
 if __name__ == "__main__":

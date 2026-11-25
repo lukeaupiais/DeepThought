@@ -3296,7 +3296,7 @@ CARRIES backwards):
 
 | Edge | Rule | Evidence | What fires it |
 | --- | --- | --- | --- |
-| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
@@ -3305,16 +3305,17 @@ The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
 name written in such a type, through imports, re-exports and the project's
 path aliases, to the repository's class, interface, type alias or enum
 declaration, the tree-sitter Symbol the edge ends at. Arrays, unions,
-intersections and type arguments are read through (`Promise<T>`,
-`Observable<T>`, `Page<T>` and `Partial<T>` carry `T`); primitives and
-inline object types carry no declaration. A name the compiler resolves to
+intersections, the members of inline object types and type arguments are
+read through (`{ user: IUser; id: string }` carries `IUser`; `Promise<T>`,
+`Observable<T>`, `Page<T>` and `Partial<T>` carry `T`); primitives carry
+no declaration. A name the compiler resolves to
 no declaration at all, such as a type of a workspace package that is not
 installed, is counted in the metric `payload_types_unresolved`, next to
 `payload_types` (the edges written). Types declared only in `node_modules`
 (Prisma's generated client, say) are not the repository's and give no
 edge.
 
-On the 11 NestJS repositories of the contract corpus, 197 edges are
+On the 11 NestJS repositories of the contract corpus, 200 edges are
 written. Every written handler type that names a declaration of the
 repository has its edge. The types not linked are of
 `prisma-examples`, whose models come from the generated client outside the

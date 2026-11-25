@@ -409,6 +409,9 @@ function declaredTypes(checker, file, offset, out) {
       named(node.elementType, depth + 1, found);
     } else if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
       node.types.forEach((t) => named(t, depth + 1, found));
+    } else if (ts.isTypeLiteralNode(node)) {
+      // An inline object type carries the types of its members.
+      node.members.forEach((m) => m.type && named(m.type, depth + 1, found));
     } else if (ts.isTypeReferenceNode(node)) {
       const written = ts.isIdentifier(node.typeName)
         ? node.typeName.text

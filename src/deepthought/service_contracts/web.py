@@ -1810,23 +1810,30 @@ def _type_span(node):
 
 
 def _nest_payloads(method, modules, content):
-    """(direction, start, end) of the types a Nest handler writes for its
-    request body (the parameter decorated ``@Body()`` of @nestjs/common)
-    and its response (the method's return type)."""
+    """(direction, start, end, key) of the types a Nest handler writes for
+    its request body (the parameter decorated ``@Body()`` of @nestjs/common;
+    ``key`` is the body property ``@Body('key')`` names, else None) and its
+    response (the method's return type)."""
     found = []
     parameters = method.child_by_field_name("parameters")
     for parameter in [] if parameters is None else parameters.named_children:
-        if any(
-            _nest_decorator(d, modules, content)[0] == "Body"
-            for d in parameter.named_children
-            if d.type == "decorator"
-        ):
+        for decorator in parameter.named_children:
+            if decorator.type != "decorator":
+                continue
+            name, arguments = _nest_decorator(decorator, modules, content)
+            if name != "Body":
+                continue
             span = _type_span(parameter.child_by_field_name("type"))
-            if span is not None:
-                found.append(("request", *span))
+            if span is None:
+                break
+            key = None
+            if arguments and arguments[0].type == "string":
+                key = text(arguments[0], content)[1:-1]
+            found.append(("request", *span, key))
+            break
     span = _type_span(method.child_by_field_name("return_type"))
     if span is not None:
-        found.append(("response", *span))
+        found.append(("response", *span, None))
     return tuple(found)
 
 

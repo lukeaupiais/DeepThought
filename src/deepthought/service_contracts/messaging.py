@@ -71,7 +71,7 @@ class MessageEndpoint:
     # The calls ("file:line") that pass the destination to the parameter of
     # the function around the site, when that is where it comes from.
     argument_from: tuple = ()
-    # (direction, start byte, end byte) of the types a handler writes for
+    # (direction, start byte, end byte, body key) of the types a handler writes for
     # the message ("request") and its reply ("response"), which the
     # TypeScript compiler resolves (CARRIES).
     payloads: tuple = ()
@@ -1261,7 +1261,7 @@ def _nest_clients(root, content, modules):
 
 
 def _nest_message_payloads(method, modules, content, kind):
-    """(direction, start, end) of the types a Nest pattern handler writes
+    """(direction, start, end, None) of the types a Nest pattern handler writes
     for the message (its parameter decorated ``@Payload()``, else its first
     parameter when that has no decorator, as Nest passes the data first)
     and, for a ``@MessagePattern``, its reply (the return type)."""
@@ -1300,11 +1300,11 @@ def _nest_message_payloads(method, modules, content, kind):
         data = written[0]
     span = None if data is None else _type_span(data.child_by_field_name("type"))
     if span is not None:
-        found.append(("request", *span))
+        found.append(("request", *span, None))
     if kind == "message":
         span = _type_span(method.child_by_field_name("return_type"))
         if span is not None:
-            found.append(("response", *span))
+            found.append(("response", *span, None))
     return tuple(found)
 
 

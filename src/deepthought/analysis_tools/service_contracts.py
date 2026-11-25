@@ -2737,7 +2737,7 @@ class ServiceContractTool(AnalysisTool):
                 if scripts is None
                 else scripts.compiler.unresolved_types.get(file, {})
             )
-            for direction, start, end in payloads:
+            for direction, start, end, key in payloads:
                 payload_unresolved += missing.get((start, end), 0)
                 for type_file, type_name, type_line, _ in types.get((start, end), ()):
                     found = [
@@ -2747,9 +2747,9 @@ class ServiceContractTool(AnalysisTool):
                     ]
                     if len(found) != 1:
                         continue
-                    if (name, found[0].id, direction) in carried_edges:
+                    if (name, found[0].id, direction, key) in carried_edges:
                         continue
-                    carried_edges.add((name, found[0].id, direction))
+                    carried_edges.add((name, found[0].id, direction, key))
                     target_labels, target = symbol_node(found[0].id)
                     carried += 1
                     relationships.append(
@@ -2761,6 +2761,7 @@ class ServiceContractTool(AnalysisTool):
                             {"qualified_name": target, "repo_url": repo_url},
                             {
                                 "direction": direction,
+                                **({"body_key": key} if key else {}),
                                 "file_path": file,
                                 "line": line,
                                 **_evidence(rules[direction]),
