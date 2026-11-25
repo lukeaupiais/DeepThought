@@ -49,6 +49,10 @@ class GoMissing(RuntimeError):
     """The Go toolchain, which types Go code for the engine, is not installed."""
 
 
+class GoVersionUnreadable(RuntimeError):
+    """``go env GOVERSION`` names no Go release the engine can compare."""
+
+
 @dataclass(frozen=True)
 class GoValue:
     """What gofacts knows of an argument or a keyed literal element."""
@@ -83,6 +87,25 @@ class GoCall:
     texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
     values: tuple[GoValue, ...] = ()
+    # The named type of each of the callee's results (None: not named), and
+    # where the method name is written (0-based column).
+    result_types: tuple[tuple[str, str] | None, ...] = ()
+    # The protobuf message types (a ProtoReflect method) its arguments and
+    # results are built from, type arguments included.
+    messages: tuple[tuple[str, str], ...] = ()
+    name_line: int | None = None
+    name_column: int | None = None
+
+
+@dataclass(frozen=True)
+class GoSignature:
+    """The named types a function's parameters and results are built from
+    (``namedIn`` in gofacts), at the function's name."""
+
+    file: str
+    line: int
+    column: int  # 0-based
+    types: tuple[tuple[str, str], ...]  # (import path, type name)
 
 
 @dataclass(frozen=True)
@@ -115,6 +138,7 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -160,6 +184,21 @@ def _version(name):
     return tuple(int(part or 0) for part in match.groups()) if match else None
 
 
+def installed_version(goversion):
+    """The release of the installed Go command, from ``go env GOVERSION``:
+    (1, 27, 4) for "go1.27.4", and for an experiment build such as
+    "go1.27.4-X:nodwarf5" or "go1.27.4 X:nodwarf5", whose experiment
+    suffix does not change the release. Raises GoVersionUnreadable for
+    anything else."""
+    version = _version(re.sub(r"[- ]X:\S*$", "", goversion or ""))
+    if version is None:
+        raise GoVersionUnreadable(
+            f"cannot read the Go release from GOVERSION {goversion!r}; "
+            "install a Go release (go1.N.M)"
+        )
+    return version
+
+
 def wanted_toolchain(text):
     """The toolchain a go.mod asks for: its toolchain line, else the release
     its go line names (go 1.26.0 is go1.26.0; from Go 1.21, go 1.22 is
@@ -178,7 +217,7 @@ def module_toolchain(go, info, text):
     for a newer release that the module cache already holds (as ``go``
     with GOTOOLCHAIN=auto would download it). Nothing is downloaded."""
     wanted = wanted_toolchain(text)
-    if wanted is None or _version(wanted) <= _version(info["GOVERSION"]):
+    if wanted is None or _version(wanted) <= installed_version(info["GOVERSION"]):
         return go
     cached = (
         Path(info["GOMODCACHE"])
@@ -529,6 +568,24 @@ def _read(text, directory, members, facts):
                     ),
                     tuple(_type(a.get("type")) for a in arguments),
                     tuple(_value(a) for a in arguments),
+                    tuple(_type(t) for t in item.get("result_types") or ()),
+                    tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
+                    item.get("name_line"),
+                    item["name_column"] - 1 if item.get("name_column") else None,
+                )
+            )
+        elif kind == "signature":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "signature")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.signatures.append(
+                GoSignature(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    tuple(dict.fromkeys(_type(t) for t in item["types"])),
                 )
             )
         elif kind == "literal":

@@ -225,6 +225,15 @@ def parser():
             q.add_argument("--symbol", required=True, help="Qualified name")
         if name == "file-impact":
             q.add_argument("--file", required=True)
+        if name == "impact":
+            q.add_argument(
+                "--change",
+                choices=("signature", "behaviour"),
+                default="signature",
+                help="What changes: its parameters or results (signature, "
+                "default) or its body only (behaviour); sets each "
+                "dependent's action",
+            )
         if name in {"impact", "file-impact", "component-impact", "contract-impact"}:
             q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
             q.add_argument(
@@ -563,6 +572,7 @@ async def _execute(args, scip_report, scip_indexes):
         if args.command in {"impact", "file-impact"}:
             if args.command == "impact":
                 method, subject = service.get_impact, args.symbol
+                kwargs["change"] = args.change
             else:
                 method, subject = service.get_file_impact, args.file
             return await method(
