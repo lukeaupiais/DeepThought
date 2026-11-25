@@ -9278,3 +9278,187 @@ def extract_script_sql(tree, content, file, definitions):
             )
         )
     return found
+
+
+# Kysely query builder ---------------------------------------------------------
+KYSELY_MODULE = "kysely"
+# Kysely methods whose first argument names tables: (reads, writes).
+KYSELY_METHODS = {
+    **dict.fromkeys(
+        ("insertInto", "replaceInto", "updateTable", "mergeInto"), (False, True)
+    ),
+    "deleteFrom": (False, True),
+    **dict.fromkeys(
+        (
+            "selectFrom",
+            "innerJoin",
+            "leftJoin",
+            "rightJoin",
+            "fullJoin",
+            "crossJoin",
+            "innerJoinLateral",
+            "leftJoinLateral",
+        ),
+        (True, False),
+    ),
+}
+# Kysely methods that name common table expressions, not tables.
+KYSELY_CTE_METHODS = (
+    "with",
+    "withRecursive",
+    "withMaterialized",
+    "withNotMaterialized",
+)
+# The statements a query chain sits in, for common table expression names.
+_SCRIPT_STATEMENTS = (
+    "expression_statement",
+    "return_statement",
+    "lexical_declaration",
+    "variable_declaration",
+    "export_statement",
+)
+
+
+@dataclass(frozen=True)
+class KyselyCall:
+    """A call of a Kysely table method with literal table names."""
+
+    file: str
+    caller_id: str | None
+    method: str
+    tables: tuple[str, ...]
+    line: int  # where the method's name is written (byte column)
+    column: int
+
+
+def _kysely_names(argument, content):
+    """Table names of a Kysely table argument: a string literal (``'t as
+    x'``) or an array of them; None when any is not a literal."""
+    items = [argument]
+    if argument.type == "array":
+        items = argument.named_children
+    names = []
+    for item in items:
+        text = _script_string(item, content)
+        if text is None:
+            return None
+        name = _knex_table(text)
+        if name is None:
+            return None
+        names.append(name)
+    return tuple(names) or None
+
+
+def extract_kysely(tree, content, file, definitions):
+    """Calls ``x.m('t', ...)`` of a method Kysely names tables with
+    (``KYSELY_METHODS``) whose first argument is a string literal (alias
+    dropped) or an array of them. A table read (``selectFrom``, joins)
+    that a ``with``/``withRecursive`` in the same statement declares as a
+    common table expression is left out, outside that CTE's own body. The receiver is not checked here: the caller keeps a call only
+    where a SCIP index resolves the method to Kysely's own, or, in a file
+    no index covers, where the file imports ``kysely``."""
+    if b"selectFrom" not in content and not any(
+        m.encode() in content for m in KYSELY_METHODS
+    ):
+        return []
+    calls, ctes = [], defaultdict(list)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if (
+            function is None
+            or function.type != "member_expression"
+            or arguments is None
+        ):
+            continue
+        name = function.child_by_field_name("property")
+        method = _text(name, content)
+        first = next((c for c in arguments.named_children if c.type != "comment"), None)
+        if first is None:
+            continue
+        statement = node
+        while statement.parent is not None and statement.type not in _SCRIPT_STATEMENTS:
+            statement = statement.parent
+        if method in KYSELY_CTE_METHODS:
+            text = _script_string(first, content)
+            if text is None and first.type == "arrow_function":
+                # with((cte) => cte('name').materialized(), ...)
+                inner = [first.child_by_field_name("body")]
+                while inner and text is None:
+                    item = inner.pop()
+                    if item is None:
+                        continue
+                    if item.type == "call_expression":
+                        callee = item.child_by_field_name("function")
+                        args = item.child_by_field_name("arguments")
+                        if callee is not None and callee.type == "identifier" and args:
+                            text = next(
+                                (
+                                    _script_string(a, content)
+                                    for a in args.named_children
+                                    if a.type == "string"
+                                ),
+                                None,
+                            )
+                    inner.extend(item.named_children)
+            if text:
+                ctes[None].append(
+                    (
+                        text.split("(", 1)[0].strip(),
+                        statement.start_byte,
+                        statement.end_byte,
+                        arguments.start_byte,
+                        # A recursive CTE's body names the CTE itself.
+                        arguments.start_byte
+                        if method == "withRecursive"
+                        else arguments.end_byte,
+                    )
+                )
+            continue
+        if method not in KYSELY_METHODS:
+            continue
+        tables = _kysely_names(first, content)
+        if tables is None:
+            continue
+        calls.append(
+            (
+                node.start_byte,
+                KyselyCall(
+                    file,
+                    _innermost(definitions, file, node),
+                    method,
+                    tables,
+                    name.start_point.row + 1,
+                    name.start_point.column,
+                ),
+            )
+        )
+    found = []
+    for start, call in calls:
+        reads, _ = KYSELY_METHODS[call.method]
+        # A write names a table (SQL writes no CTE), and so does a read in
+        # the CTE's own (non-recursive) body.
+        tables = tuple(
+            t
+            for t in call.tables
+            if not reads
+            or not any(
+                name == t and first <= start < last and not (begin <= start < end)
+                for name, first, last, begin, end in ctes[None]
+            )
+        )
+        if tables:
+            found.append(replace(call, tables=tables))
+    return found
+
+
+def imports_kysely(content):
+    """Whether a script imports the kysely package (or one of its paths)."""
+    return bool(
+        re.search(rb"""(?:from|require\()\s*['"]kysely(?:/[^'"]*)?['"]""", content)
+    )

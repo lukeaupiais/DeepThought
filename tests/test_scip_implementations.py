@@ -188,7 +188,14 @@ class ScipImplementationCommandTests(unittest.TestCase):
                 return json.loads(result.stdout)
 
             indexed = command(
-                "index", str(root), "--tool", "scip", "--repository-id", repo
+                "index",
+                str(root),
+                "--tool",
+                "scip",
+                "--scip-index",
+                str(root / "index.scip"),
+                "--repository-id",
+                repo,
             )
             scope = ["--repository-id", repo, "--snapshot", indexed["snapshot_id"]]
 
@@ -234,7 +241,12 @@ class ScipImplementationCommandTests(unittest.TestCase):
             )
             self.assertIn("file_path document scope", refused)
             tree = command(
-                "index", str(root), "--tool", "tree-sitter", "--repository-id", repo
+                "index",
+                str(root),
+                "--tool",
+                "tree-sitter",
+                "--repository-id",
+                repo,
             )
             refused = command(
                 "implementations",

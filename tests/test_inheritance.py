@@ -367,7 +367,12 @@ class InheritanceCommandTests(unittest.TestCase):
                 return json.loads(result.stdout)
 
             indexed = command(
-                "index", directory, "--tool", "tree-sitter", "--repository-id", repo
+                "index",
+                directory,
+                "--tool",
+                "tree-sitter",
+                "--repository-id",
+                repo,
             )
             scope = ["--repository-id", repo, "--snapshot", indexed["snapshot_id"]]
 
