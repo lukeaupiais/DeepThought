@@ -32,6 +32,8 @@ from ..data_contracts import (
     GoTableName,
     extract_gorm,
     gorm_table_name,
+    django_app,
+    django_historical_model,
     extract_django,
     extract_drizzle,
     resolve_script_module,
@@ -346,13 +348,23 @@ DJANGO_M2M_RULE = register_rule(
 )
 DJANGO_ACCESS_RULE = register_rule(
     EvidenceRule(
-        "data-contracts.django-manager-call",
-        "pattern_matched",
+        "data-contracts.django-scip-manager-call",
+        "resolved",
         "The code calls Model.objects with a QuerySet method that reads "
         "(filter, get, all, count, ...) or writes (create, update, delete, "
-        "bulk_create, ...) somewhere in the chain, and Model is the one "
-        "Django model of the repository with that class name. Instance "
-        "save() and delete(), other managers and raw SQL are not read.",
+        "bulk_create, ...) somewhere in the chain, and a scip-python index "
+        "resolves the written Model to a Django model class. Instance save() "
+        "and delete(), other managers and raw SQL are not read.",
+    )
+)
+DJANGO_HISTORICAL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-historical-manager-call",
+        "pattern_matched",
+        "As django-scip-manager-call, but the scip-python index resolves the "
+        'written Model to a variable assigned get_model("label", "Model") '
+        "(a data migration's historical model): the model with that app label "
+        "and class name.",
     )
 )
 
@@ -1335,6 +1347,7 @@ class DataContractTool(AnalysisTool):
                         "column": repository.column,
                     },
                 )
+        references = ScipReferences(result, scip_indexes, root)
         # Django models, their tables and the manager calls that use them.
         labels = {}
         for file, content, tree in python_trees:
@@ -1349,7 +1362,7 @@ class DataContractTool(AnalysisTool):
             accesses.extend(found[1])
         model_tables, m2m = resolve_django(models, labels)
         by_id = {m.model_id: m for m in models}
-        django_targets = {}
+        django_by_model = {}
         for model_id, (name, how) in sorted(model_tables.items()):
             model = by_id[model_id]
             target = table(model.file, name)
@@ -1361,7 +1374,7 @@ class DataContractTool(AnalysisTool):
                     DJANGO_TABLE_RULE if how == "explicit" else DJANGO_DEFAULT_RULE,
                     {"line": model.line, "column": model.column},
                 )
-            django_targets.setdefault(model.name, []).append(target)
+            django_by_model[model_id] = target
         for model_id, field, name in m2m:
             model = by_id[model_id]
             link(
@@ -1395,13 +1408,48 @@ class DataContractTool(AnalysisTool):
                 )
             return ["File"], name
 
-        django_counts = {"linked": 0, "not_a_model": 0}
+        # A manager call's model is the class a scip-python index resolves
+        # its written name to; a file no index covers is not read.
+        django_trees = {file: (content, tree) for file, content, tree in python_trees}
+        django_by_label = {}
+        for model_id, target in django_by_model.items():
+            model = by_id[model_id]
+            label = model.app_label or django_app(model.file, labels)[1]
+            django_by_label.setdefault((label, model.name), set()).add(target)
+        django_counts = {
+            "linked_scip": 0,
+            "historical": 0,
+            "not_a_model": 0,
+            "scip_no_reference": 0,
+            "no_scip_index": 0,
+        }
+        django_unindexed = set()
         for access in accesses:
-            targets = django_targets.get(access.model, [])
+            declared = references.declarations(
+                access.file, access.line, access.column, access.model
+            )
+            if declared is None:
+                if references.covers(access.file):
+                    django_counts["scip_no_reference"] += 1
+                else:
+                    django_counts["no_scip_index"] += 1
+                    django_unindexed.add(access.file)
+                continue
+            targets = sorted(
+                {django_by_model[d.id] for d in declared if d.id in django_by_model},
+                key=str,
+            )
+            historical = None
+            if not targets:
+                historical = django_historical_model(
+                    references, django_trees, access.file, access.line, access.column
+                )
+                targets = sorted(django_by_label.get(historical, ()), key=str)
             if len(targets) != 1:
                 django_counts["not_a_model"] += 1
                 continue
-            django_counts["linked"] += 1
+            django_counts["historical" if historical else "linked_scip"] += 1
+            tool, receipt = references.tool(access.file)
             source = code(access.file, access.caller_id)
             for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
                 if used:
@@ -1409,18 +1457,19 @@ class DataContractTool(AnalysisTool):
                         kind,
                         source,
                         targets[0],
-                        DJANGO_ACCESS_RULE,
+                        DJANGO_HISTORICAL_RULE if historical else DJANGO_ACCESS_RULE,
                         {
                             "model": access.model,
                             "line": access.line,
                             "column": access.column,
+                            "indexer": tool,
+                            "receipt": receipt,
                         },
                     )
         # SQLAlchemy mapped classes, Table() declarations and their uses.
         # Where a SCIP index covers a file, a written model name links to the
         # class the index resolves it to; elsewhere to the one mapped class
         # of the repository with that name.
-        references = ScipReferences(result, scip_indexes, root)
         sa_mappings, sa_tables, sa_accesses, sa_classes = [], [], [], []
         sa_trees = {file: (content, tree) for file, content, tree in python_trees}
         for file, content, tree in python_trees:
@@ -2872,6 +2921,7 @@ class DataContractTool(AnalysisTool):
             "partial"
             if unreadable
             or kysely_unindexed
+            or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
             else "succeeded"
@@ -2885,6 +2935,12 @@ class DataContractTool(AnalysisTool):
             warnings.append(
                 f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
                 "have no scip-typescript index, so their Kysely queries are not "
+                "read; run deepthought index-scip and pass the index"
+            )
+        if django_unindexed:
+            warnings.append(
+                f"no_scip_index: {len(django_unindexed)} files calling Django "
+                "managers have no scip-python index, so their queries are not "
                 "read; run deepthought index-scip and pass the index"
             )
         # A limit stops the source walk: the files after it are unread, so

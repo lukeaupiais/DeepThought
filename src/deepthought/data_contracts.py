@@ -1890,6 +1890,51 @@ def _call_result_classes(references, trees, file, node, depth):
     return found
 
 
+def django_historical_model(references, trees, file, line, column):
+    """(app label, model name) of a historical model: the name written at
+    ``line`` and ``column`` of ``file`` that a scip-python index resolves to
+    a variable assigned ``<registry>.get_model("label", "Model")`` or
+    ``get_model("label.Model")``, as data migrations take their models from
+    the migration state's app registry. None otherwise.
+
+    Why not a tool: the registry is the migration state Django builds at
+    run time, which no index types; get_model's arguments name the model."""
+    found = set()
+    for site in references.definition_sites(file, line, column) or ():
+        target = _python_node_at(trees, *site)
+        assignment = target.parent if target is not None else None
+        if (
+            assignment is None
+            or assignment.type != "assignment"
+            or assignment.child_by_field_name("left") != target
+        ):
+            return None
+        call = assignment.child_by_field_name("right")
+        function = call.child_by_field_name("function") if call else None
+        if call is None or call.type != "call" or function is None:
+            return None
+        content = trees[site[0]][0]
+        name = (
+            function.child_by_field_name("attribute")
+            if function.type == "attribute"
+            else function
+        )
+        if name is None or _text(name, content) != "get_model":
+            return None
+        arguments = call.child_by_field_name("arguments")
+        values = [
+            _string(c, content)
+            for c in (arguments.named_children if arguments else ())
+            if c.type != "comment"
+        ]
+        if len(values) == 1 and values[0] and values[0].count(".") == 1:
+            values = values[0].split(".")
+        if len(values) != 2 or not all(values):
+            return None
+        found.add((values[0], values[1]))
+    return found.pop() if len(found) == 1 else None
+
+
 def _python_node_at(trees, file, line, column):
     entry = trees.get(file)
     if entry is None:
