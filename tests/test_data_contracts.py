@@ -20,6 +20,7 @@ from deepthought.analysis_tools import (
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.go_facts import GoFacts, GoMissing
 from deepthought.data_contracts import (
+    statement_columns,
     UNKNOWN,
     default_table_name,
     extract_column_changes,
@@ -623,6 +624,134 @@ CREATE TABLE snapshot AS SELECT * FROM roles;
                 metrics["ddl_alter_unparsed"],
             ),
             (3, 1, 1),
+        )
+
+    def test_statement_columns(self):
+        schema = {
+            "accounts": ("id", "owner", "balance"),
+            "entries": ("id", "account_id", "amount"),
+        }
+
+        def columns(text):
+            uses, complete = statement_columns(statement_tables(text), schema)
+            return (
+                sorted((u.table, u.column, u.writes) for u in uses),
+                sorted(complete),
+            )
+
+        # A * expands to every column; an output alias is not a column.
+        self.assertEqual(
+            columns("SELECT *, owner AS o FROM accounts WHERE id = $1 ORDER BY o"),
+            (
+                [
+                    ("accounts", "balance", False),
+                    ("accounts", "id", False),
+                    ("accounts", "owner", False),
+                ],
+                ["accounts"],
+            ),
+        )
+        # SET writes, its value and WHERE read; a CTE is not a table.
+        self.assertEqual(
+            columns(
+                "WITH t AS (SELECT id FROM accounts) UPDATE entries "
+                "SET amount = amount + 1 WHERE account_id IN (SELECT id FROM t) "
+                "RETURNING id"
+            ),
+            (
+                [
+                    ("accounts", "id", False),
+                    ("entries", "account_id", False),
+                    ("entries", "amount", False),
+                    ("entries", "amount", True),
+                    ("entries", "id", False),
+                ],
+                ["accounts", "entries"],
+            ),
+        )
+        # An INSERT without a column list writes every column; EXCLUDED is
+        # the inserted row.
+        self.assertEqual(
+            columns(
+                "INSERT INTO accounts VALUES (1, 'a', 0) ON CONFLICT (id) "
+                "DO UPDATE SET owner = EXCLUDED.owner"
+            ),
+            (
+                [
+                    ("accounts", "balance", True),
+                    ("accounts", "id", False),
+                    ("accounts", "id", True),
+                    ("accounts", "owner", True),
+                ],
+                ["accounts"],
+            ),
+        )
+        # A name that is no column of either joined table leaves both
+        # incomplete; count(*) names no column.
+        self.assertEqual(
+            columns(
+                "SELECT a.owner FROM accounts a JOIN entries e "
+                "ON e.account_id = a.id WHERE nope = 1"
+            )[1],
+            [],
+        )
+        self.assertEqual(columns("SELECT count(*) FROM accounts"), ([], ["accounts"]))
+        # Text sqlglot did not read (JPQL here) has no columns.
+        self.assertIsNone(
+            statement_columns(
+                statement_tables("SELECT a FROM Account a", jpql=True), schema
+            )
+        )
+
+    def test_code_reads_and_writes_columns(self):
+        files = {
+            "pyproject.toml": '[project]\nname = "p"\nversion = "0"\n',
+            "db/migrations/0001_init.sql": "CREATE TABLE accounts (\n"
+            "  id int PRIMARY KEY,\n"
+            "  owner text,\n"
+            "  email text\n"
+            ");\n",
+            "app/repo.py": "import sqlite3\n"
+            "\n"
+            "\n"
+            "def find(conn, key):\n"
+            '    return conn.execute("SELECT owner FROM accounts WHERE id = ?", (key,))\n'
+            "\n"
+            "\n"
+            "def touch(conn):\n"
+            '    conn.execute("UPDATE accounts SET email = ? WHERE missing = 1", ("x",))\n',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        found = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.type,
+                r.target_match["qualified_name"].rpartition("::")[2],
+                r.properties["line"],
+                r.properties.get("columns_resolved", False),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES", "READS_COLUMN", "WRITES_COLUMN")
+        )
+        self.assertEqual(
+            found,
+            [
+                ("find", "READS", "accounts", 5, True),
+                ("find", "READS_COLUMN", "id", 5, False),
+                ("find", "READS_COLUMN", "owner", 5, False),
+                # missing is no column of accounts: the table edge does not
+                # claim every column resolved.
+                ("touch", "WRITES", "accounts", 9, False),
+                ("touch", "WRITES_COLUMN", "email", 9, False),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_columns"],
+            {"statements": 2, "tables_resolved": 1, "tables_unresolved": 1, "uses": 3},
         )
 
     def test_migrations_replay_dropped_and_renamed_tables(self):
@@ -3143,15 +3272,17 @@ class GoTypeFactsTests(unittest.TestCase):
             ],
         )
         metrics = output.metadata.custom_metrics
-        # The loop's query is assigned in the loop: not known.
+        # The loop's query is assigned in the loop: not known. Two calls
+        # may run text the code does not fix (on one path or all), which
+        # the token reader reads.
         self.assertEqual(
             metrics["sql_text"],
             {
                 "statements": 8,
                 "not_fixed": 0,
                 "unknown_entity": 0,
-                "sqlglot": 8,
-                "tokens": 0,
+                "sqlglot": 6,
+                "tokens": 2,
                 "tokens_not_parsed": 0,
             },
         )
