@@ -665,6 +665,7 @@ def run_indexer(
                     "requirements",
                     "packages",
                     "failed",
+                    "without_dependencies",
                 )
             }
         try:
