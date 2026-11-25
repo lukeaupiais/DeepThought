@@ -1908,6 +1908,30 @@ def _npm_registry():
 NODE = _npm_registry()
 
 
+def _go_proxy():
+    """go, and the module proxy reachable: the engine builds GORM's own
+    NamingStrategy against the gorm release a module pins. The acceptance
+    sandbox has no network; the graph-port job, which has, runs these
+    tests."""
+    go = shutil.which("go")
+    if not go:
+        return False
+    try:
+        return (
+            subprocess.run(
+                [go, "mod", "download", "gorm.io/gorm@v1.25.12"],
+                capture_output=True,
+                timeout=120,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+GORM_RELEASES = _go_proxy()
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
     @unittest.skipUnless(
@@ -3391,6 +3415,7 @@ func Save(db DB, value interface{}, rows []models.Legacy) {
 
 class GormTests(unittest.TestCase):
     @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
     def test_default_names_come_from_gorm(self):
         from deepthought.gorm_naming import table_names
 
@@ -3428,6 +3453,7 @@ class GormTests(unittest.TestCase):
             self.assertIn("the module graph selects no gorm.io/gorm", reason)
 
     @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
