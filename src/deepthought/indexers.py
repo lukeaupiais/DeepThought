@@ -1086,17 +1086,21 @@ def ingest_indexed(report, repository_id, workspace=None):
             continue
         if workspace is not None:
             validate_receipt(workspace, run["index"])
-        sources.append(
-            (
-                ingest_scip(
-                    run["index"],
-                    repository_id=repository_id,
-                    default_position_encoding=run["position_encoding"],
-                    max_index_bytes=max(1, Path(run["index"]).stat().st_size),
-                ),
-                run["receipt_sha256"],
-            )
+        ingested = ingest_scip(
+            run["index"],
+            repository_id=repository_id,
+            default_position_encoding=run["position_encoding"],
+            max_index_bytes=max(1, Path(run["index"]).stat().st_size),
         )
+        if ingested.status == "failed":
+            # An index the engine wrote that cannot be read is a tool
+            # failure, never an empty index.
+            raise ValueError(
+                f"{run['indexer']} index {Path(run['index']).name} could not be "
+                "read: "
+                + "; ".join(f"{d.code}: {d.message}" for d in ingested.diagnostics)
+            )
+        sources.append((ingested, run["receipt_sha256"]))
     return sources
 
 

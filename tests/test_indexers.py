@@ -362,6 +362,11 @@ class IndexersTest(unittest.TestCase):
         (self.root / "src" / "pkg" / "a.py").write_text("def f():\n    return 2\n")
         with self.assertRaisesRegex(ValueError, "inputs changed"):
             indexers.ingest_indexed(report, "repo", self.root)
+        # An index that cannot be read stops the run instead of reading as
+        # an index without facts.
+        index.write_bytes(b"not an index")
+        with self.assertRaisesRegex(ValueError, "could not be read: invalid_index"):
+            indexers.ingest_indexed(report, "repo")
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
