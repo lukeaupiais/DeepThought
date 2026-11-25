@@ -8,7 +8,7 @@ import unittest.mock
 from deepthought import deploy_facts
 from deepthought.service_contracts.compose import compose_units
 from deepthought.service_contracts.deployed import kubernetes_units
-from go_ready import needs_go
+from deploy_tools_ready import needs_deploy_tools
 
 COMPOSE = {
     "deploy/.env": "REGISTRY=registry.example\n",
@@ -117,7 +117,7 @@ def _write(root, files):
         (root / name).write_text(text, encoding="utf-8")
 
 
-@needs_go
+@needs_deploy_tools
 class DeployFactsTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

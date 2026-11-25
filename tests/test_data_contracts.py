@@ -32,7 +32,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
-from go_ready import needs_go as needs_deploy_tools
+from deploy_tools_ready import needs_deploy_tools
 from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
