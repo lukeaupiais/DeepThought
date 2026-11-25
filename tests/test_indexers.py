@@ -434,6 +434,40 @@ class IndexersTest(unittest.TestCase):
         only_go = asyncio.run(tool.analyze("repo", languages={"go"}))
         self.assertEqual(only_go.metadata.files_processed, 1)
 
+    def test_scip_tool_reads_a_whole_index_and_names_an_unreadable_one(self):
+        import asyncio
+        from unittest import mock
+
+        from deepthought import scip
+        from deepthought.analysis_tools import scip as tool_module
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        self.fake("scip-python")
+        self.out.mkdir()
+        python = indexers.run_indexer(
+            indexers.INDEXERS["scip-python"],
+            self.root,
+            self.out / "py.scip",
+            environ=self.environ(FAKE_DOCUMENTS="src/pkg/a.py"),
+        )
+        tool = ScipAnalysisTool(self.root, index_paths=[python.index])
+
+        # An index bigger than ingest_scip's default cap (lobe-chat's 80 MB
+        # against 50 MB): the default is shrunk so this small index exceeds it.
+        def capped(path, max_index_bytes=10, **kwargs):
+            return scip.ingest_scip(path, max_index_bytes=max_index_bytes, **kwargs)
+
+        with mock.patch.object(tool_module, "ingest_scip", capped):
+            output = asyncio.run(tool.analyze("repo"))
+        self.assertEqual(output.metadata.files_processed, 1)
+
+        def unreadable(path, **kwargs):
+            return scip.ingest_scip(path, **{**kwargs, "max_index_bytes": 1})
+
+        with mock.patch.object(tool_module, "ingest_scip", unreadable):
+            with self.assertRaisesRegex(ValueError, "exceeds max_index_bytes"):
+                asyncio.run(tool.analyze("repo"))
+
     def test_cli_exits_nonzero_when_files_are_uncovered(self):
         env = {**os.environ, "PYTHONPATH": str(SRC), "PATH": ""}
         env.pop("DEEPTHOUGHT_SCIP_PYTHON", None)
