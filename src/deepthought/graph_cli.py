@@ -87,8 +87,14 @@ def parser():
         "--scip-index",
         type=Path,
         action="append",
-        help="Source-bound SCIP index for --tool scip, default workspace/index.scip; "
-        "repeat for one index per indexer (deepthought index-scip writes them)",
+        help="Read this source-bound SCIP index in --tool scip instead of the "
+        "indexes the run writes; repeat for one index per indexer",
+    )
+    index.add_argument(
+        "--scip-output-dir",
+        type=Path,
+        help="Keep the SCIP indexes this run writes here "
+        "(default: a temporary directory)",
     )
     index.add_argument(
         "--previous-artifact",
@@ -283,7 +289,87 @@ def parser():
     return p
 
 
+def index_scip(args, directory):
+    """Run the pinned SCIP indexers over an ``index`` run's files.
+
+    Every run does this, whatever its tools. Returns the ``index_workspace``
+    report, cut to the files the run analyzes, and the ingested indexes. A
+    missing, failing or wrong-version indexer stops the run; each file without
+    an index is named on stderr with the reason."""
+    from fnmatch import fnmatchcase
+
+    from .indexers import LANGUAGE_INDEXERS, failed_files, index_workspace
+    from .indexers import ingest_indexed
+
+    requested = args.language or LANGUAGE_INDEXERS
+    languages = tuple(sorted(set(requested) & set(LANGUAGE_INDEXERS)))
+    if not languages:
+        return None, []
+    report = index_workspace(
+        args.workspace, directory, languages=languages, project_name=None
+    )
+
+    def analyzed(path):
+        return any(
+            fnmatchcase(path, pattern) for pattern in args.include or ("*",)
+        ) and not any(fnmatchcase(path, pattern) for pattern in args.exclude or ())
+
+    report["coverage"] = {
+        path: entry for path, entry in report["coverage"].items() if analyzed(path)
+    }
+    uncovered = {
+        path: entry
+        for path, entry in report["coverage"].items()
+        if entry["status"] != "covered"
+    }
+    report["uncovered"] = len(uncovered)
+    for run in report["runs"]:
+        if run["status"] != "indexed":
+            print(
+                f"{run['indexer']} {run['version']}: {run['status']} "
+                f"({run['reason']})" + (f": {run['detail']}" if run["detail"] else ""),
+                file=sys.stderr,
+            )
+    for path, entry in sorted(uncovered.items()):
+        print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+    failed = failed_files(report)
+    if failed:
+        raise ValueError(
+            f"{len(failed)} source files have no SCIP index because an indexer "
+            "is missing or failed; install the pinned indexers "
+            "(deepthought indexers lists them)"
+        )
+    return report, ingest_indexed(report, args.repository_id)
+
+
 async def execute(args):
+
+    scip_report, scip_indexes, scratch = None, [], None
+    if args.command == "index":
+        import tempfile
+
+        directory = args.scip_output_dir
+        if directory is None:
+            directory = scratch = tempfile.mkdtemp(prefix="deepthought-scip-")
+        try:
+            scip_report, scip_indexes = index_scip(args, directory)
+        except BaseException:
+            _remove(scratch)
+            raise
+    try:
+        return await _execute(args, scip_report, scip_indexes)
+    finally:
+        _remove(scratch)
+
+
+def _remove(directory):
+    if directory is not None:
+        import shutil
+
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+async def _execute(args, scip_report, scip_indexes):
     from .storage.graph.connection import Neo4jConnectionManager
 
     config = connection_settings()
@@ -330,8 +416,15 @@ async def execute(args):
                     name,
                     args.workspace,
                     **(
-                        {"index_paths": args.scip_index}
-                        if name == "scip" and args.scip_index is not None
+                        {
+                            "index_paths": args.scip_index
+                            or [
+                                run["index"]
+                                for run in (scip_report or {"runs": []})["runs"]
+                                if run["status"] == "indexed"
+                            ]
+                        }
+                        if name == "scip"
                         else {"max_files": args.max_files}
                         if name == "data-contracts" and args.max_files is not None
                         else {}
@@ -339,7 +432,11 @@ async def execute(args):
                 )
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
-                options = {"previous": earlier} if name == "tree-sitter" else {}
+                options = (
+                    {"previous": earlier, "scip_indexes": scip_indexes}
+                    if name == "tree-sitter"
+                    else {}
+                )
                 try:
                     if not await tool.check_availability():
                         raise ValueError("Requested AnalysisTool is unavailable")
@@ -391,6 +488,19 @@ async def execute(args):
             report = {**asdict(result), "source_revision": link.to_dict()}
             if earlier is not None:
                 report["reuse"] = reuse
+            if scip_report is not None:
+                report["scip"] = {
+                    "runs": scip_report["runs"],
+                    "uncovered": {
+                        path: entry["reason"]
+                        for path, entry in scip_report["coverage"].items()
+                        if entry["status"] != "covered"
+                    },
+                    "covered": sum(
+                        entry["status"] == "covered"
+                        for entry in scip_report["coverage"].values()
+                    ),
+                }
             return report
         from .graph_queries import GraphQueryService
 
