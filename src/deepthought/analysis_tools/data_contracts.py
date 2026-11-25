@@ -55,6 +55,7 @@ from ..data_contracts import (
     sqlmodel_default_mappings,
     extract_typeorm,
     extract_typeorm_calls,
+    typeorm_builder,
     typeorm_call_entities,
     _TYPEORM_WRITES,
     extract_sequelize,
@@ -555,6 +556,18 @@ SQL_RULES = {
         ),
     )
 }
+
+SQL_RULES["typeorm-sql"] = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-sql",
+        "resolved",
+        "A scip-typescript index resolves the call to TypeORM's query "
+        "method (Repository, EntityManager, DataSource, Connection or "
+        "QueryRunner), and the SQL it is passed (string literals, template "
+        "strings and + concatenation, the parts the code does not fix "
+        "dropped) names this table.",
+    )
+)
 
 GORM_TABLE_RULE = register_rule(
     EvidenceRule(
@@ -1596,7 +1609,9 @@ class DataContractTool(AnalysisTool):
             + [
                 item
                 for file, content, tree in script_trees
-                for item in extract_script_sql(tree, content, file, result.definitions)
+                for item in extract_script_sql(
+                    tree, content, file, result.definitions, references
+                )
             ]
         )
         for item in uses:
@@ -1920,6 +1935,7 @@ class DataContractTool(AnalysisTool):
             "not_typeorm": 0,
             "entity_unknown": 0,
             "not_an_entity": 0,
+            "builders": 0,
         }
         if typeorm_mappings or typeorm_children:
             ts_trees = {file: (content, tree) for file, content, tree in script_trees}
@@ -1927,6 +1943,42 @@ class DataContractTool(AnalysisTool):
                 for call in extract_typeorm_calls(
                     tree, content, file, result.definitions
                 ):
+                    if call.method == "createQueryBuilder":
+                        status, builder = typeorm_builder(references, ts_trees, call)
+                        if status != "resolved":
+                            typeorm_scip_counts[status] += 1
+                            continue
+                        if builder.table is not None:
+                            targets = [table(call.file, table_key(builder.table))]
+                        else:
+                            targets = sorted(
+                                {
+                                    typeorm_by_model[e.id]
+                                    for e in builder.entities
+                                    if e.id in typeorm_by_model
+                                },
+                                key=str,
+                            )
+                        if len(targets) != 1:
+                            typeorm_scip_counts["not_an_entity"] += 1
+                            continue
+                        typeorm_scip_counts["linked"] += 1
+                        typeorm_scip_counts["builders"] += 1
+                        tool, receipt = references.tool(call.file)
+                        link(
+                            "WRITES" if builder.writes else "READS",
+                            code(call.file, call.caller_id),
+                            targets[0],
+                            TYPEORM_SCIP_RULE,
+                            {
+                                "method": call.method,
+                                "line": call.line,
+                                "column": call.column,
+                                "indexer": tool,
+                                "receipt": receipt,
+                            },
+                        )
+                        continue
                     status, entities = typeorm_call_entities(references, ts_trees, call)
                     if status != "resolved":
                         typeorm_scip_counts[status] += 1
