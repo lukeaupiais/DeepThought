@@ -31,6 +31,8 @@ FILES = {
         "const local = createClient({ baseUrl: process.env.API, fetch });\n"
         'export const create = () => local.POST("/pets", { body: {} });\n'
         # Not openapi-fetch methods: lower case, or not a client.
+        'const OWNERS = "/owners/{id}" satisfies keyof paths;\n'
+        "export const owner = () => api.GET(OWNERS);\n"
         'export const lower = () => api.get("/pets");\n'
         'export const other = () => store.GET("/pets");\n'
     ),
@@ -72,6 +74,8 @@ class OpenapiFetchTests(unittest.TestCase):
                 (5, "openapi-fetch", "GET", "http://pets:8080/pets/{?}"),
                 (6, "openapi-fetch", "DELETE", "/pets/{?}"),
                 (8, "openapi-fetch", "POST", "{?}/pets"),
+                # A constant checked with satisfies has its value.
+                (10, "openapi-fetch", "GET", "http://pets:8080/owners/{?}"),
             ],
         )
 

@@ -3430,6 +3430,11 @@ client's methods. Telling those apart needs the
 TypeScript type checker, which cannot type the client without the
 repository's dependencies installed.
 
+A path held in a constant is read through it, also when the constant is
+checked with `satisfies` (`"/v1/x" satisfies keyof paths`): the values of
+TypeScript's `as`, `satisfies` and non-null (`!`) expressions are those of
+their expressions, for every reader that folds values.
+
 Results on ten repositories that use openapi-fetch (all `HttpRequest`s).
 No other request or edge changed.
 
