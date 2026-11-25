@@ -1878,7 +1878,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
 
     def compiler_exported(module, name, rule, reason):
         """What the TypeScript compiler says ``module`` exports as ``name``,
-        followed through re-exports to its declarations."""
+        followed through re-exports to its declarations. When any of them
+        is in a declaration file, the whole resolution carries
+        ``CALL_TS_DECLARATION_FILE``."""
         declared = {}
         for at in compiled.exports.get(module, {}).get(name, ()):
             found = declaration_at(*at)

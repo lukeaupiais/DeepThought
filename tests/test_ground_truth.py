@@ -107,14 +107,22 @@ class GroundTruthTest(unittest.TestCase):
             Path(directory, "t.d.ts").write_text("export declare function f(): void;\n")
             Path(directory, "a.ts").write_text("import { f } from './t';\nf();\n")
             result = ground_truth.analyze(Path(directory), ("typescript",))
-        # The runtime truth names code elsewhere; the declaration is no claim
-        # about it.
+        # Where the oracle names no call, the declaration is no claim about
+        # what runs, and it is never confirmed, even where the oracle names it.
+        for expected in ({}, {("a.ts", 2, "f"): {("t.d.ts", 1, "callable")}}):
+            report, _ = ground_truth.score(result, (expected, {"a.ts"}))
+            self.assertEqual(
+                (
+                    report["confirmed"],
+                    report["contradicted"],
+                    report["declaration_file"],
+                ),
+                (0, 0, 1),
+            )
+        # A link the oracle names other targets for is contradicted.
         truth = ({("a.ts", 2, "f"): {("lib.js", 1, "callable")}}, {"a.ts"})
         report, _ = ground_truth.score(result, truth)
-        self.assertEqual(
-            (report["confirmed"], report["contradicted"], report["declaration_file"]),
-            (0, 0, 1),
-        )
+        self.assertEqual((report["confirmed"], report["contradicted"]), (0, 1))
 
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}

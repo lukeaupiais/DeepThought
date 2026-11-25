@@ -108,7 +108,7 @@ Every engine call resolution is judged at its source position:
 | contradicted | linked, and the oracle names other targets (including `local` or `external`) |
 | unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
 | not_indexed | linked in a file the oracle did not index |
-| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, which no runtime truth names, so neither confirmed nor contradicted |
+| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, so never confirmed; contradicted instead when the oracle names other targets there |
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of

@@ -575,10 +575,12 @@ def score(result, truth, examples=10, resolutions=None):
         # A declaration's line can be that of its annotations or modifiers,
         # an oracle's that of its name: one inside the other is a match.
         targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
-        if resolution.rule_id == CALL_TS_DECLARATION_FILE:
+        if resolution.rule_id == CALL_TS_DECLARATION_FILE and not (
+            keys and ours[0] not in targets
+        ):
             # A declaration file with no implementation analyzed beside it:
-            # the call binds to what it declares, which no runtime truth
-            # judges.
+            # the call binds to what it declares, which is never confirmed.
+            # A link the oracle names other targets for is contradicted.
             outcome = "declaration_file"
         elif resolution.status == "linked":
             if not keys:
