@@ -11,9 +11,11 @@ tree-sitter output joins them.
 
 from hashlib import sha256
 from collections import Counter
+from dataclasses import replace
 import importlib.util
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import time
@@ -21,11 +23,13 @@ import time
 from .._version import __version__
 from .. import go_facts as gofacts
 from ..gorm_naming import table_names as gorm_table_names
+from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
+    drizzle_foreign_keys,
     extract_foreign_keys,
     extract_entity_manager,
     extract_go_sql,
@@ -139,6 +143,20 @@ SQL_FOREIGN_KEY_RULE = register_rule(
         "REFERENCES constraint or a FOREIGN KEY constraint) to the referenced "
         "table. Tables are told apart as data-contracts.sql-create-table "
         "tells them apart.",
+    )
+)
+DRIZZLE_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-foreign-key",
+        "resolved",
+        "drizzle-kit's snapshot of the schema after the last migration of a "
+        "migrations folder (the last entry of meta/_journal.json) holds a "
+        "foreign key of this table to the referenced table. The folder's "
+        "SQL migrations are not read for keys, so a key a later migration "
+        "drops, or one added inside a DO block, follows the snapshot. When "
+        "that snapshot cannot be read, the migrations are read as any SQL "
+        "file (data-contracts.sql-foreign-key) and a drizzle_snapshot_unread "
+        "warning says so.",
     )
 )
 PRISMA_FOREIGN_KEY_RULE = register_rule(
@@ -699,8 +717,12 @@ TYPEORM_DEFAULT_RULE = register_rule(
         "data-contracts.typeorm-default-table-name",
         "name_matched",
         "The class is decorated with TypeORM's @Entity without a name; the "
-        "table is its DefaultNamingStrategy name, the snake case of the "
-        "class name. A custom naming strategy is not read.",
+        "table is the name TypeORM's own DefaultNamingStrategy.tableName "
+        "gives the class, run at the typeorm release the project pins "
+        "(installed, locked, else the newest release of the declared "
+        "range). A custom naming strategy is not read. An entity whose "
+        "release cannot be found or installed gets no table, with a "
+        "typeorm_naming_unread warning.",
     )
 )
 TYPEORM_CHILD_RULE = register_rule(
@@ -1148,6 +1170,24 @@ class DataContractTool(AnalysisTool):
         # Prisma's own schema engine, the build the project's Prisma pins.
         prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
         prisma.extend(prisma_read.models)
+        drizzle_folders, drizzle_keys, drizzle_unread = {}, [], []
+        foreign_keys_superseded = {"prisma": 0}
+
+        def prisma_migrations(path):
+            """Whether a SQL file is a migration of a Prisma schema the engine
+            read: <dir>/migrations/<name>/migration.sql beside the
+            migration_lock.toml Prisma Migrate writes, with a read schema
+            in <dir>. Prisma's schema is the current state, so its keys
+            stand for these migrations, including the ones later dropped."""
+            parts = path.split("/")
+            if len(parts) < 3 or parts[-3] != "migrations":
+                return False
+            base = "/".join(parts[:-3])
+            if not (root / base / "migrations" / "migration_lock.toml").is_file():
+                return False
+            prefix = f"{base}/" if base else ""
+            return any(f.startswith(prefix) for f in prisma_read.engines)
+
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1156,6 +1196,27 @@ class DataContractTool(AnalysisTool):
                 unreadable.append(path)
             else:
                 ddl.extend(found)
+                folder = posixpath.dirname(path)
+                if (root / folder / "meta" / "_journal.json").is_file():
+                    # drizzle-kit's own record of the schema after the last
+                    # migration gives the keys (below), not each migration.
+                    drizzle_folders.setdefault(folder, []).append((path, content))
+                    continue
+                if prisma_migrations(path):
+                    foreign_keys_superseded["prisma"] += 1
+                    continue
+                keys, unparsed = extract_foreign_keys(path, content)
+                foreign_keys.extend(keys)
+                foreign_keys_unparsed.extend((path, line) for line in unparsed)
+        for folder, migrations in sorted(drizzle_folders.items()):
+            snapshot, keys = drizzle_foreign_keys(root, folder)
+            if snapshot is not None:
+                drizzle_keys.extend(keys)
+                continue
+            # Without the last snapshot the state is unknown: each migration
+            # is read as any SQL file is, and the warning says so.
+            drizzle_unread.append(keys)
+            for path, content in migrations:
                 keys, unparsed = extract_foreign_keys(path, content)
                 foreign_keys.extend(keys)
                 foreign_keys_unparsed.extend((path, line) for line in unparsed)
@@ -1354,17 +1415,21 @@ class DataContractTool(AnalysisTool):
                 },
             )
 
-        for key in sorted(set(foreign_keys), key=lambda k: (k.file, k.line, k.table)):
-            foreign_key(
-                key.file,
-                key.line,
-                key.table,
-                key.references,
-                key.columns,
-                key.referenced_columns,
-                key.on_delete,
-                SQL_FOREIGN_KEY_RULE,
-            )
+        for keys, rule in (
+            (foreign_keys, SQL_FOREIGN_KEY_RULE),
+            (drizzle_keys, DRIZZLE_FOREIGN_KEY_RULE),
+        ):
+            for key in sorted(set(keys), key=lambda k: (k.file, k.line, k.table)):
+                foreign_key(
+                    key.file,
+                    key.line,
+                    key.table,
+                    key.references,
+                    key.columns,
+                    key.referenced_columns,
+                    key.on_delete,
+                    rule,
+                )
         mapped = {}
         for mapping in mappings:
             if len(entities.get(mapping.entity, ())) != 1:
@@ -2015,6 +2080,19 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
+        # An @Entity without a name: TypeORM's DefaultNamingStrategy at the
+        # release the project pins.
+        typeorm_names, typeorm_naming_unread = typeorm_table_names(
+            root,
+            sorted({(m.file, m.name) for m in typeorm_mappings if m.table is None}),
+        )
+        typeorm_mappings = [
+            m
+            if m.table is not None
+            else replace(m, table=table_key(typeorm_names[m.file, m.name]))
+            for m in typeorm_mappings
+            if m.table is not None or (m.file, m.name) in typeorm_names
+        ]
         typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
@@ -3006,6 +3084,7 @@ class DataContractTool(AnalysisTool):
             if unreadable
             or kysely_unindexed
             or gorm_naming_unread
+            or typeorm_naming_unread
             or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
@@ -3018,9 +3097,19 @@ class DataContractTool(AnalysisTool):
             for module, reason in sorted(gorm_naming_unread.items())
         ]
         warnings += [
+            f"typeorm_naming_unread: {path}: {reason}, so its @Entity classes "
+            "without a name get no table"
+            for path, reason in sorted(typeorm_naming_unread.items())
+        ]
+        warnings += [
             f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
             "this statement, so its foreign keys are not read"
             for path, line in sorted(foreign_keys_unparsed)
+        ]
+        warnings += [
+            f"drizzle_snapshot_unread: {reason}, so the foreign keys of each "
+            "migration are read instead, including keys later migrations drop"
+            for reason in drizzle_unread
         ]
         warnings += [
             f"prisma_schema_unread: {path}: {reason}"
@@ -3115,12 +3204,18 @@ class DataContractTool(AnalysisTool):
                         "sql": len(set(foreign_keys)),
                         "prisma": sum(len(m.foreign_keys) for m in prisma),
                         "sql_not_parsed": len(foreign_keys_unparsed),
+                        "drizzle_snapshot": len(set(drizzle_keys)),
+                        "drizzle_snapshot_unread": len(drizzle_unread),
+                        "prisma_migration_files_superseded": foreign_keys_superseded[
+                            "prisma"
+                        ],
                     },
                     "prisma_schema": {
                         "engines": dict(sorted(prisma_read.engines.items())),
                         "unread": len(prisma_read.unread),
                     },
                     "typeorm_entities": len(typeorm_mappings),
+                    "typeorm_naming_unread": len(typeorm_naming_unread),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,

@@ -20,7 +20,9 @@ and JdbcClient) name the tables they read and write (``SqlUse``).
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
+import json
 import logging
+from pathlib import Path
 import re
 
 from .service_contracts.http import PLACEHOLDER
@@ -222,6 +224,47 @@ def extract_foreign_keys(file, content: bytes):
             continue
         found.extend(ForeignKey(file, line + offset, *rest) for line, *rest in keys)
     return found, unparsed
+
+
+def drizzle_foreign_keys(root, folder):
+    """The foreign keys of the schema state drizzle-kit records for a
+    migrations ``folder`` (relative to ``root``): the snapshot of the last
+    entry of ``meta/_journal.json``, which drizzle-kit writes as the schema
+    after every migration, so keys later migrations drop are not in it.
+    Returns (snapshot path, keys), or (None, reason) when the journal or its
+    last snapshot cannot be read."""
+    meta = f"{folder}/meta" if folder else "meta"
+    try:
+        journal = json.loads((Path(root) / meta / "_journal.json").read_text("utf-8"))
+        last = journal["entries"][-1]["idx"]
+        snapshot = f"{meta}/{last:04d}_snapshot.json"
+        text = (Path(root) / snapshot).read_text("utf-8")
+        tables = json.loads(text)["tables"]
+        keys = []
+        for table in tables.values():
+            for name, key in sorted((table.get("foreignKeys") or {}).items()):
+                position = text.find(json.dumps(name))
+                keys.append(
+                    ForeignKey(
+                        snapshot,
+                        text.count("\n", 0, position) + 1 if position >= 0 else 1,
+                        key["tableFrom"].lower(),
+                        key["tableTo"].lower(),
+                        tuple(c.lower() for c in key.get("columnsFrom") or ()),
+                        tuple(c.lower() for c in key.get("columnsTo") or ()),
+                        (key.get("onDelete") or "").upper() or None,
+                    )
+                )
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+        AttributeError,
+    ) as error:
+        return None, f"drizzle-kit snapshot of {folder or '.'}: {error!r}"
+    return snapshot, keys
 
 
 def _sqlglot_foreign_keys(text):
@@ -2440,13 +2483,6 @@ def prisma_accessor(model):
     return model[:1].lower() + model[1:]
 
 
-def typeorm_table_name(entity):
-    """TypeORM's DefaultNamingStrategy table name: snakeCase of the class
-    name (``UserProfile`` is ``user_profile``, ``HTTPLog`` is ``http_log``)."""
-    name = re.sub(r"([A-Z])([A-Z])([a-z])", r"\1_\2\3", entity)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
-
-
 def _script_string(node, content):
     """A plain (not template) string literal's text, or None."""
     if node is None or node.type != "string":
@@ -2613,7 +2649,9 @@ def extract_typeorm(tree, content, file, definitions):
                         file,
                         model_id,
                         entity,
-                        table_key(name) if name else typeorm_table_name(entity),
+                        # Without a name, TypeORM's own naming strategy
+                        # gives it (deepthought.typeorm_naming).
+                        table_key(name) if name else None,
                         node.start_point.row + 1,
                         node.start_point.column,
                         explicit=bool(name),
