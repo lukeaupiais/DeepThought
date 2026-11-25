@@ -6044,6 +6044,14 @@ def _declaration_body(node):
     return None
 
 
+def _end_before_comments(node):
+    """Where a declaration ends, without the comments its node ends with."""
+    children = node.children
+    while children and children[-1].type == "comment":
+        children = children[:-1]
+    return children[-1].end_byte if children else node.end_byte
+
+
 def _signature(head):
     """A declaration's head as written, from its decorators or ``export`` to
     where its body starts, trailing space removed, bounded to
@@ -6099,22 +6107,27 @@ def declaration_sources(
     sources = {}
     for definition_id, (node, name) in nodes.items():
         body = _declaration_body(node)
+        # Without a body the head ends at the declaration's last part; a line
+        # comment after it (``type R = [A, B] // ...``) is not part of it.
+        end = _end_before_comments(node)
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
-        # The head includes the keyword of a statement that declares only
-        # this (``const f = ...``, Go's ``type R struct``).
+        # The head includes TypeScript's ``declare`` and the keyword of a
+        # statement that declares only this (``const f = ...``, Go's
+        # ``type R struct``); comments in the statement are not declarations.
         start = node
         while start.parent is not None and (
             start.parent.type in _SOURCE_WRAPPERS
+            or start.parent.type == "ambient_declaration"
             or (
                 start.parent.type in _SINGLE_DECLARATIONS
-                and len(start.parent.named_children) == 1
+                and sum(c.type != "comment" for c in start.parent.named_children) == 1
             )
         ):
             start = start.parent
         head = content[
-            start.start_byte : body.start_byte if body is not None else node.end_byte
+            start.start_byte : body.start_byte if body is not None else end
         ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)

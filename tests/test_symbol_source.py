@@ -134,6 +134,10 @@ class SymbolSourceTests(unittest.TestCase):
                 "interface I { p(): void }\n"
                 "export type U = string | number\n"
                 "let one = 1, two = (x: number) => { return x }\n"
+                "declare type D = number\n"
+                "declare abstract class K { }\n"
+                "const commented = (a: number): number => a // why\n"
+                "type Route<T> = [RegExp, T] // [pattern, handler]\n"
             ),
         }
         output, _ = self.analyze(files, ("python", "typescript"))
@@ -152,6 +156,14 @@ class SymbolSourceTests(unittest.TestCase):
         # Without a body, the whole declaration is its head.
         self.assertEqual(nodes["I.p"]["signature"], "p(): void")
         self.assertEqual(nodes["U"]["signature"], "export type U = string | number")
+        # `declare` is part of the head; trailing comments are not, and a
+        # comment in a statement does not count as a second declaration.
+        self.assertEqual(nodes["D"]["signature"], "declare type D = number")
+        self.assertEqual(nodes["K"]["signature"], "declare abstract class K")
+        self.assertEqual(
+            nodes["commented"]["signature"], "const commented = (a: number): number =>"
+        )
+        self.assertEqual(nodes["Route"]["signature"], "type Route<T> = [RegExp, T]")
         # A statement declaring more than one name keeps its keyword out.
         self.assertEqual(nodes["two"]["signature"], "two = (x: number) =>")
         # A long head is cut at 400 characters, or at five lines.
