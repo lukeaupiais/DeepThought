@@ -879,8 +879,10 @@ class GraphQueryService:
         ``target`` (a qualified name or a ``file:line`` place) keeps the
         calls linked to that one declaration and the ambiguous ones that
         list it among their candidates; same-named calls of anything else
-        are left out. Unresolved calls of the name could be calls of it, so
-        they stay in the counts, not the items."""
+        are left out. A call of a Go interface method that DISPATCHES_TO the
+        target is kept too, with the interface method as ``via``. Unresolved
+        calls of the name could be calls of it, so they stay in the counts,
+        not the items."""
         _text(name, "name")
         if file_path is not None:
             _text(file_path, "file_path")
@@ -893,7 +895,9 @@ class GraphQueryService:
             WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
               AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
               AND ($file_path IS NULL OR caller.file_path=$file_path)
-              AND ($target IS NULL OR target.qualified_name=$target)"""
+              AND ($target IS NULL OR target.qualified_name=$target
+                OR EXISTS { (target)-[:DISPATCHES_TO]->(:Symbol {repo_url:$repo_url,
+                    snapshot_id:$snapshot_id,qualified_name:$target}) })"""
         unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
             WHERE ($file_path IS NULL OR call.file_path=$file_path)
               AND ($target IS NULL OR $target IN coalesce(call.candidates, [])KEPT)
@@ -926,16 +930,19 @@ class GraphQueryService:
             "r.line AS line,r.column AS column,"
             + enclosing
             + "null AS reason,null AS resolver,"
-            "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
+            "target.qualified_name AS target,"
+            # A call of an interface method reaches the target through it.
+            "CASE WHEN target.qualified_name <> $target THEN target.qualified_name END AS via,"
+            "[] AS candidates,r AS relationship UNION ALL "
             + unlinked.replace("KEPT", "")
             + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
             "call.line AS line,call.column AS column,"
             + enclosing
             + "call.reason AS reason,"
-            "call.resolver AS resolver,null AS target,"
+            "call.resolver AS resolver,null AS target,null AS via,"
             "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
             "RETURN status,callee,file_path,line,column,caller,source_roles,reason,"
-            "resolver,target,candidates,relationship "
+            "resolver,target,via,candidates,relationship "
             "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
             parameters | {"roles": _ROLES},
             repo_url,
@@ -1099,20 +1106,31 @@ class GraphQueryService:
             "qualified_name:$subject}) "
             "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
-            "WITH provider, collect(DISTINCT type(r)) AS relations "
-            "RETURN provider.qualified_name AS qualified_name, "
-            "coalesce(provider.name, provider.path) AS name, "
-            "coalesce(provider.file_path, provider.path) AS file_path, "
-            "provider.start_line AS start_line, relations "
-            "ORDER BY file_path, start_line, qualified_name",
-            {"subject": qualified_name},
+            "WITH provider, collect(DISTINCT type(r)) AS relations, "
+            "collect(DISTINCT r.line) AS lines "
+            # The declaration (or top level of a file) that provides it, as
+            # call sites name their caller, with the lines of its edges.
+            "RETURN " + _declaration("provider") + " AS provider, relations, "
+            "[line IN lines WHERE line IS NOT NULL] AS lines, "
+            "[role IN $roles WHERE coalesce(provider.file_path, provider.path, '') "
+            "=~ role.pattern | role.name] AS source_roles "
+            "ORDER BY provider.file_path, provider.start_line, provider.qualified_name",
+            {"subject": qualified_name, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=10,
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
-        providers = found["items"]
+        providers = [
+            item["provider"]
+            | {
+                "relations": item["relations"],
+                "lines": sorted(item["lines"]),
+                "source_roles": item["source_roles"],
+            }
+            for item in found["items"]
+        ]
         # The providers share the output budget with the dependents.
         while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
             providers.pop()

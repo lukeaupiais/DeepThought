@@ -418,7 +418,9 @@ the chat model. The port answers from stored edges only:
   route, gRPC method, GraphQL field, message destination or database table.
   The change set is the contract and its providers, the declarations or files
   that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
-  lists under `providers` (at most 10, `providers_truncated` when more).
+  lists under `providers` (at most 10, `providers_truncated` when more),
+  each described as call sites describe their caller, with its `relations`,
+  the sorted `lines` of those edges and its `source_roles`.
   Dependents are then found as for `get_impact`: the code that REQUESTS,
   CONSUMES or READS the contract or, for a table, the tables whose foreign
   keys reference it over REFERENCES_TABLE (direct), and the callers of that code, also

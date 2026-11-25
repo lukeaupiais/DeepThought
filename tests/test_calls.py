@@ -2241,6 +2241,59 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "dup", self.repo, snapshot_id=snapshot, target="dup.py:5"
             )
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_go"), "Provision the go extra"
+    )
+    async def test_call_sites_of_a_go_method_include_calls_through_its_interface(self):
+        from deepthought.analysis_tools import TreeSitterTool
+        from deepthought.graph_queries import GraphQueryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "go.mod").write_text("module example.com/a\n\ngo 1.22\n")
+            (root / "a.go").write_text(
+                "package a\n\n"
+                "type Saver interface{ Save() }\n\n"
+                "type Disk struct{}\n\n"
+                "func (Disk) Save() {}\n\n"
+                "type Other struct{}\n\n"
+                "func (Other) Save() {}\n\n"
+                "func Use(s Saver) {\n\ts.Save()\n}\n\n"
+                "func Direct(d Disk) {\n\td.Save()\n}\n"
+            )
+            output = await TreeSitterTool(root).analyze(
+                self.repo, languages=("go",), scip_indexes=()
+            )
+        result = await self.coordinator.write_tool_output(
+            "tree-sitter", output, self.repo
+        )
+        self.assertTrue(result.success, result.errors)
+        service = GraphQueryService(self.driver, self.database)
+        snapshot = result.snapshot_id
+        sites = await service.get_call_sites(
+            "Save", self.repo, snapshot_id=snapshot, target="a.go:7"
+        )
+        rows = [
+            (i["line"], i["caller"]["name"], i["via"] is not None)
+            for i in sites["items"]
+        ]
+        self.assertEqual(rows, [(14, "Use", True), (18, "Direct", False)])
+        self.assertTrue(
+            sites["items"][0]["via"].endswith(
+                "::Saver.Save::"
+                + next(
+                    n.properties["definition_id"]
+                    for n in output.nodes
+                    if n.properties.get("name") == "Saver.Save"
+                )
+            )
+        )
+        # Without a target nothing is reached through anything.
+        everything = await service.get_call_sites(
+            "Save", self.repo, snapshot_id=snapshot
+        )
+        self.assertTrue(all(i["via"] is None for i in everything["items"]))
+
     async def test_call_sites_count_linked_and_unlinked_calls_of_a_name(self):
         from deepthought.analysis_tools import TreeSitterTool
         from deepthought.graph_queries import GraphQueryService
