@@ -562,14 +562,23 @@ and stay unchecked; Maven name matches (guava: 5, plus 12 ambiguous between
 ### Compose services
 
 Compose files (`compose.yaml`, `docker-compose.yml` and variants such as
-`docker-compose.prod.yml`) declare `compose_service` components, one per
-`services` entry (needs PyYAML: the `components` or `languages` extra). Each
-file is read on its own, as `docker compose -f FILE` reads it: several `-f`
-files, `extends` and `include` are not merged, and `${VARIABLE}`
-interpolation is not performed. A service's root is its build context
-(`build: DIR` or `build.context`); one that only names an `image`, builds from
-a remote URL or needs interpolation has no root and no files. Files under a
-build context are PART_OF every service built from it.
+`docker-compose.prod.yml` or `docker-compose-kafka.yml`) declare
+`compose_service` components, one per service, as compose-go, the loader of
+`docker compose`, loads them (`deepthought.deploy_facts`; the Go toolchain is
+required). In each directory, the default file and the override file that
+compose-go's own discovery picks are one project, as `docker compose` reads
+a directory, and its services are declared by the default file (the
+override file declares nothing of its own); every other Compose file is a
+project of its own, as `docker compose -f FILE` reads it. `extends`,
+`include`, all profiles and `${VARIABLE}` interpolation from the project's
+`.env` are the loader's; the process environment is never read, and text
+no variable sets is unknown (an image keeps it as `{?}`, and an image
+whose name is unknown is not recorded). A file the loader rejects (for
+example a port that only an unset variable gives) is a diagnostic and
+declares nothing. A service's root is its build context; one that only
+names an `image`, builds from a remote URL or from a directory an unset
+variable names has no root and no files. Files under a build context are
+PART_OF every service built from it.
 
 | Edge | Rule | Evidence |
 |------|------|----------|
@@ -582,7 +591,9 @@ cache, and so on) are not ported.
 
 `--compose` adds `docker compose -f FILE --profile '*' config --format json`
 to the comparison tool: the services each file declares (all profiles), their
-build contexts and depends_on. No contradictions:
+build contexts and depends_on. It reads every file on its own, so it agrees
+with the components only for directories without an override file. Measured
+before the components were loaded by compose-go, with no contradictions:
 
 | Repository | Compose files | Services, contexts and depends_on confirmed |
 |------------|---------------|---------------------------------------------|
@@ -594,10 +605,15 @@ build contexts and depends_on. No contradictions:
 
 With PyYAML, every other `.yaml`/`.yml` file is read for Kubernetes objects
 (including `List` items) and Skaffold configs; a file that holds neither, or
-does not parse (an unrendered Helm template, for instance), is not a manifest
-and is skipped without a diagnostic. Each file is read as written: Helm charts
-and Kustomize overlays are not rendered, so render them first when their
-output is what should be analyzed.
+does not parse, is not a manifest and is skipped without a diagnostic. Helm
+charts and kustomizations are rendered by their tools (see "Services named
+by their deployments"): a chart's objects are declared by its `Chart.yaml`
+and a kustomization's by its kustomization file, and the files the tool read
+for them (a chart's tree, the resources a kustomization lists) are not
+manifests of their own. A chart or kustomization its tool cannot render (a
+remote chart dependency not fetched, a resource outside the
+kustomization's tree) is a diagnostic, and the plain files next to that
+kustomization are not read.
 
 - `k8s_workload`: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob
   and Pod, named `Kind/namespace/name` (or `Kind/name`), with the pod
@@ -4117,7 +4133,8 @@ in-memory URLs (`:mem:`, `:memory:`), which give each process its own
 database, a file whose deepest enclosing Compose build context is built
 by services that name exactly one database in their `environment` uses that
 database as its namespace: a connection URL (`jdbc:` dropped) whose host is a
-service of the same Compose file running a database image (`postgres`,
+service of the same Compose project (as compose-go loads it, see "Compose
+services") running a database image (`postgres`,
 `postgis`, `timescaledb`, `mysql`, `mariadb`, `percona-server`, `mongo`,
 `cockroach`, `libsql-server`), keyed by the Compose file's directory, that
 service and the URL's database. On openstatus (3836510) this puts the Go
@@ -4125,7 +4142,9 @@ service and the URL's database. On openstatus (3836510) this puts the Go
 `monitor`, `private_location` and `private_location_to_monitor` tables as the
 TypeScript Drizzle schema the `server`, `dashboard` and `workflows` services
 use (`DATABASE_URL=http://libsql:8080`); before, it read tables of its own
-`go.mod`. `env_file`, interpolated values, host/port/name variables split
+`go.mod`. Values are read as the loader interpolates them from the
+project's `.env`; a value holding text no variable sets is not read, nor are
+`env_file` entries, host/port/name variables split
 across several keys and URLs fixed in code are not read. Otherwise the
 namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
