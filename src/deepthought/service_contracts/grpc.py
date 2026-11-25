@@ -992,6 +992,11 @@ _SUFFIXES = {
 }
 
 
+# The languages whose servers and stub calls are read.
+SERVER_LANGUAGES = tuple(_SUFFIXES)
+CALL_LANGUAGES = tuple(sorted({*_CALL, "csharp"}))
+
+
 def proto_files(root, include=("*",), exclude=()):
     """Relative paths of the .proto files under ``root``, sorted."""
     found = []
