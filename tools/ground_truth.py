@@ -849,7 +849,7 @@ TABLE_LANGUAGES = {"ruby": (".rb", "::"), "php": (".php", "\\")}
 MONGOOSE_LANGUAGES = ("javascript", "typescript")
 
 
-def score_tables(corpus, workspace, examples=10):
+def score_tables(corpus, workspace, examples=10, cache=None):
     """The table each model class maps to, against labels from the ORM's own
     rules: ActiveRecord's (tools/rails_table_oracle.rb) or, for Doctrine,
     the entity metadata checked against the schema its migrations build
@@ -880,7 +880,12 @@ def score_tables(corpus, workspace, examples=10):
         return score_go_sql_tables(labels, workspace, examples)
     if language == "python-orm":
         return score_line_tables(
-            labels, workspace, examples, "data-contracts.", ["python"]
+            labels,
+            workspace,
+            examples,
+            "data-contracts.",
+            ["python"],
+            table_indexes(corpus, workspace, cache),
         )
     if language in ("typeorm", "drizzle"):
         return score_line_tables(
@@ -1135,7 +1140,23 @@ def scip_languages(corpus):
     return tuple(lang for lang in corpus["languages"] if lang in LANGUAGE_INDEXERS)
 
 
-def score_line_tables(labels, workspace, examples, rule_prefix, languages):
+# Table corpora whose engine rules read names through SCIP indexes, and the
+# languages to index: the scorer runs the engine as `deepthought index` does.
+SCIP_TABLE_LANGUAGES = {"python-orm": ("python",)}
+
+
+def table_indexes(corpus, workspace, cache):
+    """The table corpus's SCIP indexes (``engine_indexes``), or () for a
+    corpus whose rules read none."""
+    languages = SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    if not languages or cache is None:
+        return ()
+    return engine_indexes(corpus, workspace, cache, languages, "tables")
+
+
+def score_line_tables(
+    labels, workspace, examples, rule_prefix, languages, scip_indexes=()
+):
     """Table accesses per line against labels.
 
     A labelled line is *found* when the engine's READS/WRITES/DECLARES edges
@@ -1150,7 +1171,9 @@ def score_line_tables(labels, workspace, examples, rule_prefix, languages):
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
+        DataContractTool(Path(workspace)).analyze(
+            "tables", languages=languages, scip_indexes=scip_indexes
+        )
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     read = defaultdict(set)
@@ -1372,7 +1395,12 @@ def missing_requirements(manifest, names=(), scip=False):
                 modules.add(LANGUAGES[lang][1])
     from deepthought.indexers import LANGUAGE_INDEXERS, locate
 
-    indexers = set()
+    indexers = {
+        LANGUAGE_INDEXERS[lang]
+        for corpus in manifest.get("tables", ())
+        if selected(corpus)
+        for lang in SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    }
     if scip:
         indexers |= {
             LANGUAGE_INDEXERS[lang]
@@ -1657,7 +1685,7 @@ def check(names, cache, update=False, examples=10, scip=False):
             # on its own and its paths are relative to it.
             else fetch(corpus, cache) / corpus.get("root", ".")
         )
-        report, samples = score_tables(corpus, workspace, examples)
+        report, samples = score_tables(corpus, workspace, examples, cache)
         problems = (
             table_regressions(report, tabled[corpus["name"]])
             if (corpus["name"] in tabled and not update)

@@ -207,6 +207,16 @@ class ForeignKeyDrop:
     constraint: str | None = None
 
 
+@dataclass(frozen=True)
+class TableRename:
+    """ALTER TABLE ``table`` RENAME TO ``new_name``."""
+
+    file: str
+    line: int
+    table: str
+    new_name: str
+
+
 def extract_foreign_keys(file, content: bytes):
     """(foreign keys, lines not parsed) of a SQL file's CREATE TABLE and
     ALTER TABLE statements, read by sqlglot: a column's REFERENCES
@@ -369,12 +379,14 @@ def _sqlglot_foreign_keys(text):
     return None
 
 
-def extract_foreign_key_drops(file, content: bytes):
-    """(drops, lines not parsed) of a SQL file's statements that remove
-    foreign keys, read by sqlglot: ALTER TABLE ... DROP CONSTRAINT, ALTER
-    TABLE ... DROP FOREIGN KEY (MySQL) and DROP TABLE. A statement with a
-    DROP token that no dialect parses is not read; its line is returned.
-    None when the file is not UTF-8 or no dialect tokenizes it."""
+def extract_schema_changes(file, content: bytes):
+    """(changes, lines not parsed) of a SQL file's statements that drop or
+    rename what earlier statements declared, read by sqlglot: ALTER TABLE
+    ... DROP CONSTRAINT, ALTER TABLE ... DROP FOREIGN KEY (MySQL) and DROP
+    TABLE (ForeignKeyDrop), and ALTER TABLE ... RENAME TO (TableRename). A
+    statement with a DROP or RENAME token that no dialect parses is not
+    read; its line is returned. None when the file is not UTF-8 or no
+    dialect tokenizes it."""
     import sqlglot
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -387,7 +399,15 @@ def extract_foreign_key_drops(file, content: bytes):
     found, unparsed = [], []
     for statement in statements:
         types = {t.token_type for t in statement}
-        if TokenType.DROP not in types or TokenType.TABLE not in types:
+        # sqlglot tokenizes RENAME as a command: the rest of the statement
+        # (MySQL's RENAME TABLE a TO b) is one string token.
+        if not statement:
+            continue
+        renames = statement[0].token_type == TokenType.RENAME
+        if not renames and (
+            TokenType.TABLE not in types
+            or not types & {TokenType.DROP, TokenType.RENAME}
+        ):
             continue
         start, end = statement[0].start, statement[-1].end + 1
         line = statement[0].line
@@ -422,6 +442,18 @@ def extract_foreign_key_drops(file, content: bytes):
                 ):
                     continue
                 for action in tree.args.get("actions") or ():
+                    if isinstance(action, exp.AlterRename) and isinstance(
+                        action.this, exp.Table
+                    ):
+                        found.append(
+                            TableRename(
+                                file,
+                                line,
+                                owner.name.lower(),
+                                action.this.name.lower(),
+                            )
+                        )
+                        continue
                     if not isinstance(action, exp.Drop) or (
                         (action.args.get("kind") or "").upper()
                         not in ("CONSTRAINT", "FOREIGN KEY")
@@ -481,11 +513,11 @@ def _postgres_key_name(key):
 def replay_foreign_keys(files):
     """The foreign keys left once each file's statements run in order.
 
-    ``files`` holds (path, keys, drops) of the SQL files of one migration
+    ``files`` holds (path, keys, changes) of the SQL files of one migration
     set (``migration_set``); they apply in natural name order (V2 before
     V10) and, within a file, in line order. A drop names a key by its
     constraint name, or by the name PostgreSQL gives an unnamed key; DROP
-    TABLE takes the keys of and to the table. Returns (keys, dropped count,
+    TABLE takes the keys of and to the table, and RENAME TO moves them. Returns (keys, dropped count,
     drops that name no key read before them: DROP CONSTRAINT also drops
     primary, unique and check constraints). Running the migrations against
     a database would run the project's code, so their statements are
@@ -496,6 +528,18 @@ def replay_foreign_keys(files):
         for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
             if kind:
                 keys.append(item)
+                continue
+            if isinstance(item, TableRename):
+                keys = [
+                    replace(
+                        k,
+                        table=item.new_name if k.table == item.table else k.table,
+                        references=item.new_name
+                        if k.references == item.table
+                        else k.references,
+                    )
+                    for k in keys
+                ]
                 continue
             if item.constraint is None:
                 left = [k for k in keys if item.table not in (k.table, k.references)]
@@ -512,6 +556,32 @@ def replay_foreign_keys(files):
             dropped += len(keys) - len(left)
             keys = left
     return keys, dropped, unmatched
+
+
+def replay_tables(files):
+    """The tables left once a migration set's files run in order, as
+    ``replay_foreign_keys`` orders them: ``files`` holds (path, tables,
+    changes). DROP TABLE removes a table; RENAME TO moves it, declared
+    where it is renamed. A table created twice keeps its first declaration.
+    Returns (tables, dropped count, renamed count)."""
+    state, dropped, renamed = {}, 0, 0
+    for _, found, changes in sorted(files, key=lambda f: _natural(f[0])):
+        events = [(t.line, 1, t) for t in found] + [(c.line, 0, c) for c in changes]
+        for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
+            if kind:
+                state.setdefault(item.name.lower(), item)
+            elif isinstance(item, TableRename):
+                if item.table in state:
+                    state[item.new_name] = replace(
+                        state.pop(item.table),
+                        file=item.file,
+                        line=item.line,
+                        name=item.new_name,
+                    )
+                    renamed += 1
+            elif item.constraint is None and state.pop(item.table, None):
+                dropped += 1
+    return list(state.values()), dropped, renamed
 
 
 def _sqlglot_ddl(text):

@@ -30,11 +30,12 @@ from ..data_contracts import (
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
-    extract_foreign_key_drops,
+    extract_schema_changes,
     extract_foreign_keys,
     is_rollback_migration,
     migration_set,
     replay_foreign_keys,
+    replay_tables,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
@@ -130,7 +131,10 @@ DDL_RULE = register_rule(
         "data-contracts.sql-create-table",
         "resolved",
         "The SQL file has a CREATE TABLE statement for this table (temporary "
-        "tables excluded). Tables are told apart by their case-insensitive "
+        "tables excluded), or the ALTER TABLE ... RENAME TO that gives an "
+        "earlier table this name; a table a later file of the same migration "
+        "set drops or renames, or that only a rollback (down) migration "
+        "creates, is left out. Tables are told apart by their case-insensitive "
         "name without schema and their namespace: the module's "
         "spring.datasource.url when its Spring configuration fixes one "
         "persistent database, else the one database that the Compose "
@@ -1192,22 +1196,18 @@ class DataContractTool(AnalysisTool):
             prefix = f"{base}/" if base else ""
             return any(f.startswith(prefix) for f in prisma_read.engines)
 
-        migration_sets = defaultdict(list)
+        migration_sets, table_sets = defaultdict(list), defaultdict(list)
         foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
-        rollbacks = []
+        rollbacks, changes_of, ddl_read = [], {}, []
 
         def read_keys(path, content, folder=None):
             """Queue a SQL file's foreign keys and drops for the replay of
-            its migration set (``folder`` when given); a rollback (down)
-            migration is left out."""
-            if is_rollback_migration(path):
-                rollbacks.append(path)
-                return
+            its migration set (``folder`` when given)."""
             keys, unparsed = extract_foreign_keys(path, content)
-            drops, drops_unparsed = extract_foreign_key_drops(path, content)
-            migration_sets[folder or migration_set(path)].append((path, keys, drops))
+            changes, changes_unparsed = changes_of[path]
+            migration_sets[folder or migration_set(path)].append((path, keys, changes))
             foreign_keys_unparsed.extend(
-                (path, line) for line in sorted({*unparsed, *drops_unparsed})
+                (path, line) for line in sorted({*unparsed, *changes_unparsed})
             )
 
         for path in _sql_files(root, include, exclude):
@@ -1216,10 +1216,20 @@ class DataContractTool(AnalysisTool):
             found = extract_ddl(path, content)
             if found is None:
                 unreadable.append(path)
+            elif is_rollback_migration(path):
+                # A rollback (down) migration is not part of the schema the
+                # migrations build: neither its tables nor its keys are read.
+                rollbacks.append(path)
+                ddl_read.extend(found)
             else:
-                ddl.extend(found)
+                ddl_read.extend(found)
+                changes_of[path] = extract_schema_changes(path, content)
                 folder = posixpath.dirname(path)
-                if (root / folder / "meta" / "_journal.json").is_file():
+                drizzle = (root / folder / "meta" / "_journal.json").is_file()
+                table_sets[folder if drizzle else migration_set(path)].append(
+                    (path, found, changes_of[path][0])
+                )
+                if drizzle:
                     # drizzle-kit's own record of the schema after the last
                     # migration gives the keys (below), not each migration.
                     drizzle_folders.setdefault(folder, []).append((path, content))
@@ -1238,6 +1248,12 @@ class DataContractTool(AnalysisTool):
             drizzle_unread.append(keys)
             for path, content in migrations:
                 read_keys(path, content, folder)
+        tables_dropped = tables_renamed = 0
+        for _, files in sorted(table_sets.items()):
+            tables, dropped, renamed = replay_tables(files)
+            ddl.extend(tables)
+            tables_dropped += dropped
+            tables_renamed += renamed
         for _, files in sorted(migration_sets.items()):
             keys, dropped, unmatched = replay_foreign_keys(files)
             foreign_keys.extend(keys)
@@ -1380,7 +1396,8 @@ class DataContractTool(AnalysisTool):
 
         repository_name = f"{repo_url}::repository"
         for path in sorted(
-            {d.file for d in ddl}
+            {d.file for d in ddl_read}
+            | {d.file for d in ddl}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
             | {c.file for c in doctrine_mapped}
@@ -3185,7 +3202,9 @@ class DataContractTool(AnalysisTool):
                     "model_tokens": 0,
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
-                    "ddl_statements": len(ddl),
+                    "ddl_statements": len(ddl_read),
+                    "ddl_tables_dropped": tables_dropped,
+                    "ddl_tables_renamed": tables_renamed,
                     "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
