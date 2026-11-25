@@ -36,7 +36,7 @@ FAKE = textwrap.dedent(
         # A pass over chosen files: its project names them, absolute.
         with open(argv[-1]) as config:
             project = json.load(config)
-        documents = [os.path.relpath(f) for f in project["files"]] + documents
+        documents = [os.path.relpath(f) for f in project.get("files", [])] + documents
     # Only files under the directory it runs in, as a real indexer.
     documents = [path for path in documents if os.path.isfile(path)]
     # As scip-go: a file for another platform builds only there.
@@ -148,10 +148,13 @@ class IndexersTest(unittest.TestCase):
         # Source roots go on PYTHONPATH so src-layout imports resolve.
         argv, python_path = self.args_log.read_text().split("\n")
         self.assertIn("--project-version 0", argv)
+        # The source roots, then the scratch directory the project's
+        # declared dependencies are installed into.
+        *roots, site = python_path.split(os.pathsep)
         self.assertEqual(
-            python_path.split(os.pathsep),
-            [str(self.root.resolve()), str((self.root / "src").resolve())],
+            roots, [str(self.root.resolve()), str((self.root / "src").resolve())]
         )
+        self.assertTrue(site.endswith("site-packages"), site)
         receipt = indexers.validate_receipt(self.root, run["index"])
         self.assertEqual(receipt["profile"], "scip-python-v2")
         self.assertEqual(receipt["producer"]["python_path"], [".", "src"])
@@ -206,6 +209,12 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(report["runs"][0]["status"], "indexed")
         self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
         self.assertFalse((self.root / "tsconfig.json").exists())
+        # The project is written outside the workspace, which may be
+        # read-only, rather than inferred into it.
+        argv = self.args_log.read_text().split("\n")[0].split(" ")
+        self.assertNotIn("--infer-tsconfig", argv)
+        self.assertTrue(argv[-1].endswith("tsconfig.json"), argv)
+        self.assertFalse(Path(argv[-1]).is_relative_to(self.root.resolve()))
 
     def test_files_outside_every_tsconfig_get_a_second_pass(self):
         (self.root / "tsconfig.json").write_text("{}")
@@ -359,6 +368,11 @@ class IndexersTest(unittest.TestCase):
         (self.root / "src" / "pkg" / "a.py").write_text("def f():\n    return 2\n")
         with self.assertRaisesRegex(ValueError, "inputs changed"):
             indexers.ingest_indexed(report, "repo", self.root)
+        # An index that cannot be read stops the run instead of reading as
+        # an index without facts.
+        index.write_bytes(b"not an index")
+        with self.assertRaisesRegex(ValueError, "could not be read: invalid_index"):
+            indexers.ingest_indexed(report, "repo")
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
