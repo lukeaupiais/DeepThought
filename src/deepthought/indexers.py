@@ -86,7 +86,12 @@ INDEXERS = {
         ),
         IndexerSpec(
             "scip-go",
-            "0.1.26",
+            # 0.1.26 knew the standard library from a list built into it: the
+            # uuid package Go 1.27 added (imported by database/sql/driver)
+            # was taken for a module's package without a module, and the run
+            # stopped. 0.2.x reads it from the go command. 0.2.8 and later
+            # write only typed_range, which this reader does not decode yet.
+            "0.2.7",
             ("go",),
             "DEEPTHOUGHT_SCIP_GO",
             # go/token columns are byte offsets.
@@ -230,6 +235,7 @@ def _arguments(spec, root, output, project_name):
         ], root
     if spec.name == "scip-go":
         return [
+            "index",
             "--output",
             str(output),
             "--module-version",

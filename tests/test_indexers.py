@@ -291,7 +291,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="lib.go,main.go",
             ),
         )
@@ -323,7 +323,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="main.go,term_windows.go",
             ),
         )
@@ -410,7 +410,7 @@ class IndexersTest(unittest.TestCase):
             self.root,
             self.out / "go.scip",
             environ=self.environ(
-                FAKE_NAME="scip-go", FAKE_VERSION="0.1.26", FAKE_DOCUMENTS="main.go"
+                FAKE_NAME="scip-go", FAKE_VERSION="0.2.7", FAKE_DOCUMENTS="main.go"
             ),
         )
         self.assertEqual((python.status, go.status), ("indexed", "indexed"))
