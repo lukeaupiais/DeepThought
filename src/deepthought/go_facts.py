@@ -88,6 +88,48 @@ class GoCall:
     declarations: tuple[tuple[str, int] | None, ...] = ()
     # Whether each argument's static type is an interface.
     interfaces: tuple[bool, ...] = ()
+    # References (see GoRef) of the receiver expression and of what the
+    # result is assigned to; of each argument, the variable, field or call it
+    # is, the module's function it names or calls, and a func literal's first
+    # parameter.
+    operand: tuple | None = None
+    assigned: tuple | None = None
+    reference: tuple | None = None
+    refs: tuple = ()
+    functions: tuple = ()
+    literal_parameters: tuple = ()
+
+
+# A reference gofacts gives: ("o", file, line, column) of a variable or field
+# declaration, ("c", file, line, column) of a call, ("f", file, line, column)
+# of a function or method declaration; columns 0-based. One object gives the
+# same reference in every file of its module.
+
+
+@dataclass(frozen=True)
+class GoPass:
+    """A call of the module's own function passing values of library types:
+    (argument reference, callee parameter reference) pairs."""
+
+    file: str
+    line: int
+    column: int
+    callee: tuple
+    arguments: tuple
+
+
+@dataclass(frozen=True)
+class GoNew:
+    """A call of a library's constructor: a package function whose first
+    result is a type of its own package (gin.Default())."""
+
+    file: str
+    line: int
+    column: int
+    type: tuple[str, str]
+    function: str
+    assigned: tuple | None
+    reference: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +162,8 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    passes: list[GoPass] = field(default_factory=list)
+    constructors: list[GoNew] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -501,6 +545,13 @@ def _read(text, directory, members, facts):
     def relative(path):
         return posixpath.join(directory, path) if directory and path else path
 
+    def ref(value):
+        if not value:
+            return None
+        kind, rest = value.split(":", 1)
+        path, line, column = rest.rsplit(":", 2)
+        return (kind, relative(path), int(line), int(column) - 1)
+
     errors = {}
     seen = set()
     for line in text.splitlines():
@@ -541,6 +592,47 @@ def _read(text, directory, members, facts):
                         for a in arguments
                     ),
                     tuple(bool(a.get("interface")) for a in arguments),
+                    ref(item.get("operand")),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
+                    tuple(ref(a.get("ref")) for a in arguments),
+                    tuple(ref(a.get("function")) for a in arguments),
+                    tuple(ref(a.get("literal")) for a in arguments),
+                )
+            )
+        elif kind == "pass":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "pass")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.passes.append(
+                GoPass(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    ref(item["callee"]),
+                    tuple(
+                        (ref(a.get("ref")), ref(a.get("parameter")))
+                        for a in item.get("arguments") or ()
+                    ),
+                )
+            )
+        elif kind == "new":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "new")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.constructors.append(
+                GoNew(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    item.get("method", ""),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
                 )
             )
         elif kind == "literal":

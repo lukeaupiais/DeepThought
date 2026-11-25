@@ -12,7 +12,6 @@ only through the file's own imports and bindings; URLs are folded by
 """
 
 import re
-from types import SimpleNamespace
 
 from ..syntax import identifier
 from .folding import Folder, text
@@ -2015,60 +2014,6 @@ def _go_method(folder, node, content):
     return value if value in HTTP_METHODS else None
 
 
-# Go router packages: import path -> (framework, constructors, root types,
-# group types, index of the handler among the arguments after the path).
-_GO_ROUTERS = {
-    "github.com/gin-gonic/gin": (
-        "gin",
-        ("Default", "New"),
-        ("Engine",),
-        ("RouterGroup", "IRouter", "IRoutes"),
-        -1,  # middleware first, the handler last
-    ),
-    "github.com/labstack/echo/v4": (
-        "echo",
-        ("New",),
-        ("Echo",),
-        ("Group",),
-        0,  # the handler first, then route middleware
-    ),
-    "github.com/labstack/echo": (
-        "echo",
-        ("New",),
-        ("Echo",),
-        ("Group",),
-        0,
-    ),
-    "github.com/go-chi/chi/v5": (
-        "chi",
-        ("NewRouter", "NewMux"),
-        ("Mux",),
-        ("Router",),
-        -1,
-    ),
-    "github.com/go-chi/chi": (
-        "chi",
-        ("NewRouter", "NewMux"),
-        ("Mux",),
-        ("Router",),
-        -1,
-    ),
-}
-_GO_ROUTER_VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
-# chi's verb methods.
-_CHI_VERBS = {
-    "Get": "GET",
-    "Post": "POST",
-    "Put": "PUT",
-    "Patch": "PATCH",
-    "Delete": "DELETE",
-    "Head": "HEAD",
-    "Options": "OPTIONS",
-    "Connect": "CONNECT",
-    "Trace": "TRACE",
-}
-
-
 def _go_router_path(path, framework=None):
     """Gin/Echo ``:id`` as ``{id}`` and a ``*rest`` segment as ``{*rest}``;
     chi's ``{id}`` and ``{id:regex}`` are already route variables, and its
@@ -2085,215 +2030,13 @@ def _go_router_path(path, framework=None):
     )
 
 
-def _go_router_prefixes(context, imports, mounts=None):
-    """A function giving the path prefixes of a Gin or Echo router
-    expression: (package path, prefixes), a prefix PLACEHOLDER for a group
-    passed in that ``mounts`` ({(function name, parameter index): prefixes},
-    from the calls in the package) does not give; None when the expression
-    is not a known router."""
-    content, root = context.content, context.root
-    mounts = mounts or {}
-    packages = {n: p for n, p in imports.items() if p in _GO_ROUTERS}
-    # Struct fields typed with a router: field name -> types written.
-    fields = {}
-    for node in _walk(root):
-        if node.type == "field_declaration":
-            kind = node.child_by_field_name("type")
-            for name in node.children_by_field_name("name"):
-                fields.setdefault(text(name, content), set()).add(text(kind, content))
-
-    def typed(written):
-        """(package path, "" for a root, PLACEHOLDER for a group) of a type."""
-        written = written.lstrip("*")
-        local, _, name = written.partition(".")
-        if local not in packages:
-            return None
-        _, _, roots, groups, _ = _GO_ROUTERS[packages[local]]
-        if name in roots:
-            return packages[local], ("",)
-        if name in groups:
-            return packages[local], (PLACEHOLDER,)
-        return None
-
-    def scope_of(node):
-        while node is not None and node.type not in (
-            "function_declaration",
-            "method_declaration",
-            "func_literal",
-        ):
-            node = node.parent
-        return node
-
-    def nested(call, depth=0):
-        """The prefixes of the router a Group or Route call makes: Gin and
-        Echo ``Group(prefix, ...)`` join the prefix; chi ``Route(prefix,
-        fn)`` joins it and chi ``Group(fn)`` keeps the parent's."""
-        function = call.child_by_field_name("function")
-        field = text(function.child_by_field_name("field"), content)
-        parent = prefix(function.child_by_field_name("operand"), depth + 1)
-        arguments = call.child_by_field_name("arguments")
-        if parent is None or arguments is None:
-            return None
-        chi = _GO_ROUTERS[parent[0]][0] == "chi"
-        if field == "Group" and chi:
-            return parent
-        if field == "Route" and not chi or not arguments.named_children:
-            return None
-        own = context.folder.evaluate(arguments.named_children[0])
-        return parent[0], tuple(p + own for p in parent[1])
-
-    def prefix(node, depth=0):
-        if node is None or depth > 10:
-            return None
-        if node.type == "parenthesized_expression":
-            return prefix(node.named_children[0], depth + 1)
-        if node.type == "call_expression":
-            function = node.child_by_field_name("function")
-            if function is None or function.type != "selector_expression":
-                return None
-            operand = function.child_by_field_name("operand")
-            field = text(function.child_by_field_name("field"), content)
-            written = text(operand, content)
-            if written in packages:
-                constructors = _GO_ROUTERS[packages[written]][1]
-                return (packages[written], ("",)) if field in constructors else None
-            if field in ("Use", "With") and packages.get(written) is None:
-                # Gin's Use and chi's With return the router they were
-                # called on (with more middleware).
-                found = prefix(operand, depth + 1)
-                wanted = "gin" if field == "Use" else "chi"
-                return found if found and _GO_ROUTERS[found[0]][0] == wanted else None
-            if field not in ("Group", "Route"):
-                return None
-            return nested(node)
-        if node.type == "selector_expression":
-            name = text(node.child_by_field_name("field"), content)
-            found = {typed(k) for k in fields.get(name, ())}
-            return found.pop() if len(found) == 1 else None
-        if node.type != "identifier":
-            return None
-        name = text(node, content)
-        scope = scope_of(node)
-        while scope is not None:
-            values = []
-            for candidate in _walk(scope):
-                if candidate.type in ("short_var_declaration", "assignment_statement"):
-                    left = candidate.child_by_field_name("left").named_children
-                    right = candidate.child_by_field_name("right").named_children
-                    for index, target in enumerate(left):
-                        if text(target, content) == name and index < len(right):
-                            values.append(right[index])
-                elif candidate.type == "var_spec":
-                    names = candidate.children_by_field_name("name")
-                    value = candidate.child_by_field_name("value")
-                    for index, target in enumerate(names):
-                        if text(target, content) != name:
-                            continue
-                        if value is not None and index < len(value.named_children):
-                            values.append(value.named_children[index])
-                        elif candidate.child_by_field_name("type") is not None:
-                            return typed(
-                                text(candidate.child_by_field_name("type"), content)
-                            )
-            if len(values) == 1:
-                return prefix(values[0], depth + 1)
-            if values:
-                return None
-            for holder in ("receiver", "parameters"):
-                parameters = scope.child_by_field_name(holder)
-                index = -1
-                for parameter in parameters.named_children if parameters else ():
-                    kind = parameter.child_by_field_name("type")
-                    for written in parameter.children_by_field_name("name"):
-                        index += 1
-                        if text(written, content) != name or kind is None:
-                            continue
-                        found = typed(text(kind, content))
-                        if (
-                            found
-                            and found[1] == (PLACEHOLDER,)
-                            and scope.type == "func_literal"
-                            and scope.parent is not None
-                            and scope.parent.type == "argument_list"
-                        ):
-                            # chi's r.Route(prefix, func(r chi.Router) {...})
-                            # and r.Group(func(r chi.Router) {...}).
-                            call = scope.parent.parent
-                            function = call.child_by_field_name("function")
-                            if (
-                                function is not None
-                                and function.type == "selector_expression"
-                                and text(function.child_by_field_name("field"), content)
-                                in ("Group", "Route")
-                                and scope.parent.named_children[-1] == scope
-                            ):
-                                around = nested(call, depth + 1)
-                                if (
-                                    around is not None
-                                    and _GO_ROUTERS[around[0]][0] == "chi"
-                                ):
-                                    return around
-                        function = scope.child_by_field_name("name")
-                        key = (
-                            text(function, content)
-                            if holder == "parameters"
-                            and scope.type == "function_declaration"
-                            else None,
-                            index,
-                        )
-                        if found and found[1] == (PLACEHOLDER,) and key in mounts:
-                            return found[0], mounts[key]
-                        return found
-            scope = scope_of(scope.parent)
-        return None
-
-    return prefix
-
-
-def go_router_calls(tree, content, mounts=None):
-    """The Gin and Echo routers a Go file passes to functions: (callee,
-    parameter index, prefixes), where the callee is ("", name) for a
-    function of the file's own package or (import path, name), and the
-    prefixes are those of a known router (none of them unknown)."""
-    root = tree.root_node
-    imports = _go_imports(root, content)
-    if not any(p in _GO_ROUTERS for p in imports.values()):
-        return []
-    context = SimpleNamespace(
-        content=content, root=root, folder=Folder("go", root, content)
-    )
-    prefix = _go_router_prefixes(context, imports, mounts)
-    found = []
-    for node in _walk(root):
-        if node.type != "call_expression":
-            continue
-        function = node.child_by_field_name("function")
-        arguments = node.child_by_field_name("arguments")
-        if function is None or arguments is None:
-            continue
-        if function.type == "identifier":
-            callee = ("", text(function, content))
-        elif function.type == "selector_expression":
-            operand = text(function.child_by_field_name("operand"), content)
-            if operand not in imports:
-                continue
-            callee = (
-                imports[operand],
-                text(function.child_by_field_name("field"), content),
-            )
-        else:
-            continue
-        for index, argument in enumerate(arguments.named_children):
-            router = prefix(argument)
-            if router is not None and not any(PLACEHOLDER in p for p in router[1]):
-                found.append((callee, index, router[1]))
-    return found
-
-
-def extract_go(context, package):
+def extract_go(context, package, go_routes):
     """``package`` is (functions, methods): function and method names mapped
     to the declarations of that name in the file's package directory, to
-    anchor ``handler`` and ``s.handler`` handlers."""
+    anchor ``handler`` and ``s.handler`` net/http handlers. ``go_routes``
+    are the file's gin, Echo, chi and Fiber routes, as the type checker
+    gives them (``go_routes``), by the (line, column, method) of their
+    call."""
     package_functions, package_methods = package
     content, root = context.content, context.root
     imports = _go_imports(root, content)
@@ -2301,21 +2044,6 @@ def extract_go(context, package):
     routing = bool(http_names) or any(
         p in ("github.com/gorilla/mux",) for p in imports.values()
     )
-    routers = (
-        _go_router_prefixes(context, imports, context.mounts)
-        if any(p in _GO_ROUTERS for p in imports.values())
-        else None
-    )
-
-    def anchored(handler_node):
-        found = []
-        if handler_node.type == "identifier":
-            found = package_functions.get(text(handler_node, content), [])
-        elif handler_node.type == "selector_expression":
-            name = text(handler_node.child_by_field_name("field"), content)
-            found = package_methods.get(name, [])
-        return found[0] if len(found) == 1 else None
-
     for node in _walk(root):
         if node.type != "call_expression":
             continue
@@ -2327,79 +2055,24 @@ def extract_go(context, package):
         operand = function.child_by_field_name("operand")
         field = text(function.child_by_field_name("field"), content)
         operand_text = text(operand, content)
-        if routers is not None and (
-            field in _GO_ROUTER_VERBS
-            or field in _CHI_VERBS
-            or field in ("Any", "Handle", "Add", "Match", "HandleFunc")
-            or field in ("Method", "MethodFunc")
-        ):
-            router = routers(operand)
-            framework = _GO_ROUTERS[router[0]][0] if router is not None else None
-            if framework == "chi" and field in _GO_ROUTER_VERBS:
-                router = None
-            if framework != "chi" and (
-                field in _CHI_VERBS or field in ("HandleFunc", "Method", "MethodFunc")
-            ):
-                router = None
-            if router is not None:
-                framework, _, _, _, handler_index = _GO_ROUTERS[router[0]]
-                if framework == "chi" and field in _CHI_VERBS:
-                    if len(positional) < 2:
-                        continue
-                    methods = [_CHI_VERBS[field]]
-                    path_node, handlers = positional[0], positional[1:]
-                elif framework == "chi" and field in ("Handle", "HandleFunc"):
-                    if len(positional) < 2:
-                        continue
-                    methods = [ANY_METHOD]
-                    path_node, handlers = positional[0], positional[1:]
-                elif field in ("Handle", "Add", "Match", "Method", "MethodFunc"):
-                    # (method or methods, path, handlers...)
-                    if len(positional) < 3:
-                        continue
-                    if field == "Match":
-                        body = positional[0].child_by_field_name("body")
-                        elements = [
-                            e.named_children[0]
-                            if e.type == "literal_element" and e.named_children
-                            else e
-                            for e in (body.named_children if body is not None else ())
-                        ]
-                        methods = [
-                            _go_method(context.folder, e, content) for e in elements
-                        ]
-                    else:
-                        methods = [_go_method(context.folder, positional[0], content)]
-                    if not methods or None in methods:
-                        context.unread.append(
-                            Unread(
-                                context.file,
-                                node.start_point.row + 1,
-                                "route",
-                                "method_not_literal",
-                            )
-                        )
-                        continue
-                    path_node, handlers = positional[1], positional[2:]
-                elif len(positional) >= 2:
-                    methods = [ANY_METHOD] if field == "Any" else [field]
-                    path_node, handlers = positional[0], positional[1:]
-                else:
-                    continue
-                for base in router[1]:
-                    path = _go_router_path(
-                        base + context.folder.evaluate(path_node), framework
-                    )
-                    path, base_unknown = _unknown_base(path)
-                    context.route(
-                        node,
-                        methods,
-                        path,
-                        framework,
-                        anchored(handlers[handler_index]),
-                        base_unknown,
-                    )
-                continue
+        known = go_routes.get(
+            (node.start_point.row + 1, node.start_point.column, field)
+        )
+        if known is not None:
+            route, handler = known
+            for full in route.paths:
+                path, base_unknown = _unknown_base(
+                    _go_router_path(full, route.framework)
+                )
+                context.route(
+                    node,
+                    list(route.methods),
+                    path,
+                    route.framework,
+                    handler,
+                    base_unknown,
+                )
+            continue
         if routing and field in ("HandleFunc", "Handle") and len(positional) >= 2:
             path = context.folder.evaluate(positional[0])
             methods = [ANY_METHOD]
@@ -2482,6 +2155,7 @@ def extract_web(
     calls_of=None,
     mounts=None,
     axios_imported=None,
+    go_routes=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -2493,7 +2167,9 @@ def extract_web(
     ``mounts`` the full prefixes of a file's mounted Python or Express
     routers by name (``compose_python_prefixes``,
     ``compose_express_prefixes``); ``axios_imported`` the base URLs of the
-    axios instances a script imports by name (``axios_imports``)."""
+    axios instances a script imports by name (``axios_imports``);
+    ``go_routes`` the Go file's router routes from the type checker,
+    {(line, column, method): (GoRoute, handler declaration id)}."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
@@ -2504,5 +2180,5 @@ def extract_web(
     elif language in ("javascript", "typescript"):
         extract_javascript(context, nest, axios_imported)
     elif language == "go":
-        extract_go(context, package or ({}, {}))
+        extract_go(context, package or ({}, {}), go_routes or {})
     return context.routes, context.requests, context.unread

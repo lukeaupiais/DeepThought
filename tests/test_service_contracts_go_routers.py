@@ -1,4 +1,5 @@
-"""Gin and Echo routes: verbs, Any/Handle/Match, Group prefixes and
+"""Gin, Echo, chi and Fiber routes, as the Go type checker gives them:
+verbs, Any/Handle/Match, Group prefixes, routers passed to functions, and
 handlers."""
 
 import asyncio
@@ -8,6 +9,8 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
+
+from go_stubs import go_mod, go_stub_files, needs_go
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_go"
@@ -52,6 +55,10 @@ func main() {
 	var dynamic = "/x"
 	r.Handle(method(), dynamic, Health)
 }
+
+func auth() gin.HandlerFunc { return nil }
+
+func method() string { return http.MethodGet }
 """
 
 ECHO = """package main
@@ -69,11 +76,17 @@ func main() {
 	api.Add("DELETE", "/message/:id", Message)
 	e.Any("/", Message)
 }
+
+func middleware() echo.MiddlewareFunc { return nil }
 """
 
 NOT_A_ROUTER = """package other
 
 import "github.com/gin-gonic/gin"
+
+type Client struct{}
+
+func (c *Client) GET(path string, handler any) {}
 
 func f(client *Client, c *gin.Context) {
 	client.GET("/not-a-route", nil)
@@ -113,7 +126,10 @@ func Lonely(g *gin.RouterGroup) {
 """
 
 FILES = {
-    "orders/go.mod": "module example.com/orders\n",
+    **go_stub_files(),
+    "orders/go.mod": go_mod("example.com/orders", "github.com/gin-gonic/gin"),
+    "web/go.mod": go_mod("example.com/web", "github.com/labstack/echo/v4"),
+    "other/go.mod": go_mod("example.com/other", "github.com/gin-gonic/gin"),
     "orders/api/server.go": GIN,
     "orders/api/more.go": MORE,
     "orders/api/uncalled.go": UNCALLED,
@@ -124,6 +140,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter-go is not installed")
+@needs_go
 class GoRouterTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -214,10 +231,6 @@ class GoRouterTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 CHI = """package main
 
 import (
@@ -247,8 +260,13 @@ func main() {
 	})
 	admin := r.With(auth).Route("/admin", nil)
 	admin.Patch("/users", List)
+	shop := chi.NewRouter()
+	shop.Get("/items", List)
+	r.Mount("/shop", shop)
 	http.ListenAndServe(":8080", r)
 }
+
+func auth(next http.Handler) http.Handler { return next }
 """
 
 CLIENT = """package client
@@ -265,14 +283,16 @@ func Call(base string) {
 
 
 @unittest.skipUnless(READY, "tree-sitter-go is not installed")
+@needs_go
 class ChiRouterTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
         for name, text in {
-            "shop/go.mod": "module example.com/shop\n",
+            **go_stub_files(),
+            "shop/go.mod": go_mod("example.com/shop", "github.com/go-chi/chi/v5"),
             "shop/main.go": CHI,
-            "client/go.mod": "module example.com/client\n",
+            "client/go.mod": "module example.com/client\n\ngo 1.22\n",
             "client/client.go": CLIENT,
         }.items():
             path = root / name
@@ -315,6 +335,8 @@ class ChiRouterTests(unittest.TestCase):
                 (25, "chi", ("*",), "/api/files/{*}", False, "List"),
                 # Route returns the router it mounts.
                 (29, "chi", ("PATCH",), "/admin/users", False, "List"),
+                # Mount gives a router held in a variable its prefix.
+                (31, "chi", ("GET",), "/shop/items", False, "List"),
             ],
         )
 
@@ -334,3 +356,141 @@ class ChiRouterTests(unittest.TestCase):
             ),
             [(6, 25), (7, 19), (8, 21)],
         )
+
+
+FIBER_V2 = """package main
+
+import "github.com/gofiber/fiber/v2"
+
+type Products struct{}
+
+func (p *Products) List(c *fiber.Ctx) error { return nil }
+
+// A handler factory: the route is anchored to the function returning the
+// handler.
+func (p *Products) Create() fiber.Handler {
+	return func(c *fiber.Ctx) error { return nil }
+}
+
+func register(api fiber.Router, p *Products) {
+	api.Post("/products", p.Create())
+	api.Route("/admin", func(admin fiber.Router) {
+		admin.Delete("/products/:id", auth, p.List)
+	})
+}
+
+func main() {
+	app := fiber.New()
+	p := &Products{}
+	app.Get("/health", p.List)
+	v1 := app.Group("/api/v1", auth)
+	v1.Get("/products/:id", p.List)
+	v1.Add("PATCH", "/products/:id", p.List)
+	v1.All("/files/*", p.List)
+	register(v1, p)
+	app.Listen(":3000")
+}
+
+func auth(c *fiber.Ctx) error { return nil }
+"""
+
+FIBER_V3 = """package main
+
+import "github.com/gofiber/fiber/v3"
+
+func Show(c fiber.Ctx) error { return nil }
+
+func main() {
+	app := fiber.New()
+	api := app.Group("/api")
+	api.Get("/items/:id", Show, auth)
+	api.Add([]string{"PUT", "PATCH"}, "/items/:id", Show)
+	api.Route("/orders").Get(Show).Post(Show, auth)
+	app.Listen(":3000")
+}
+
+func auth(c fiber.Ctx) error { return nil }
+"""
+
+
+@unittest.skipUnless(READY, "tree-sitter-go is not installed")
+@needs_go
+class FiberRouterTests(unittest.TestCase):
+    def routes(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, text in {**go_stub_files(), **files}.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+        result, routes, _, _, _ = tool.last_facts
+        names = {d.id: d.symbol.rpartition(".")[2] for d in result.definitions}
+        return sorted(
+            (
+                r.line,
+                r.framework,
+                r.methods,
+                r.path,
+                r.base_unknown,
+                names.get(r.handler_id),
+            )
+            for r in routes
+        )
+
+    def test_fiber_v2(self):
+        found = self.routes(
+            {
+                "shop/go.mod": go_mod(
+                    "example.com/shop", "github.com/gofiber/fiber/v2"
+                ),
+                "shop/main.go": FIBER_V2,
+            }
+        )
+        self.assertEqual(
+            found,
+            [
+                # The router passed to register is the /api/v1 group.
+                (16, "fiber", ("POST",), "/api/v1/products", False, "Create"),
+                # Route calls its func literal with the router under /admin;
+                # the handler is the last argument.
+                (
+                    18,
+                    "fiber",
+                    ("DELETE",),
+                    "/api/v1/admin/products/{id}",
+                    False,
+                    "List",
+                ),
+                (25, "fiber", ("GET",), "/health", False, "List"),
+                (27, "fiber", ("GET",), "/api/v1/products/{id}", False, "List"),
+                (28, "fiber", ("PATCH",), "/api/v1/products/{id}", False, "List"),
+                (29, "fiber", ("*",), "/api/v1/files/{*}", False, "List"),
+            ],
+        )
+
+    def test_fiber_v3(self):
+        found = self.routes(
+            {
+                "shop/go.mod": go_mod(
+                    "example.com/shop", "github.com/gofiber/fiber/v3"
+                ),
+                "shop/main.go": FIBER_V3,
+            }
+        )
+        self.assertEqual(
+            found,
+            [
+                # v3 takes the handler first, then middleware.
+                (10, "fiber", ("GET",), "/api/items/{id}", False, "Show"),
+                (11, "fiber", ("PATCH", "PUT"), "/api/items/{id}", False, "Show"),
+                # Route(path) returns a Register whose verbs take no path.
+                (12, "fiber", ("GET",), "/api/orders", False, "Show"),
+                (12, "fiber", ("POST",), "/api/orders", False, "Show"),
+            ],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
