@@ -1,6 +1,7 @@
 """Call targets read from SCIP indexes (deepthought.scip_calls)."""
 
 import asyncio
+import dataclasses
 from contextlib import redirect_stdout
 import io
 import json
@@ -66,6 +67,20 @@ def analyze_repository(root, **options):
     """The engine's analysis, with the compiler's JavaScript and TypeScript
     modules attached as the analysis tool attaches them."""
     return with_compiler_modules(_analyze_repository(root, **options), root)
+
+
+class FakePyright:
+    """Answers definitions from a table keyed by (file, line, UTF-16
+    column), recording what it was asked."""
+
+    tool = "pyright@1.1.409"
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def definitions(self, file, line, column):
+        self.asked.append((file, line, column))
+        return self.answers.get((file, line, column), [])
 
 
 def _column(line, text, encoding, start=0):
@@ -666,7 +681,7 @@ class ScipCallTests(unittest.TestCase):
         )
         self.assertEqual((binding.producers, binding.disagreements), ({}, ()))
 
-    def test_python_suspect_targets_keep_the_parser(self):
+    def test_python_suspect_targets_are_answered_by_pyright(self):
         (self.root / "m.py").write_text(PY_MODULE)
         (self.root / "c.py").write_text(PY)
         m = "scip-python python demo 1 m/"
@@ -714,17 +729,48 @@ class ScipCallTests(unittest.TestCase):
             0,
         )
         result = analyze_repository(self.root, repository_id="r", languages=("python",))
-        binding = scip_calls.bind_calls(result, [ingested], self.root)
+        with self.assertRaisesRegex(ValueError, "requires pyright"):
+            scip_calls.bind_calls(result, [ingested], self.root)
+        lines = PY.splitlines()
+
+        def at(line, text, start=0):
+            return ("c.py", line, _column(lines[line - 1], text, "utf-16", start))
+
+        x6, x16, x19 = at(6, "x()"), at(16, "x()"), at(19, "x()")
+        pyright = FakePyright(
+            {
+                x6: [("c.py", 3, 8)],
+                x16: [("c.py", 3, 8)],
+                x19: [("c.py", 3, 8)],
+                at(7, "thing"): [("m.py", 1, 4)],
+                at(20, "inner"): [("c.py", 18, 12)],
+            }
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
         rows = {(row[1], row[2]): row for row in self.targets(result, binding)}
         tool = ("scip-python@1.0", "sha256:py")
-        # The parser's targets stand, with the parser's rules.
-        self.assertEqual(rows[("self.x", "linked")][3], ("A.x", 3))
-        self.assertIsNone(rows[("self.x", "linked")][5])
-        self.assertEqual(rows[("thing", "linked")][3], ("thing", 1))
-        self.assertIsNone(rows[("thing", "linked")][5])
-        # Nothing else links it: unresolved, from the index.
+        answered = ("pyright@1.1.409", "sha256:py")
+        # Pyright answers the suspect targets and the call with no
+        # occurrence; columns are UTF-16, after the emoji too.
+        self.assertEqual(x6[2], len('        t = "') + 2 + len('"; self.'))
         self.assertEqual(
-            rows[("other_name", "unresolved")][3:], ("scip_suspect_target", None, tool)
+            sorted(pyright.asked),
+            sorted(
+                [x6, x16, x19, at(7, "thing"), at(8, "other_name"), at(20, "inner")]
+            ),
+        )
+        self.assertEqual(
+            rows[("thing", "linked")][3:],
+            (("thing", 1), scip_calls.PYRIGHT_CALL_DEFINITION, answered),
+        )
+        self.assertEqual(
+            rows[("inner", "linked")][3:],
+            (("B.w.inner", 18), scip_calls.PYRIGHT_CALL_DEFINITION, answered),
+        )
+        # Pyright gives nothing: unresolved, from pyright.
+        self.assertEqual(
+            rows[("other_name", "unresolved")][3:],
+            (scip_calls.PYRIGHT_NO_DEFINITION, None, answered),
         )
         self.assertEqual(rows[("len", "unresolved")][3], "scip_external")
         self.assertEqual(rows[("self.z", "unresolved")][3], "scip_external")
@@ -740,32 +786,160 @@ class ScipCallTests(unittest.TestCase):
                 for r in binding.resolutions
                 if sites[r.call_id].callee in {"thing", "here", "len"}
             ),
-            [
-                ("here", "scip"),
-                ("len", "scip"),
-                ("thing", "scip_suspect_parser"),
-            ],
+            [("here", "scip"), ("len", "scip"), ("thing", "pyright")],
         )
         # Inherited, and from a function nested in a method, too.
         self.assertEqual(
-            [row[3] for row in self.targets(result, binding) if row[1] == "self.x"],
-            [("A.x", 3)] * 3,
+            [row[3:] for row in self.targets(result, binding) if row[1] == "self.x"],
+            [(("A.x", 3), scip_calls.PYRIGHT_CALL_DEFINITION, answered)] * 3,
         )
-        self.assertEqual(
-            sorted(d.row() for d in binding.disagreements),
+        # Pyright and the parser agree on every call here.
+        self.assertEqual(binding.disagreements, ())
+
+    def test_nested_functions_sharing_a_symbol_are_answered_by_pyright(self):
+        # scip-python 0.6.8 names a function nested in a method by the
+        # class alone, so both `decorator`s are one symbol.
+        source = (
+            "class G:\n"
+            "    def command(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(1)\n"
+            "    def group(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(2)\n"
+        )
+        (self.root / "g.py").write_text(source)
+        g = "scip-python python demo 1 g/"
+        ingested = self.index(
+            "nested",
+            "scip-python",
             [
-                "c.py\t16\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.python-call-self-inherited",
-                "c.py\t19\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.python-call-self-inherited",
-                "c.py\t20\tinner\t-\t0\tc.py\t18\tscip_no_occurrence\t"
-                "tree-sitter.call-lexical-name",
-                "c.py\t6\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.call-self-method",
-                "c.py\t7\tthing\t-\t0\tm.py\t1\tscip_suspect_target\t"
-                "tree-sitter.call-imported-name",
+                (
+                    "g.py",
+                    [
+                        (0, "G", g + "G#", True, 0),
+                        (1, "command", g + "G#command().", True, 0),
+                        (2, "decorator", g + "G#decorator().", True, 0),
+                        (4, "decorator", g + "G#decorator().", False, 0),
+                        (5, "group", g + "G#group().", True, 0),
+                        (6, "decorator", g + "G#decorator().", True, 0),
+                        (8, "decorator", g + "G#decorator().", False, 0),
+                    ],
+                ),
+            ],
+            0,
+        )
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        with self.assertRaisesRegex(ValueError, "requires pyright"):
+            scip_calls.bind_calls(result, [ingested], self.root)
+        pyright = FakePyright(
+            {("g.py", 5, 15): [("g.py", 3, 12)], ("g.py", 9, 15): [("g.py", 7, 12)]}
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        answered = ("pyright@1.1.409", "sha256:nested")
+        self.assertEqual(
+            self.targets(result, binding),
+            [
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.command.decorator", 3),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.group.decorator", 7),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
             ],
         )
+
+    def test_typescript_symbols_with_several_declarations_stay_ambiguous(self):
+        (self.root / "t.ts").write_text("function f() {}\nfunction f() {}\nf();\n")
+        f = "scip-typescript npm demo 1 t.ts/f()."
+        ingested = self.index(
+            "several",
+            "scip-typescript",
+            [
+                (
+                    "t.ts",
+                    [(0, "f", f, True, 0), (1, "f", f, True, 0), (2, "f", f, False, 0)],
+                )
+            ],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript",)
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root)
+        (resolution,) = binding.resolutions
+        self.assertEqual(
+            (resolution.status, resolution.reason, len(resolution.candidates)),
+            ("ambiguous", "multiple_declarations", 2),
+        )
+
+    def test_pyright_external_and_non_declaration_answers(self):
+        (self.root / "m.py").write_text(PY_MODULE)
+        (self.root / "c.py").write_text(
+            "from m import thing\nthing()\nthing()\nthing()\n"
+        )
+        m = "scip-python python demo 1 m/"
+        ingested = self.index(
+            "pyx",
+            "scip-python",
+            [
+                (
+                    "m.py",
+                    [
+                        (0, "thing", m + "thing().", True, 0),
+                        (3, "other", m + "other().", True, 0),
+                    ],
+                ),
+                (
+                    "c.py",
+                    [
+                        (1, "thing", m + "other().", False, 0),
+                        (2, "thing", m + "other().", False, 0),
+                    ],
+                ),
+            ],
+            0,
+        )
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        pyright = FakePyright(
+            {
+                # Outside the repository, and a position no declaration
+                # of that name holds (the blank line after `pass`).
+                ("c.py", 2, 0): [(None, 1, 0)],
+                ("c.py", 3, 0): [("m.py", 2, 4)],
+            }
+        )
+        # A site with no position for its callee's name.
+        result = dataclasses.replace(
+            result,
+            call_sites=tuple(
+                dataclasses.replace(s, callee_at=None) if s.line == 4 else s
+                for s in result.call_sites
+            ),
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        self.assertEqual(
+            [r[3] for r in self.targets(result, binding)],
+            [
+                scip_calls.PYRIGHT_EXTERNAL,
+                # Nothing to ask pyright.
+                scip_calls.PYRIGHT_NO_DEFINITION,
+                scip_calls.PYRIGHT_NOT_DECLARATION,
+            ],
+        )
+        self.assertEqual(sorted(pyright.asked), [("c.py", 2, 0), ("c.py", 3, 0)])
 
     def test_python_import_alias_and_constructor_names_are_not_suspect(self):
         (self.root / "m.py").write_text(
