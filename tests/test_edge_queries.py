@@ -161,8 +161,9 @@ class EdgeQueryNeo4jTests(unittest.IsolatedAsyncioTestCase):
         self.driver = await self.manager.connect()
         self.database = self.manager.database
         await setup_schema(self.driver, database=self.database)
+        # The parser's own rules, which bind calls in files no index covers.
         self.output = await TreeSitterTool(PYTHON_FIXTURE).analyze(
-            self.repo, languages=["python"]
+            self.repo, languages=["python"], scip_indexes=()
         )
         written = await WriteCoordinator(
             self.driver, database=self.database
