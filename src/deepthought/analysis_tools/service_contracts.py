@@ -2082,8 +2082,8 @@ class ServiceContractTool(AnalysisTool):
         axios_exported = {}
 
         def axios_imported(file):
-            """{local name: base URL} of the axios instances ``file``
-            imports from repository modules."""
+            """{local name: base URL} of the axios instances and
+            openapi-fetch clients ``file`` imports from repository modules."""
             if scripts is None or file not in scripts.sources:
                 return None
             tree, content, _ = scripts.sources[file]
@@ -2098,7 +2098,7 @@ class ServiceContractTool(AnalysisTool):
                     t, c, language = scripts.sources[target]
                     axios_exported[target] = (
                         axios_exports(t, c, language, scripts.externals(target))
-                        if b"axios" in c
+                        if b"axios" in c or b"openapi-fetch" in c
                         else {}
                     )
                 return axios_exported[target]

@@ -3401,6 +3401,57 @@ at run time, so their routes are not read. emqx, fleetyards and
 realworld-react-fsd do not commit orval's output, and tidb-dashboard's
 generated files are server stubs.
 
+### OpenAPI TypeScript clients (openapi-fetch)
+
+openapi-fetch clients are typed by the `paths` that openapi-typescript
+generates from a spec, and send each request through a method named for its
+HTTP method:
+
+```ts
+import createClient from "openapi-fetch";
+const api = createClient<paths>({ baseUrl: "http://pets:8080/" });
+api.GET("/pets/{petId}", { params: { path: { petId } } });
+```
+
+A client is read as an axios instance is: a name bound once to a
+`createClient(...)` call (imported from `openapi-fetch`, as its default or
+named export), `this.NAME` given exactly one such value in its class, or a
+name imported from a repository module that exports one. Its `baseUrl`
+option is the base URL (unknown when the config is not an object literal or
+spreads another object). A call of its `GET`, `POST`, `PUT`, `DELETE`,
+`PATCH`, `HEAD` or `OPTIONS` method is an `HttpRequest` with client
+`openapi-fetch`; the URL is the path appended to the base without its
+trailing slashes, and each `{parameter}` of the path is unknown text.
+
+Not read: a client reached through something other than such a binding,
+such as an object of clients (`providers.tmdb.GET`) or a wrapper class whose
+getters return the client's methods. Telling those apart needs the
+TypeScript type checker, which cannot type the client without the
+repository's dependencies installed.
+
+Results on ten repositories that use openapi-fetch (all `HttpRequest`s).
+No other request or edge changed.
+
+| Repository | Requests before | After | Linked before | After |
+| --- | --- | --- | --- | --- |
+| Clawdi-AI/clawdi (`b667836`) | 181 | 443 | 17 | 71 |
+| LombokApp/lombok-web (`a62f95a`) | 122 | 130 | 7 | 15 |
+| TeamMeanMachine/MeanScout (`0280389`) | 2 | 10 | 0 | 0 |
+| lichess-org/broadcaster (`e5a3091`) | 6 | 8 | 0 | 0 |
+| neondatabase/db-per-tenant (`b73c850`) | 1 | 5 | 0 | 0 |
+| nzoschke/codon (`769c1bd`) | 2 | 3 | 0 | 0 |
+| databasus, riven-frontend, tutorial-conduit, comuline/web | 205 | 205 | 121 | 121 |
+
+The 8 new lombok-web links go from `packages/auth-utils` to the NestJS
+controllers of `packages/api` that serve them. The 54 new clawdi links go
+from its deploy-API clients to `backend/scripts/mock_deploy_api.py`, the
+repository's FastAPI stand-in for that external API; they are correct for
+the path, and the stand-in is the only server of it in the repository. Of
+clawdi's 520 `api.METHOD(` calls, most of the rest go through the
+`ApiClient` wrapper class, which is not read. riven-frontend reaches its
+clients through an object of clients, and databasus does not call through
+an openapi-fetch client.
+
 ### gRPC
 
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
