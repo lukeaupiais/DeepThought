@@ -75,69 +75,6 @@ class GrpcCall:
     test_source: bool = False  # made from a test source file
 
 
-_SIGNATURE = re.compile(
-    r"\brpc\s+\w+\s*\(\s*(stream\s+)?\.?[\w.]+\s*\)"
-    r"\s*returns\s*\(\s*(stream\s+)?\.?[\w.]+\s*\)"
-)
-_STREAMING = {
-    (False, False): "unary",
-    (True, False): "client",
-    (False, True): "server",
-    (True, True): "bidi",
-}
-_COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
-_STRINGS = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
-
-
-def read_proto(text, file):
-    """(package, [ProtoMethod]) of a .proto file's text, for a file protoc
-    does not compile (``protoc.read_protos``) or when grpcio-tools is not
-    installed. Kept as it is: new proto features go to the protoc reader.
-
-    Comments are removed (keeping line numbers); ``service`` blocks are read
-    at the top level only; ``rpc Name (...) returns (...)`` statements inside
-    them give methods, with ``stream`` on either side read as the streaming
-    kind. Options, messages and imports are not needed.
-    """
-
-    def blank(match):
-        return re.sub(r"[^\n]", " ", match.group(0))
-
-    # Keep strings intact while removing comments, so "//" inside a string
-    # is not a comment.
-    cleaned, last = [], 0
-    for match in re.finditer(
-        _COMMENTS.pattern + "|" + _STRINGS.pattern, text, flags=re.S
-    ):
-        cleaned.append(text[last : match.start()])
-        token = match.group(0)
-        cleaned.append(token if token[0] in "\"'" else blank(match))
-        last = match.end()
-    cleaned.append(text[last:])
-    text = "".join(cleaned)
-    package = re.search(r"(?m)^\s*package\s+([\w.]+)\s*;", text)
-    package = package.group(1) if package else ""
-    methods = []
-    for service in re.finditer(r"\bservice\s+(\w+)\s*\{", text):
-        depth, index = 1, service.end()
-        while index < len(text) and depth:
-            depth += {"{": 1, "}": -1}.get(text[index], 0)
-            index += 1
-        body_start = service.end()
-        body = text[body_start : index - 1]
-        name = f"{package}.{service.group(1)}" if package else service.group(1)
-        for rpc in re.finditer(r"\brpc\s+(\w+)\s*\(", body):
-            line = text.count("\n", 0, body_start + rpc.start(1)) + 1
-            signature = _SIGNATURE.match(body, rpc.start())
-            streaming = (
-                _STREAMING[bool(signature.group(1)), bool(signature.group(2))]
-                if signature
-                else None
-            )
-            methods.append(ProtoMethod(name, rpc.group(1), file, line, streaming))
-    return package, methods
-
-
 def lower_camel(name):
     return name[:1].lower() + name[1:]
 
@@ -1035,7 +972,7 @@ class GrpcFacts:
     calls: list
     resolutions: list
     unread: list  # (file, line, kind, reason)
-    # path -> "protoc" (compiled) | "fallback" (read by read_proto)
+    # path -> "protoc" (compiled) | "not_compiled" (protoc rejected it)
     proto_readers: dict = dataclasses.field(default_factory=dict)
     # protoc.HttpBinding of the rpcs' google.api.http options
     http_bindings: list = dataclasses.field(default_factory=list)
@@ -1115,13 +1052,19 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
         texts[path] = data.decode("utf-8", "replace")
     compiled = read_protos(root, list(protos), texts)
     bindings = []
-    for path in protos:
-        read = compiled.get(path) or read_proto(texts[path], path)
-        methods.extend(read[1])
-        bindings.extend(read[2] if path in compiled else ())
-    readers = {path: "protoc" if path in compiled else "fallback" for path in protos}
-    index = ProtoIndex(methods)
     handlers, calls, unread, parsers = set(), [], [], {}
+    for path in protos:
+        if path not in compiled:
+            # protoc rejects the file (a missing import or a syntax error):
+            # what it declares is not known.
+            unread.append((path, 1, "proto", "not_compiled"))
+            continue
+        methods.extend(compiled[path][1])
+        bindings.extend(compiled[path][2])
+    readers = {
+        path: "protoc" if path in compiled else "not_compiled" for path in protos
+    }
+    index = ProtoIndex(methods)
     parsed = []
     for path, language, content in sources:
         if (
