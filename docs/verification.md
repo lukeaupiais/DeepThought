@@ -244,22 +244,45 @@ the truth lines it spans: *confirmed* when it links an expected target,
 *contradicted* when it links elsewhere or links a module the oracle places
 outside the repository. Recall is over import lines with a repository target.
 
+JavaScript and TypeScript imports (ky, hono, preact) are not derived from an
+index: the engine resolves them with the TypeScript compiler, which
+scip-typescript also runs, so an index-derived truth would grade the engine
+with its own resolver. `tools/ts_import_truth.py` derives them instead from
+webpack's resolver (enhanced-resolve 5.18.1, `tools/ts_import_oracle.cjs`),
+set up the way TypeScript resolves:
+
+- the `paths` and `baseUrl` of the nearest tsconfig.json or jsconfig.json
+  above the file (relative `extends` followed), longest prefix first;
+- TypeScript's extension order (`.ts`, `.tsx`, `.d.ts`, then `.js`, `.jsx`)
+  and its `.js` to `.ts` substitution;
+- the `types`/`typings` fields before `main`, and the `types`, `import`,
+  `require` and `default` conditions.
+
+@babel/parser finds the specifiers: import and export-from statements,
+`import()`, `require()` and `import x = require()`. A `.d.ts` target also
+accepts the implementation file beside it with the same stem, so preact's
+`'preact'` (whose `types` names `src/index.d.ts`) accepts `src/index.js`.
+Every file git tracks with the language's extensions is judged, tests and
+benchmarks included. A specifier that resolves to no repository file, such as
+a package that is not installed, is external.
+
 | Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
 |---|---|---|---|---|---|
 | click | 331 | 331 | 0 | 1.0 | 1.0 |
-| ky | 98 | 98 | 0 | 1.0 | 1.0 |
-| hono | 1,007 | 1,003 | 0 | 1.0 | 0.996 |
+| ky | 190 | 186 | 0 | 1.0 | 0.9789 |
+| hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 442 | 435 | 0 | 1.0 | 0.9842 |
+| preact | 516 | 487 | 0 | 1.0 | 0.9438 |
 
-Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
-tests are outside its TypeScript project, so the index does not cover them.
-preact's package aliases (`'preact'`, `'preact/hooks'`) resolve through its
-jsconfig.json `paths`. The oracle maps only the entry points its vitest
-config aliases, so `'preact/compat/scheduler'`, which the engine leaves
-ambiguous between `compat/scheduler.js` and `compat/scheduler.mjs`, is not
-judged.
+Every external import is left unresolved (click 320, ky 121, hono 223,
+preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
+groups:
+
+- dynamic `import()` calls: ky 4, hono 5, preact 7;
+- imports in hono's benchmark packages: 69;
+- preact's `require()` calls: 8;
+- static imports in preact's demo folder, which no project includes: 8.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 
