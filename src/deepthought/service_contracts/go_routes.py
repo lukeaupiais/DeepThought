@@ -146,6 +146,10 @@ class GoRoute:
 def _joined(prefix, path):
     if not path:
         return prefix
+    if path.startswith(PLACEHOLDER) and not prefix.strip(PLACEHOLDER + "/"):
+        # An unknown prefix before a path that starts unknown: one unknown
+        # base (a router not followed, under baseURL + "/items").
+        return path
     return prefix.rstrip("/") + "/" + path.lstrip("/") if prefix else path
 
 
@@ -322,9 +326,8 @@ class GoRouters:
             texts = call.texts[path_at] if path_at < len(call.texts) else None
             if not texts:
                 return "path_not_literal"
-            paths = sorted(
-                {_joined(p, t) for p in self._parents(call, frozenset()) for t in texts}
-            )
+            parents = self._parents(call, frozenset())
+            paths = sorted({_joined(p, t) for p in parents for t in texts})
         return GoRoute(
             call.file,
             call.line,
@@ -333,5 +336,9 @@ class GoRouters:
             framework.name,
             tuple(methods),
             tuple(paths),
-            call.functions[handler_at] if handler_at < len(call.functions) else None,
+            self._handler(call, handler_at),
         )
+
+    @staticmethod
+    def _handler(call, index):
+        return call.functions[index] if index < len(call.functions) else None

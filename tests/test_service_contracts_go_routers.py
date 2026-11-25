@@ -491,6 +491,38 @@ class FiberRouterTests(unittest.TestCase):
             ],
         )
 
+    def test_a_path_the_flow_cannot_value_is_folded(self):
+        # oapi-codegen's chi server: the router and the base URL are
+        # parameters no call passes, so the path's base is one unknown. A
+        # path with nothing known is unread.
+        found = self.routes(
+            {
+                "shop/go.mod": go_mod("example.com/shop", "github.com/go-chi/chi/v5"),
+                "shop/server.go": CHI_BASE_URL,
+            }
+        )
+        self.assertEqual(
+            found,
+            [(10, "chi", ("GET",), "/items/{id}", True, "Show")],
+        )
+
+
+CHI_BASE_URL = """package main
+
+import (
+\t"net/http"
+
+\t"github.com/go-chi/chi/v5"
+)
+
+func Handler(r chi.Router, baseURL string, any string) {
+\tr.Get(baseURL+"/items/{id}", Show)
+\tr.Get(any, Show)
+}
+
+func Show(w http.ResponseWriter, r *http.Request) {}
+"""
+
 
 if __name__ == "__main__":
     unittest.main()

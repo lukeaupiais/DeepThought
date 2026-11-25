@@ -364,9 +364,11 @@ def _type(value):
     return (value["package"], value["name"]) if value else None
 
 
-def collect(root, files, module_directories, *, timeout=600):
+def collect(root, files, module_directories, *, timeout=1800):
     """GoFacts of the Go ``files`` (relative paths) of ``root``, one gofacts
-    run per module directory (relative, "" for the root)."""
+    run per module directory (relative, "" for the root). ``timeout`` bounds
+    each run: type-checking every package of a large module from source
+    (guacsec/guac, 1.2k packages) takes about ten minutes."""
     facts = GoFacts()
     files = sorted(files)
     modules = sorted(module_directories, key=lambda d: (-len(d), d))
