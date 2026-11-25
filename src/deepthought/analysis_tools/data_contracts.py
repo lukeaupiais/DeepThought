@@ -2949,6 +2949,11 @@ class DataContractTool(AnalysisTool):
                         "files_not_checked": dict(Counter(facts.uncovered.values())),
                         "calls": len(facts.calls),
                         "table_names": len(facts.table_names),
+                        **(
+                            {"gopath_packages": gofacts.gopath_report(facts)}
+                            if facts.gopath
+                            else {}
+                        ),
                     },
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,

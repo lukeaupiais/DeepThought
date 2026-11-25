@@ -96,6 +96,20 @@ class GoTableName:
     table: str
 
 
+@dataclass(frozen=True)
+class GopathPackage:
+    """How a package outside every module was checked: as a module of its own
+    whose imports resolved to their latest versions when it was analyzed
+    (status ``gopath_latest``). ``modules`` are the (path, version) pairs the
+    go.mod of that check required, direct and indirect, and
+    ``go_sum_sha256`` the digest of the go.sum it produced (None without
+    one), so that a result can be traced and reproduced."""
+
+    status: str
+    modules: tuple
+    go_sum_sha256: str | None
+
+
 @dataclass
 class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
@@ -110,7 +124,7 @@ class GoFacts:
     downloads: dict[str, str] = field(default_factory=dict)  # directory -> status
     # Directories of packages outside every module, checked as modules of
     # their own (GOPATH-era code).
-    gopath: set[str] = field(default_factory=set)
+    gopath: dict[str, GopathPackage] = field(default_factory=dict)
     requires: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def module_of(self, file):
@@ -354,7 +368,6 @@ def collect(root, files, module_directories, *, timeout=600):
             version = ".".join(_info(go)["GOVERSION"].removeprefix("go").split(".")[:2])
             text = f"module gopath.local/package\n\ngo {version}\n"
             (target / "go.mod").write_text(text, encoding="utf-8")
-            facts.gopath.add(directory)
             with tempfile.TemporaryDirectory(
                 prefix="deepthought-gomod-"
             ) as files_scratch:
@@ -368,6 +381,7 @@ def collect(root, files, module_directories, *, timeout=600):
                     built,
                     facts,
                     timeout,
+                    gopath=True,
                 )
     for directory in sorted(owned):
         with tempfile.TemporaryDirectory(prefix="deepthought-gomod-") as scratch:
@@ -388,8 +402,12 @@ def collect(root, files, module_directories, *, timeout=600):
     return facts
 
 
-def _check_module(root, directory, members, scratch, go, texts, built, facts, timeout):
-    """Download one module's dependencies and run gofacts on it."""
+def _check_module(
+    root, directory, members, scratch, go, texts, built, facts, timeout, gopath=False
+):
+    """Download one module's dependencies and run gofacts on it. For a
+    GOPATH-era package (``gopath``), what the download resolved is recorded
+    in ``facts.gopath``."""
     try:
         modfile = module_files(root / directory, scratch)
     except OSError:
@@ -397,6 +415,8 @@ def _check_module(root, directory, members, scratch, go, texts, built, facts, ti
         facts.downloads[directory] = "download_failed: no go.mod"
     else:
         facts.downloads[directory] = download(go, root / directory, modfile)
+        if gopath:
+            facts.gopath[directory] = _resolved(modfile)
     try:
         command = module_toolchain(go, _info(go), texts[directory])
         if command not in built:
@@ -428,6 +448,32 @@ def _check_module(root, directory, members, scratch, go, texts, built, facts, ti
         facts.uncovered.update(dict.fromkeys(members, status))
         return
     _read(run.stdout, directory, set(members), facts)
+
+
+def _resolved(modfile):
+    """The GopathPackage a check of a GOPATH-era package resolved: the
+    requirements of its go.mod copy and the digest of its go.sum."""
+    modules = sorted(
+        (tokens[0].strip('"'), tokens[1])
+        for verb, tokens in _go_directives(Path(modfile).read_text(encoding="utf-8"))
+        if verb == "require" and len(tokens) > 1
+    )
+    go_sum = Path(modfile).with_name("go.sum")
+    digest = sha256(go_sum.read_bytes()).hexdigest() if go_sum.is_file() else None
+    return GopathPackage("gopath_latest", tuple(modules), digest)
+
+
+def gopath_report(facts):
+    """{directory: {status, modules, go_sum_sha256}} of the GOPATH-era
+    packages ``facts`` checked, for run metadata."""
+    return {
+        directory: {
+            "status": package.status,
+            "modules": dict(package.modules),
+            "go_sum_sha256": package.go_sum_sha256,
+        }
+        for directory, package in sorted(facts.gopath.items())
+    }
 
 
 def _single(texts):

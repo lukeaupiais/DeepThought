@@ -2516,6 +2516,63 @@ func Load(db *sql.DB) {
             output.metadata.custom_metrics["go_type_facts"].get("files_not_checked")
         )
 
+    def test_gopath_packages_record_what_they_resolved(self):
+        # The package imports a module served by a local module proxy; the
+        # versions and go.sum the check resolved are kept on the facts.
+        with tempfile.TemporaryDirectory() as proxy:
+            _module_proxy(
+                proxy,
+                "example.com/dbx",
+                "v1.2.0",
+                {"dbx.go": 'package dbx\n\nconst Table = "accounts"\n'},
+            )
+            environment = {
+                "GOPROXY": Path(proxy).as_uri(),
+                "GOSUMDB": "off",
+                "GOFLAGS": "",
+            }
+            files = {
+                "cmd/load/main.go": """package main
+
+import (
+\t"database/sql"
+
+\t"example.com/dbx"
+)
+
+func Load(db *sql.DB) {
+\tdb.Query("SELECT id FROM " + dbx.Table)
+}
+""",
+            }
+            with mock.patch.dict(os.environ, environment):
+                output = self.analyze(files)
+        packages = output.metadata.custom_metrics["go_type_facts"]["gopath_packages"]
+        self.assertEqual(list(packages), ["cmd/load"])
+        self.assertEqual(packages["cmd/load"]["status"], "gopath_latest")
+        self.assertEqual(packages["cmd/load"]["modules"], {"example.com/dbx": "v1.2.0"})
+        self.assertRegex(packages["cmd/load"]["go_sum_sha256"], "^[0-9a-f]{64}$")
+
+
+def _module_proxy(directory, path, version, sources):
+    """A GOPROXY=file:// directory serving one module version."""
+    import json
+    import zipfile
+
+    base = Path(directory) / path / "@v"
+    base.mkdir(parents=True)
+    (base / "list").write_text(version + "\n", encoding="utf-8")
+    (base / f"{version}.info").write_text(
+        json.dumps({"Version": version, "Time": "2020-01-01T00:00:00Z"}),
+        encoding="utf-8",
+    )
+    mod = f"module {path}\n\ngo 1.16\n"
+    (base / f"{version}.mod").write_text(mod, encoding="utf-8")
+    with zipfile.ZipFile(base / f"{version}.zip", "w") as archive:
+        archive.writestr(f"{path}@{version}/go.mod", mod)
+        for name, text in sources.items():
+            archive.writestr(f"{path}@{version}/{name}", text)
+
 
 class GoToolchainTests(unittest.TestCase):
     def test_wanted_toolchain(self):
