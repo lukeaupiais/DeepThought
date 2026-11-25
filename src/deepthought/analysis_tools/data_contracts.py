@@ -239,6 +239,19 @@ DRIZZLE_QUERY_RULE = register_rule(
         "Drizzle database.",
     )
 )
+DRIZZLE_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to drizzle-orm's "
+        "own query builder (from and the joins read, insert, update and "
+        "delete write, a relational query's findMany/findFirst reads) and "
+        "the written table name (the argument, the property of an imported "
+        "object or the db.query key) to the variable that holds a Drizzle "
+        "table (data-contracts.drizzle-table), through imports, re-exports "
+        "and export * as the index follows them.",
+    )
+)
 RAILS_SCHEMA_RULE = register_rule(
     EvidenceRule(
         "data-contracts.rails-schema-table",
@@ -2609,8 +2622,63 @@ class DataContractTool(AnalysisTool):
                 found |= exported_table(resolve_import(file, source), name, seen)
             return found - {"?"} if found - {"?"} else found
 
-        drizzle_access = {"linked": 0, "not_a_table": 0}
+        # In files a scip-typescript index covers, a use is read through the
+        # index: its method must resolve to drizzle-orm and its table name to
+        # a table variable's definition. The name rule below runs only where
+        # the index records no symbol, or only a local one, at the method
+        # (it could not type the call: drizzle_scip index_unresolved).
+        table_at = {
+            (item.file, item.line, item.column): table(file, item.table)
+            for file, variables in drizzle_tables.items()
+            for items in variables.values()
+            for item in items
+            if item.table != PLACEHOLDER
+        }
+        drizzle_scip = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "index_unresolved": 0,
+            "not_drizzle": 0,
+            "not_a_table": 0,
+        }
+        by_name_rule = []
         for use in drizzle_uses:
+            called = references.symbols(use.file, use.line, use.column)
+            if called is None:
+                drizzle_scip["no_scip_index"] += 1
+                by_name_rule.append(use)
+                continue
+            if all(c.startswith("local ") for c in called):
+                drizzle_scip["index_unresolved"] += 1
+                by_name_rule.append(use)
+                continue
+            if not any(" npm drizzle-orm " in c for c in called):
+                drizzle_scip["not_drizzle"] += 1
+                continue
+            sites = references.definition_sites(use.file, use.ref_line, use.ref_column)
+            targets = {table_at[s] for s in sites if s in table_at}
+            if len(targets) != 1:
+                drizzle_scip["not_a_table"] += 1
+                continue
+            drizzle_scip["linked"] += 1
+            tool, receipt = references.tool(use.file)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        code(use.file, use.caller_id),
+                        next(iter(targets)),
+                        DRIZZLE_SCIP_RULE,
+                        {
+                            "variable": use.ref.name,
+                            "line": use.line,
+                            "column": use.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                    )
+        drizzle_access = {"linked": 0, "not_a_table": 0}
+        for use in by_name_rule:
             ref = use.ref
             if ref.how == "local":
                 targets = exported_table(use.file, ref.name)
@@ -2822,6 +2890,7 @@ class DataContractTool(AnalysisTool):
                     "eloquent_access_resolution": eloquent_counts,
                     "drizzle_tables": drizzle_counts,
                     "drizzle_access_resolution": drizzle_access,
+                    "drizzle_scip": drizzle_scip,
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

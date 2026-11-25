@@ -734,6 +734,162 @@ TYPEORM_SCIP = {
 }
 
 
+DRIZZLE_SCIP = {
+    "src/schema.ts": """import { pgTable, text } from "drizzle-orm/pg-core";
+export const users = pgTable("users", { id: text("id") });
+export const orders = pgTable("orders", { id: text("id") });
+""",
+    "src/repo.ts": """import { db } from "./db";
+import { users, orders as o } from "@app/schema";
+import * as schema from "./schema";
+import { cache } from "./cache";
+export async function list() {
+  return db.select().from(users);
+}
+export async function add() {
+  await db.insert(o).values({});
+}
+export async function joined() {
+  return db.query.users.findMany();
+}
+export async function other() {
+  return cache.from(users);
+}
+export async function member() {
+  return db.delete(schema.orders);
+}
+""",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class DrizzleScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["drizzle_scip"], metrics["drizzle_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of DRIZZLE_SCIP's names: drizzle-orm's
+        query builder methods, except other()'s from, and the table
+        variables through the package import and the namespace. The names
+        in ``unresolved`` get no symbol."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        drizzle = "scip-typescript npm drizzle-orm 0.45.3 pg-core/"
+        database = drizzle + "`db.d.ts`/PgDatabase#"
+        select = drizzle + "query-builders/`select.d.ts`/PgSelectBuilder#from()."
+        query = drizzle + "query-builders/`query.d.ts`/RelationalQueryBuilder#"
+        schema = "scip-typescript npm app 1 src/`schema.ts`/"
+        documents = {
+            "src/schema.ts": [
+                (1, "users", schema + "users.", True, 0),
+                (2, "orders", schema + "orders.", True, 0),
+            ],
+            "src/repo.ts": [
+                (5, "select", database + "select().", False, 0),
+                (5, "from", select, False, 0),
+                (5, "users", schema + "users.", False, 0),
+                (8, "insert", database + "insert().", False, 0),
+                (8, "o", schema + "orders.", False, 0),
+                (11, "query", database + "query.", False, 0),
+                (11, "users", schema + "users.", False, 0),
+                (11, "findMany", query + "findMany().", False, 0),
+                (
+                    14,
+                    "from",
+                    "scip-typescript npm other 1 `c.d.ts`/C#from().",
+                    False,
+                    0,
+                ),
+                (14, "users", schema + "users.", False, 0),
+                (17, "delete", database + "delete().", False, 0),
+                (17, "orders", schema + "orders.", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = DRIZZLE_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_uses_resolved_through_a_scip_index(self):
+        edges, counts, by_name = self.analyze(True)
+        # other()'s from is not drizzle-orm's: the index drops it.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "joined", "users", "drizzle-scip"),
+                ("READS", "list", "users", "drizzle-scip"),
+                ("WRITES", "add", "orders", "drizzle-scip"),
+                ("WRITES", "member", "orders", "drizzle-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 4,
+                "no_scip_index": 0,
+                "index_unresolved": 0,
+                "not_drizzle": 1,
+                "not_a_table": 0,
+            },
+        )
+        self.assertEqual(by_name, {"linked": 0, "not_a_table": 0})
+
+    def test_uses_the_index_could_not_type_are_counted(self):
+        # No symbol at findMany: the index read nothing there, and the name
+        # rule reads that use.
+        edges, counts, by_name = self.analyze(True, unresolved=("findMany",))
+        self.assertEqual(counts["index_unresolved"], 1)
+        self.assertIn(("READS", "joined", "users", "drizzle-query"), edges)
+        self.assertEqual(by_name["linked"], 1)
+
+    def test_without_an_index_the_name_rule_reads_uses(self):
+        edges, counts, by_name = self.analyze(False)
+        # The name rule does not check the receiver: other() reads users.
+        self.assertIn(("READS", "other", "users", "drizzle-query"), edges)
+        self.assertEqual(counts["no_scip_index"], 5)
+        self.assertEqual(by_name, {"linked": 5, "not_a_table": 0})
+
+
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter")
     and importlib.util.find_spec("tree_sitter_typescript"),
