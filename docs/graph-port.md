@@ -853,7 +853,14 @@ version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
 package of an analyzed Go file is its own program, loaded with its tests,
 since a Go binary is one main package or one package's tests and what they
 import: values of two programs never meet, so a type of one example's main
-package cannot reach a call in another package's tests. Packages are named
+package cannot reach a call in another package's tests. VTA follows values
+through every function of a program, code nothing calls included, so each
+package is also run with `-algo=rta` (rapid type analysis from the program's
+main or its tests) and only the edges both report are kept: on chi this drops
+the example handlers' writes into the Compress middleware, which no example
+installs. A library package with neither a main nor tests has nothing to
+reach it from and keeps the VTA edges; any other RTA failure fails the
+package. Packages are named
 one by one, so directories `./...` skips (`_examples/`) are included;
 `testdata` is not. A package the tool cannot load (a dependency missing from
 the module cache, a type error) yields no edges and is reported in the

@@ -34,6 +34,10 @@ _FORMAT = (
 )
 
 
+# callgraph -algo=rta on a program with no main package and no tests.
+_NO_ROOTS = "no main packages"
+
+
 class GoCallgraphUnavailable(RuntimeError):
     """The pinned call graph tool cannot be run."""
 
@@ -103,10 +107,10 @@ def dynamic_calls(root, packages, binary, go="go", timeout=1200):
         (module, package) for module in sorted(packages) for package in packages[module]
     ]
 
-    def run(program):
+    def run(program, algorithm):
         module, package = program
         return subprocess.run(
-            [str(binary), "-algo=vta", "-test", "-format", _FORMAT]
+            [str(binary), f"-algo={algorithm}", "-test", "-format", _FORMAT]
             + ["./" + package if package != "." else "."],
             cwd=root / module,
             capture_output=True,
@@ -115,32 +119,53 @@ def dynamic_calls(root, packages, binary, go="go", timeout=1200):
             env=_environment(go),
         )
 
+    def edges(completed):
+        found = set()
+        for line in completed.stdout.splitlines():
+            fields = line.split("\t")
+            if len(fields) != 8 or fields[3] != "dynamic":
+                continue
+            site = _relative(root, fields[0])
+            callee = _relative(root, fields[4])
+            if site is None or callee is None:
+                continue
+            found.add(
+                DynamicCall(
+                    site,
+                    int(fields[1]),
+                    int(fields[2]) - 1,
+                    callee,
+                    int(fields[5]),
+                    int(fields[6]) - 1,
+                    fields[7],
+                )
+            )
+        return found
+
+    def analyze(program):
+        vta = run(program, "vta")
+        if vta.returncode != 0:
+            return vta, None
+        # VTA follows values through every function of the program, dead
+        # code included; RTA keeps only functions reachable from its main
+        # or its tests. An edge both report is one the program can take.
+        return vta, run(program, "rta")
+
     found, failures = set(), {}
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
-        for (module, package), completed in zip(programs, pool.map(run, programs)):
-            if completed.returncode != 0:
-                name = os.path.normpath(os.path.join(module or ".", package))
-                failures[Path(name).as_posix()] = completed.stderr.strip()[-2000:]
+        for (module, package), (vta, rta) in zip(programs, pool.map(analyze, programs)):
+            name = Path(os.path.normpath(os.path.join(module or ".", package)))
+            if vta.returncode != 0:
+                failures[name.as_posix()] = vta.stderr.strip()[-2000:]
                 continue
-            for line in completed.stdout.splitlines():
-                fields = line.split("\t")
-                if len(fields) != 8 or fields[3] != "dynamic":
-                    continue
-                site = _relative(root, fields[0])
-                callee = _relative(root, fields[4])
-                if site is None or callee is None:
-                    continue
-                found.add(
-                    DynamicCall(
-                        site,
-                        int(fields[1]),
-                        int(fields[2]) - 1,
-                        callee,
-                        int(fields[5]),
-                        int(fields[6]) - 1,
-                        fields[7],
-                    )
-                )
+            if rta.returncode == 0:
+                found |= edges(vta) & edges(rta)
+            elif _NO_ROOTS in rta.stderr:
+                # A library package without tests has no root to reach
+                # from: every function may be called, as VTA assumes.
+                found |= edges(vta)
+            else:
+                failures[name.as_posix()] = rta.stderr.strip()[-2000:]
     return sorted(found, key=lambda c: tuple(vars(c).values())), failures
 
 

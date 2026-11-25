@@ -70,6 +70,28 @@ func main() {
 	total(Circle{})
 	run(one)
 }
+
+type Dead struct{}
+
+func (Dead) Area() int { return 4 }
+
+// Never called: VTA still follows Dead{} into total, RTA does not.
+func dead() int { return total(Dead{}) }
+"""
+
+# A library package without tests: nothing to reach it from, so every
+# function may be called.
+LIB = """package lib
+
+type I interface{ M() }
+
+type A struct{}
+
+func (A) M() {}
+
+func Call(i I) { i.M() }
+
+func Use() { Call(A{}) }
 """
 
 
@@ -120,6 +142,21 @@ class LocateTests(unittest.TestCase):
         )
 
 
+class ReachabilityFailureTests(unittest.TestCase):
+    def test_a_package_rta_cannot_load_is_a_failure(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        binary = Path(root) / "callgraph"
+        # Loads with VTA, fails with RTA for another reason than no roots.
+        binary.write_text(
+            "#!/bin/sh\n"
+            'case "$1" in -algo=rta) echo "rta: out of memory" >&2; exit 1;; esac\n'
+        )
+        binary.chmod(0o755)
+        calls, failures = dynamic_calls(root, {"": ["."]}, binary)
+        self.assertEqual((calls, failures), ([], {".": "rta: out of memory"}))
+
+
 class BindTests(unittest.TestCase):
     def test_sites_and_callees_are_matched_by_position_and_name(self):
         root = tempfile.mkdtemp()
@@ -168,6 +205,7 @@ class CallgraphToolTests(unittest.TestCase):
             {
                 "go.mod": "module example.com/shapes\n\ngo 1.21\n",
                 "main.go": MAIN,
+                "lib/lib.go": LIB,
                 "_examples/ex/main.go": EXAMPLE,
                 # Never built: no edges from it.
                 "testdata/td/main.go": EXAMPLE.replace("A{}", "B{}")
@@ -187,13 +225,19 @@ class CallgraphToolTests(unittest.TestCase):
 
     def test_vta_gives_the_implementations_that_reach_each_call(self):
         calls, failures = dynamic_calls(
-            self.root, {"": ["."], "broken": ["."]}, _pinned()
+            self.root, {"": [".", "lib"], "broken": ["."]}, _pinned()
         )
         self.assertEqual(sorted(failures), ["broken"])
         self.assertEqual(
-            sorted((c.line, c.callee_name, c.callee_line) for c in calls),
-            # Unused.Area never reaches s.Area(): VTA leaves it out.
-            [(17, "Area", 7), (17, "Area", 11), (19, "one", 21)],
+            sorted((c.file, c.line, c.callee_name, c.callee_line) for c in calls),
+            # Unused.Area never reaches s.Area(), and Dead.Area only from
+            # code nothing calls: both are left out.
+            [
+                ("lib/lib.go", 9, "M", 7),
+                ("main.go", 17, "Area", 7),
+                ("main.go", 17, "Area", 11),
+                ("main.go", 19, "one", 21),
+            ],
         )
 
     def test_graph_edges_carry_the_rule_and_the_producer(self):
@@ -209,7 +253,7 @@ class CallgraphToolTests(unittest.TestCase):
         # packages; it is not run for one.
         self.assertEqual(
             spy.call_args.args[1],
-            {"": [".", "_examples/ex"], "broken": ["."], "sub": ["."]},
+            {"": [".", "_examples/ex", "lib"], "broken": ["."], "sub": ["."]},
         )
         edges = sorted(
             (r.properties["callee"], r.target_match["qualified_name"])
@@ -220,6 +264,7 @@ class CallgraphToolTests(unittest.TestCase):
             [(callee, target.split("::")[2]) for callee, target in edges],
             [
                 ("f", "one"),
+                ("i.M", "A.M"),
                 ("s.Area", "Circle.Area"),
                 ("s.Area", "Square.Area"),
                 ("t.M", "A.M"),
@@ -236,7 +281,7 @@ class CallgraphToolTests(unittest.TestCase):
             ("callgraph@v0.31.0", "vta"),
         )
         metrics = output.metadata.custom_metrics["go_dynamic_calls"]
-        self.assertEqual((metrics["sites"], metrics["edges"]), (4, 5))
+        self.assertEqual((metrics["sites"], metrics["edges"]), (5, 6))
         self.assertEqual(sorted(metrics["failed_packages"]), ["broken"])
         self.assertTrue(
             any("package broken not loaded" in w for w in output.metadata.warnings)
