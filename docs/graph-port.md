@@ -5361,6 +5361,23 @@ For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryG
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
 
+`queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
+or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
+short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`,
+a link as `A (a.go:10) calls B (b.go:4) at line 12` from the verb its type has
+in `RELATIONSHIP_SENTENCES` (`storage/graph/schema.py`), a path as
+`A calls B at line 4, which calls C at line 9`, and other values as
+`name value` under the column name the query chose. What every row shares is
+said once, repeating leading values become headings, rows that differ only in
+a number merge (`at lines 195, 209`), and rows in test files follow under
+`In tests:`. The text opens with the row count and whether the limit cut it, and
+closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
+the link families and languages in the result. Link ends a query did not
+return are looked up, and coverage is read, without journaling either as a
+query. The byte budget applies to the text. `tools/check_result_text.py` runs
+queries in both forms on a dedicated database and reports any fact the text
+lost.
+
 ## Verification and validation
 
 Default tests never start/download databases or call models. Actual graph-port

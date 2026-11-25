@@ -634,6 +634,11 @@ def create_server():
         )
 
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
+        # Results come back as JSON rows unless the server is started with
+        # DEEPTHOUGHT_QUERY_FORMAT=text; a call can still ask for either.
+        default_format = os.environ.get("DEEPTHOUGHT_QUERY_FORMAT", "json")
+        if default_format not in ("json", "text"):
+            raise ValueError("DEEPTHOUGHT_QUERY_FORMAT must be json or text")
 
         @server.tool()
         async def queryGraph(
@@ -643,9 +648,25 @@ def create_server():
             snapshot_id: str,
             ctx: Context,
             max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
-        ) -> dict:
-            """Run bounded read-only Cypher in an explicitly dedicated snapshot database."""
-            return await ctx.request_context.lifespan_context.query_cypher(
+            format: Literal["json", "text"] | None = None,
+        ):  # No return annotation: FastMCP would wrap a dict-or-text union.
+            """Run bounded read-only Cypher in an explicitly dedicated snapshot database.
+
+            format "text" writes the rows as short sentences: code items as
+            Name (file:line), links as "A calls B at line N", chains as
+            A → B → C, with a closing coverage line. "json" returns the rows.
+            """
+            service = ctx.request_context.lifespan_context
+            if (format or default_format) == "text":
+                return await service.query_cypher_text(
+                    query,
+                    parameters,
+                    repository_id,
+                    snapshot_id=snapshot_id,
+                    allow_database_scope=True,
+                    limit=max_elements,
+                )
+            return await service.query_cypher(
                 query,
                 parameters,
                 repository_id,
