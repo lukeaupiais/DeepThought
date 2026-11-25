@@ -108,6 +108,111 @@ def holds_function(after):
     return bool(_FUNCTION_VALUE.match(" = " + rest))
 
 
+def _code_end(text, i, stop):
+    """The index of the first character in ``stop`` at bracket depth 0 from
+    ``text[i]``, skipping strings, template literals and comments (``<`` is
+    not a bracket here: it is a comparison as often as a type argument).
+    len(text) when none."""
+    depth, quote = 0, None
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c in "'\"`":
+            quote = c
+        elif text.startswith("//", i):
+            i = text.find("\n", i)
+            if i < 0:
+                return len(text)
+            continue
+        elif text.startswith("/*", i):
+            i = text.find("*/", i)
+            if i < 0:
+                return len(text)
+            i += 2
+            continue
+        elif depth == 0 and c in stop:
+            return i
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                return i
+        i += 1
+    return len(text)
+
+
+def _type_end(text, i, arrow=False):
+    """From ``text[i]``, past a type annotation (whose ``<...>``, brackets
+    and function types' ``=>`` nest), the index of the first top-level
+    ``=`` (with ``arrow``, of a ``=>``), ``;``, ``,``, ``{`` or line end;
+    len(text) when none. A line end inside brackets does not count."""
+    while i < len(text):
+        c = text[i]
+        if c in "<([":
+            i = _skip_balanced(text, i)
+            continue
+        if text.startswith("=>", i):
+            if arrow:
+                return i
+            i += 2
+            continue
+        if c in "=;,{\n":
+            if c == "\n" and arrow:
+                i += 1  # a return type may continue on the next line
+                continue
+            return i
+        i += 1
+    return len(text)
+
+
+def initializer_lines(text):
+    """How many lines past the first the function value after a variable's
+    or class field's name runs (``text`` starts just after the name), for
+    an initializer the index gives no enclosing range: scip-typescript
+    records none for a class field holding an arrow function
+    (``fetch = async (...) => { ... }``). None when it is not found."""
+    # The value's `=` must come before the declaration ends (a `;`, `,` or
+    # line end outside brackets): an interface member or a field without an
+    # initializer has none. Types nest `<...>` (no comparisons there).
+    i = _type_end(text, 0)
+    if i >= len(text) or text[i] != "=" or text[i + 1 : i + 2] == ">":
+        return None
+    i += 1
+    head = re.match(r"\s*(?:async\b\s*)?", text[i:])
+    i += head.end()
+    if re.match(r"function\b", text[i:]):
+        end = _code_end(text, _code_end(text, i, "{") + 1, "}")
+        return text.count("\n", 0, min(end, len(text)))
+    if text[i : i + 1] == "<":
+        i = _skip_balanced(text, i)
+        i += len(text[i:]) - len(text[i:].lstrip())
+    if text[i : i + 1] == "(":
+        i = _code_end(text, i + 1, ")") + 1
+    elif match := re.match(r"[A-Za-z_$][\w$]*", text[i:]):
+        i += match.end()
+    else:
+        return None
+    # An optional return type, then the arrow itself: `(() => x)()` and
+    # `f(...)` are not function values.
+    j = _type_end(text, i, arrow=True)
+    if text[j : j + 2] != "=>" or (
+        text[i:j].strip() and not text[i:j].strip().startswith(":")
+    ):
+        return None
+    body = j + 2 + len(text[j + 2 :]) - len(text[j + 2 :].lstrip())
+    if text[body : body + 1] == "{":
+        end = _code_end(text, body + 1, "}")
+    else:
+        end = _code_end(text, body, ";\n")
+    return text.count("\n", 0, min(end, len(text)))
+
+
 _SCRIPTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # Names the engine writes differently: TypeScript constructors.
 _RENAMED = {"<constructor>": "constructor"}
@@ -167,6 +272,7 @@ def callables(index, source=None, spans=None):
             descriptors = symbol.split(" ", 4)[-1]
             line = occurrence.range[0] + 1
             match = _NAME.search(descriptors)
+            value = None
             if not match:
                 # A variable holding a function (`const f = () => ...`).
                 match = _TERM.search(descriptors)
@@ -188,6 +294,9 @@ def callables(index, source=None, spans=None):
                 )
                 if not holds_function(after):
                     continue
+                value = "\n".join(
+                    [after.split("\n", 1)[0], *texts[file][line : line + 400]]
+                )
             if not occurrence.symbol_roles & 1:
                 overloads.append((document.relative_path, line, occurrence, symbol))
                 continue
@@ -197,6 +306,8 @@ def callables(index, source=None, spans=None):
                 last = (span[2] if len(span) == 4 else span[0]) + 1
             elif spans and (document.relative_path, line) in spans:
                 first, last = spans[(document.relative_path, line)]
+            elif value is not None and (more := initializer_lines(value)) is not None:
+                first, last = line, line + more
             else:
                 continue
             name = _RENAMED.get(match.group(1), match.group(1))

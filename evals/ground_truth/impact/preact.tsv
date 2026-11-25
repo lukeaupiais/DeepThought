@@ -230,6 +230,7 @@
 # node	test/ts/jsx-namespace.test-d.tsx	13	render
 # node	test/ts/preact.tsx	21	createSignal
 # node	test/ts/preact.tsx	42	constructor
+# node	test/ts/preact.tsx	49	setRef
 # node	test/ts/preact.tsx	53	render
 # node	test/ts/preact.tsx	71	DummerComponent
 # node	test/ts/preact.tsx	110	createRootFragment
@@ -240,6 +241,7 @@
 # node	test/ts/preact.tsx	170	TestUndefinedChildren
 # node	test/ts/preact.tsx	183	constructor
 # node	test/ts/preact.tsx	188	render
+# node	test/ts/preact.tsx	202	setRef
 # node	test/ts/preact.tsx	209	render
 # node	test/ts/preact.tsx	213	componentWillMount
 # node	test/ts/preact.tsx	217	componentDidMount
@@ -253,6 +255,7 @@
 # node	test/ts/preact.tsx	316	render
 # node	test/ts/preact.tsx	328	render
 # node	test/ts/preact.tsx	341	render
+# node	test/ts/preact.tsx	348	handleClick
 # node	test/ts/preact.tsx	377	ReturnNull
 # node	test/ts/preact.tsx	390	RefComponentTest
 # node	test/ts/preact.tsx	402	onInput
@@ -262,6 +265,9 @@
 # node	test/ts/preact.tsx	442	Checkbox
 # node	test/ts/refs.tsx	12	Foo
 # node	test/ts/refs.tsx	14	render
+# node	test/ts/refs.tsx	21	divRef
+# node	test/ts/refs.tsx	26	fooRef
+# node	test/ts/refs.tsx	31	barRef
 # node	test/ts/refs.tsx	37	render
 # node	test/ts/refs.tsx	53	componentDidMount
 # node	test/ts/refs.tsx	67	render

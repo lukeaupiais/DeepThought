@@ -16,6 +16,7 @@ from deepthought.service_contracts.deployed import (
     dotnet_project,
     locust_host,
 )
+from deploy_tools_ready import needs_deploy_tools
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec("yaml")
 
@@ -324,6 +325,7 @@ RUN dotnet restore && dotnet publish src/Basket.API/*.csproj -c Release -o out
 
 
 class DotnetProjectTests(unittest.TestCase):
+    @needs_deploy_tools  # the project's Compose file
     def test_the_published_project_runs(self):
         files = {
             "src/Catalog.API/Catalog.API.csproj": "<Project />",

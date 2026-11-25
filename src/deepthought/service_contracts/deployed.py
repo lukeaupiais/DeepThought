@@ -8,13 +8,18 @@ Skaffold ``build.artifacts`` entry builds from one context; it answers to the
 names of the Services in the same manifest directory and namespace whose
 selector its pod template labels match. Environment values are literal text
 (``value`` only, not ``valueFrom``); a value written with ``$`` is unknown.
-Helm templates and other files that are not plain YAML are not read.
+Helm charts and kustomizations are read as ``helm template`` and
+``kustomize build`` render them (``deploy_facts``): the objects one
+rendering gives count as one manifest directory, that of its Chart.yaml or
+kustomization file, and the YAML files they are made from are not read on
+their own.
 """
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 
+from .. import deploy_facts
 from ..component_dependencies import join_directory
 from .compose import compose_units
 
@@ -102,7 +107,11 @@ def kubernetes_units(root):
     except ImportError:
         return []
     artifacts, workloads, services = {}, [], []
+    rendered = deploy_facts.collect(root)
+    sources = []
     for path, relative in _yaml_files(root):
+        if rendered.tool_input(relative):
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -110,9 +119,11 @@ def kubernetes_units(root):
         if "apiVersion" not in text or "{{" in text:
             continue
         try:
-            documents = list(yaml.safe_load_all(text))
+            sources.append((relative, list(yaml.safe_load_all(text))))
         except yaml.YAMLError:
             continue
+    sources += [(r.source, list(r.documents)) for r in rendered.renderings]
+    for relative, documents in sources:
         directory = str(PurePosixPath(relative).parent)
         directory = "" if directory == "." else directory
         queue = list(documents)

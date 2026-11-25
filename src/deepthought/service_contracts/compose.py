@@ -1,25 +1,20 @@
 """Compose services that build a module of the repository, as deployments.
 
-Each Compose file is one deployment, read on its own as ``docker compose -f
-FILE`` would read it (no ``extends``, ``include`` or ``-f`` merging). A
-service whose ``build`` context is a directory of the repository runs the
-code built there. Its ``environment`` is read as literal text (a value
-written with ``$`` is unknown), and so are its bind-mounted ``volumes``,
-which map container paths back to repository directories: a relative source
-is relative to the Compose file, and ``$PWD``/``${PWD}`` is taken to be the
-Compose file's directory, where ``docker compose`` is run from.
+Compose projects are what the Compose loader makes of the files
+(``deploy_facts``: a file with its override, ``extends``, ``include`` and
+``${VARIABLE}`` interpolation from ``.env``). A service whose ``build``
+context is a directory of the repository runs the code built there. Its
+``environment`` values are the loader's; a value holding a variable nothing
+sets is unknown. Its bind-mounted ``volumes`` map container paths back to
+repository directories.
 """
 
 from dataclasses import dataclass
-from pathlib import PurePosixPath
-import re
 
+from .. import deploy_facts
 from ..component_dependencies import join_directory
 
-# compose.yaml, docker-compose.yml and variants such as docker-compose-kafka.yml
-# or compose.override.yaml.
-COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:[.-][A-Za-z0-9_.-]+)?\.ya?ml$")
-_SKIPPED = frozenset({"node_modules", "target", "build", "vendor"})
+COMPOSE_FILE = deploy_facts.COMPOSE_FILE
 
 
 @dataclass(frozen=True)
@@ -59,112 +54,38 @@ class ComposeUnit:
         return join_directory(best[0], rest) if rest else best[0]
 
 
-def _environment(value):
-    pairs = []
-    if isinstance(value, dict):
-        items = value.items()
-    elif isinstance(value, list):
-        items = [
-            item.split("=", 1) if "=" in item else (item, None)
-            for item in value
-            if isinstance(item, str)
-        ]
-    else:
-        return ()
-    for key, text in items:
-        if not isinstance(key, str):
-            continue
-        if isinstance(text, bool):
-            text = str(text).lower()
-        elif isinstance(text, (int, float)):
-            text = str(text)
-        if not isinstance(text, str) or "$" in text:
-            text = None
-        pairs.append((key.strip(), text))
-    return tuple(pairs)
-
-
-def _source(directory, source):
-    if not isinstance(source, str):
-        return None
-    for written in ("${PWD}", "$PWD"):
-        if source == written or source.startswith(written + "/"):
-            source = "." + source[len(written) :]
-            break
-    if "$" in source or source.startswith(("/", "~")):
-        return None
-    if not source.startswith("."):
-        return None  # a named volume
-    return join_directory(directory, source)
-
-
-def _volumes(directory, value):
-    found = []
-    for item in value if isinstance(value, list) else []:
-        if isinstance(item, str):
-            parts = item.split(":")
-            if len(parts) < 2:
-                continue
-            found.append((_source(directory, parts[0]), parts[1]))
-        elif isinstance(item, dict) and item.get("type", "bind") == "bind":
-            target = item.get("target")
-            if isinstance(target, str):
-                found.append((_source(directory, item.get("source")), target))
-    return tuple(found)
+def _known(value):
+    return None if value is None or deploy_facts.PLACEHOLDER in value else value
 
 
 def compose_units(root):
     """Every Compose service in the repository that builds a directory of it,
     in file and service order."""
-    try:
-        import yaml
-    except ImportError:  # pyyaml comes with the languages extra
-        return []
     units = []
-    for path in sorted(root.rglob("*.y*ml")):
-        relative = path.relative_to(root)
-        if not COMPOSE_FILE.match(path.name) or any(
-            p.startswith(".") or p in _SKIPPED for p in relative.parts[:-1]
-        ):
-            continue
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, yaml.YAMLError):
-            continue
-        if not isinstance(data, dict) or not isinstance(data.get("services"), dict):
-            continue
-        directory = str(PurePosixPath(relative.as_posix()).parent)
-        directory = "" if directory == "." else directory
-        for name, service in sorted(data["services"].items()):
-            if not isinstance(name, str) or not isinstance(service, dict):
+    for project in sorted(deploy_facts.collect(root).compose, key=lambda p: p.file):
+        for service in project.services:
+            if service.context is None or deploy_facts.PLACEHOLDER in service.context:
                 continue
-            build = service.get("build")
-            context = build.get("context", ".") if isinstance(build, dict) else build
-            if not isinstance(context, str) or "$" in context or "://" in context:
-                continue
-            context = join_directory(directory, context)
-            if context is None:
-                continue
-            dockerfile = (
-                build.get("dockerfile", "Dockerfile")
-                if isinstance(build, dict)
-                else "Dockerfile"
-            )
-            if isinstance(dockerfile, str) and "$" not in dockerfile:
-                folder, _, file_name = dockerfile.rpartition("/")
-                folder = join_directory(context, folder) if folder else context
-                dockerfile = (
-                    None if folder is None else join_directory(folder, file_name)
-                )
-            else:
+            dockerfile = service.dockerfile
+            if dockerfile is not None and deploy_facts.PLACEHOLDER in dockerfile:
                 dockerfile = None
             units.append(
                 ComposeUnit(
-                    relative.as_posix(),
-                    name,
-                    context,
-                    _environment(service.get("environment")),
-                    _volumes(directory, service.get("volumes")),
+                    project.file,
+                    service.name,
+                    service.context,
+                    tuple((k, _known(v)) for k, v in service.environment),
+                    tuple(
+                        (
+                            None
+                            if source is None
+                            or source.startswith(("/", "~"))
+                            or deploy_facts.PLACEHOLDER in source
+                            else source,
+                            target,
+                        )
+                        for source, target in service.volumes
+                    ),
                     dockerfile,
                 )
             )
