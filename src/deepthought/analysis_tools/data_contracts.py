@@ -14,6 +14,7 @@ from collections import Counter
 import importlib.util
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import time
@@ -25,6 +26,7 @@ from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
+    drizzle_foreign_keys,
     extract_foreign_keys,
     extract_entity_manager,
     extract_go_sql,
@@ -139,6 +141,20 @@ SQL_FOREIGN_KEY_RULE = register_rule(
         "REFERENCES constraint or a FOREIGN KEY constraint) to the referenced "
         "table. Tables are told apart as data-contracts.sql-create-table "
         "tells them apart.",
+    )
+)
+DRIZZLE_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-foreign-key",
+        "resolved",
+        "drizzle-kit's snapshot of the schema after the last migration of a "
+        "migrations folder (the last entry of meta/_journal.json) holds a "
+        "foreign key of this table to the referenced table. The folder's "
+        "SQL migrations are not read for keys, so a key a later migration "
+        "drops, or one added inside a DO block, follows the snapshot. When "
+        "that snapshot cannot be read, the migrations are read as any SQL "
+        "file (data-contracts.sql-foreign-key) and a drizzle_snapshot_unread "
+        "warning says so.",
     )
 )
 PRISMA_FOREIGN_KEY_RULE = register_rule(
@@ -1145,6 +1161,24 @@ class DataContractTool(AnalysisTool):
         # Prisma's own schema engine, the build the project's Prisma pins.
         prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
         prisma.extend(prisma_read.models)
+        drizzle_folders, drizzle_keys, drizzle_unread = {}, [], []
+        foreign_keys_superseded = {"prisma": 0}
+
+        def prisma_migrations(path):
+            """Whether a SQL file is a migration of a Prisma schema the engine
+            read: <dir>/migrations/<name>/migration.sql beside the
+            migration_lock.toml Prisma Migrate writes, with a read schema
+            in <dir>. Prisma's schema is the current state, so its keys
+            stand for these migrations, including the ones later dropped."""
+            parts = path.split("/")
+            if len(parts) < 3 or parts[-3] != "migrations":
+                return False
+            base = "/".join(parts[:-3])
+            if not (root / base / "migrations" / "migration_lock.toml").is_file():
+                return False
+            prefix = f"{base}/" if base else ""
+            return any(f.startswith(prefix) for f in prisma_read.engines)
+
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1153,6 +1187,27 @@ class DataContractTool(AnalysisTool):
                 unreadable.append(path)
             else:
                 ddl.extend(found)
+                folder = posixpath.dirname(path)
+                if (root / folder / "meta" / "_journal.json").is_file():
+                    # drizzle-kit's own record of the schema after the last
+                    # migration gives the keys (below), not each migration.
+                    drizzle_folders.setdefault(folder, []).append((path, content))
+                    continue
+                if prisma_migrations(path):
+                    foreign_keys_superseded["prisma"] += 1
+                    continue
+                keys, unparsed = extract_foreign_keys(path, content)
+                foreign_keys.extend(keys)
+                foreign_keys_unparsed.extend((path, line) for line in unparsed)
+        for folder, migrations in sorted(drizzle_folders.items()):
+            snapshot, keys = drizzle_foreign_keys(root, folder)
+            if snapshot is not None:
+                drizzle_keys.extend(keys)
+                continue
+            # Without the last snapshot the state is unknown: each migration
+            # is read as any SQL file is, and the warning says so.
+            drizzle_unread.append(keys)
+            for path, content in migrations:
                 keys, unparsed = extract_foreign_keys(path, content)
                 foreign_keys.extend(keys)
                 foreign_keys_unparsed.extend((path, line) for line in unparsed)
@@ -1351,17 +1406,21 @@ class DataContractTool(AnalysisTool):
                 },
             )
 
-        for key in sorted(set(foreign_keys), key=lambda k: (k.file, k.line, k.table)):
-            foreign_key(
-                key.file,
-                key.line,
-                key.table,
-                key.references,
-                key.columns,
-                key.referenced_columns,
-                key.on_delete,
-                SQL_FOREIGN_KEY_RULE,
-            )
+        for keys, rule in (
+            (foreign_keys, SQL_FOREIGN_KEY_RULE),
+            (drizzle_keys, DRIZZLE_FOREIGN_KEY_RULE),
+        ):
+            for key in sorted(set(keys), key=lambda k: (k.file, k.line, k.table)):
+                foreign_key(
+                    key.file,
+                    key.line,
+                    key.table,
+                    key.references,
+                    key.columns,
+                    key.referenced_columns,
+                    key.on_delete,
+                    rule,
+                )
         mapped = {}
         for mapping in mappings:
             if len(entities.get(mapping.entity, ())) != 1:
@@ -2995,6 +3054,11 @@ class DataContractTool(AnalysisTool):
             for path, line in sorted(foreign_keys_unparsed)
         ]
         warnings += [
+            f"drizzle_snapshot_unread: {reason}, so the foreign keys of each "
+            "migration are read instead, including keys later migrations drop"
+            for reason in drizzle_unread
+        ]
+        warnings += [
             f"prisma_schema_unread: {path}: {reason}"
             for path, reason in sorted(prisma_read.unread.items())
         ]
@@ -3086,6 +3150,11 @@ class DataContractTool(AnalysisTool):
                         "sql": len(set(foreign_keys)),
                         "prisma": sum(len(m.foreign_keys) for m in prisma),
                         "sql_not_parsed": len(foreign_keys_unparsed),
+                        "drizzle_snapshot": len(set(drizzle_keys)),
+                        "drizzle_snapshot_unread": len(drizzle_unread),
+                        "prisma_migration_files_superseded": foreign_keys_superseded[
+                            "prisma"
+                        ],
                     },
                     "prisma_schema": {
                         "engines": dict(sorted(prisma_read.engines.items())),
