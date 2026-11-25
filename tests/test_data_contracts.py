@@ -740,10 +740,10 @@ TYPEORM_SCIP = {
     "Provision the typescript grammar",
 )
 class TypeormScipTests(unittest.TestCase):
-    def analyze(self, with_index):
+    def analyze(self, with_index, unresolved=()):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, TYPEORM_SCIP)
-            indexes = (self.index(directory),) if with_index else ()
+            indexes = (self.index(directory, unresolved),) if with_index else ()
             output = asyncio.run(
                 DataContractTool(directory).analyze(
                     "r", languages=["typescript"], scip_indexes=indexes
@@ -762,10 +762,11 @@ class TypeormScipTests(unittest.TestCase):
         metrics = output.metadata.custom_metrics
         return edges, metrics["typeorm_scip"], metrics["orm_access_resolution"]
 
-    def index(self, directory):
+    def index(self, directory, unresolved=()):
         """A scip-typescript index of TYPEORM_SCIP's names: TypeORM's
         repository, data source and entity manager methods, except
-        other()'s find."""
+        other()'s find. The names in ``unresolved`` get no symbol, as in a
+        file whose imports the indexer could not follow."""
         import re
 
         import deepthought
@@ -775,6 +776,10 @@ class TypeormScipTests(unittest.TestCase):
         repository = typeorm + "repository/`Repository.d.ts`/Repository#"
         source = typeorm + "data-source/`DataSource.d.ts`/DataSource#getRepository()."
         manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        nest = (
+            "scip-typescript npm @nestjs/typeorm 11.0.1 "
+            "dist/common/`typeorm.decorators.d.ts`/InjectRepository."
+        )
         app = "scip-typescript npm app 1 src/"
         user = app + "`user.entity.ts`/User#"
         service = app + "`user.service.ts`/UserService#"
@@ -782,6 +787,7 @@ class TypeormScipTests(unittest.TestCase):
             "src/user.entity.ts": [(2, "User", user, True, 0)],
             "src/user.service.ts": [
                 (2, "User", user, False, 0),
+                (4, "InjectRepository", nest, False, 0),
                 (4, "User", user, False, 0),
                 (4, "repo", service + "repo.", True, 0),
                 (4, "Repository", repository, False, 0),
@@ -824,6 +830,8 @@ class TypeormScipTests(unittest.TestCase):
             lines = TYPEORM_SCIP[path].split("\n")
             document = index.documents.add(relative_path=path)
             for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
                 match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
                 document.occurrences.add(
                     symbol=symbol,
@@ -862,6 +870,19 @@ class TypeormScipTests(unittest.TestCase):
         # The decorator and getRepository name rule gives way in the file.
         self.assertEqual(orm["typeorm_name_rule_replaced"], 3)
         self.assertEqual(orm["typeorm_linked"], 0)
+
+    def test_calls_the_index_could_not_type_are_counted(self):
+        # Without symbols at the repository's names, the index read nothing
+        # there: those uses are counted, and the name rule reads them.
+        edges, counts, orm = self.analyze(
+            True, unresolved=("InjectRepository", "getRepository")
+        )
+        self.assertEqual(orm["typeorm_index_unresolved"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+        self.assertIn(
+            ("READS", "UserService.constructor", "users", "typeorm-repository"),
+            edges,
+        )
 
     def test_without_an_index_the_name_rule_reads_repositories(self):
         edges, counts, orm = self.analyze(False)
@@ -1456,6 +1477,7 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_not_an_entity": 1,
                 "typeorm_wrapper_not_an_entity": 0,
                 "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
@@ -1511,6 +1533,7 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_not_an_entity": 0,
                 "typeorm_wrapper_not_an_entity": 1,
                 "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:

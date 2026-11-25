@@ -2013,6 +2013,10 @@ class ModelUse:
     line: int
     column: int
     wrapper: bool = False  # TypeORM: through a project's getRepository
+    # TypeORM: where getRepository or InjectRepository is written (byte
+    # column).
+    callee_line: int = 0
+    callee_column: int = 0
 
 
 def extract_prisma_schema(file, content: bytes):
@@ -2238,16 +2242,20 @@ def extract_typeorm(tree, content, file, definitions):
                 and args[0].type == "identifier"
                 and (injected or len(args) == 1)
             ):
-                entity, wrapper = _text(args[0], content), False
+                written, wrapper = args[0], False
             else:
                 named = [
-                    _text(a, content)
+                    a
                     for a in args
                     if a.type == "identifier" and _text(a, content) in bindings
                 ]
                 if len(named) != 1 or injected:
                     continue
-                entity, wrapper = named[0], True
+                written, wrapper = named[0], True
+            entity = _text(written, content)
+            callee_name = _call_function(node)
+            if callee_name is not None and callee_name.type == "member_expression":
+                callee_name = callee_name.child_by_field_name("property")
             method = _chained_method(node, content)
             reads = method not in _TYPEORM_WRITES
             writes = method not in _TYPEORM_READS
@@ -2261,6 +2269,8 @@ def extract_typeorm(tree, content, file, definitions):
                     node.start_point.row + 1,
                     node.start_point.column,
                     wrapper,
+                    callee_name.start_point.row + 1,
+                    callee_name.start_point.column,
                 )
             )
     return mappings, uses, children

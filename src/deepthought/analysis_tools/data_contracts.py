@@ -1880,11 +1880,21 @@ class DataContractTool(AnalysisTool):
         # In files a scip-typescript index covers, TypeORM's own repository
         # and entity manager calls are read through the index (below), and
         # the decorator-level name rule is not used.
-        orm_counts.update(typeorm_name_rule_replaced=0)
+        # Where the index records no symbol, or only a local one, at the
+        # getRepository or InjectRepository name, it could not type the call
+        # (its imports did not resolve, as in a package importing its own
+        # unbuilt dist): the index read nothing there, and the run counts
+        # it (typeorm_index_unresolved).
+        orm_counts.update(typeorm_name_rule_replaced=0, typeorm_index_unresolved=0)
         for use in typeorm_uses:
             if not use.wrapper and references.covers(use.file):
-                orm_counts["typeorm_name_rule_replaced"] += 1
-                continue
+                called = references.symbols(
+                    use.file, use.callee_line, use.callee_column
+                )
+                if any(not c.startswith("local ") for c in called or ()):
+                    orm_counts["typeorm_name_rule_replaced"] += 1
+                    continue
+                orm_counts["typeorm_index_unresolved"] += 1
             targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
             if len(targets) != 1:
                 orm_counts[
