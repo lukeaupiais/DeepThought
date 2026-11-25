@@ -25,6 +25,7 @@ from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
+    extract_foreign_keys,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
@@ -126,6 +127,27 @@ DDL_RULE = register_rule(
         "persistent database, else the one database that the Compose "
         "services building the file's deepest build context name in "
         "connection URLs, else the nearest package.",
+    )
+)
+SQL_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-foreign-key",
+        "resolved",
+        "A SQL file's CREATE TABLE or ALTER TABLE statement, parsed by "
+        "sqlglot, declares a foreign key of this table (a column's "
+        "REFERENCES constraint or a FOREIGN KEY constraint) to the referenced "
+        "table. Tables are told apart as data-contracts.sql-create-table "
+        "tells them apart.",
+    )
+)
+PRISMA_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-foreign-key",
+        "resolved",
+        "Prisma's own schema engine reads a relation field with fields and "
+        "references (@relation(fields: [...], references: [...])) on this "
+        "table's model: the model's table holds a foreign key to the related "
+        "model's table. Implicit many-to-many join tables are not read.",
     )
 )
 TABLE_RULE = register_rule(
@@ -1114,6 +1136,7 @@ class DataContractTool(AnalysisTool):
                 digests[path] = sha256(content).hexdigest()
                 doctrine_mapped.extend(found)
         prisma_texts = {}
+        foreign_keys, foreign_keys_unparsed = [], []
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1132,6 +1155,9 @@ class DataContractTool(AnalysisTool):
                 unreadable.append(path)
             else:
                 ddl.extend(found)
+                keys, unparsed = extract_foreign_keys(path, content)
+                foreign_keys.extend(keys)
+                foreign_keys_unparsed.extend((path, line) for line in unparsed)
         sources, changed, partial_scripts = [], [], []
         for coverage in result.coverage:
             if (
@@ -1310,6 +1336,33 @@ class DataContractTool(AnalysisTool):
                 table(item.file, item.name),
                 DDL_RULE,
                 {"line": item.line, **({"schema": item.schema} if item.schema else {})},
+            )
+
+        def foreign_key(file, line, owner, referenced, columns, to, on_delete, rule):
+            link(
+                "REFERENCES_TABLE",
+                (["DbTable", "Contract"], table(file, table_key(owner))),
+                table(file, table_key(referenced)),
+                rule,
+                {
+                    "file_path": file,
+                    "line": line,
+                    "columns": list(columns),
+                    "referenced_columns": list(to),
+                    **({"on_delete": on_delete} if on_delete else {}),
+                },
+            )
+
+        for key in sorted(set(foreign_keys), key=lambda k: (k.file, k.line, k.table)):
+            foreign_key(
+                key.file,
+                key.line,
+                key.table,
+                key.references,
+                key.columns,
+                key.referenced_columns,
+                key.on_delete,
+                SQL_FOREIGN_KEY_RULE,
             )
         mapped = {}
         for mapping in mappings:
@@ -1890,6 +1943,17 @@ class DataContractTool(AnalysisTool):
                 PRISMA_MODEL_RULE,
                 {"line": model.line, "model": model.model},
             )
+            for referenced, columns, to, on_delete in model.foreign_keys:
+                foreign_key(
+                    model.file,
+                    model.line,
+                    model.table,
+                    referenced,
+                    columns,
+                    to,
+                    on_delete,
+                    PRISMA_FOREIGN_KEY_RULE,
+                )
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
         # A caller whose own namespace has a schema the engine did not read
         # is not linked to another namespace's model of the same name.
@@ -2928,6 +2992,11 @@ class DataContractTool(AnalysisTool):
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
         warnings += [
+            f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
+            "this statement, so its foreign keys are not read"
+            for path, line in sorted(foreign_keys_unparsed)
+        ]
+        warnings += [
             f"prisma_schema_unread: {path}: {reason}"
             for path, reason in sorted(prisma_read.unread.items())
         ]
@@ -3010,6 +3079,11 @@ class DataContractTool(AnalysisTool):
                     "gorm_default_table_names": gorm_defaults,
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
+                    "foreign_keys": {
+                        "sql": len(set(foreign_keys)),
+                        "prisma": sum(len(m.foreign_keys) for m in prisma),
+                        "sql_not_parsed": len(foreign_keys_unparsed),
+                    },
                     "prisma_schema": {
                         "engines": dict(sorted(prisma_read.engines.items())),
                         "unread": len(prisma_read.unread),

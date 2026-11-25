@@ -4,7 +4,8 @@
 // stdin: {"op": "config" | "dmmf", "schemas": [[[path, text], ...], ...]}.
 // stdout: one JSON result per schema, in order:
 //   config: {"datasources": n, "errors": [message, ...]}
-//   dmmf:   {"models": [{"name", "dbName", "schema"}]} or {"error": message}
+//   dmmf:   {"models": [{"name", "dbName", "schema", "columns", "relations"}]}
+//           or {"error": message}
 "use strict";
 const wasm = require(process.argv[2]);
 
@@ -45,6 +46,24 @@ process.stdin.on("end", () => {
           name: m.name,
           dbName: m.dbName,
           schema: m.schema || null,
+          // Scalar fields by Prisma name, with their @map column name.
+          columns: Object.fromEntries(
+            m.fields
+              .filter((f) => f.kind !== "object")
+              .map((f) => [f.name, f.dbName || f.name])
+          ),
+          // The relation fields that hold the foreign key (@relation with
+          // fields and references).
+          relations: m.fields
+            .filter(
+              (f) => f.kind === "object" && (f.relationFromFields || []).length
+            )
+            .map((f) => ({
+              model: f.type,
+              fields: f.relationFromFields,
+              references: f.relationToFields || [],
+              onDelete: f.relationOnDelete || null,
+            })),
         })),
       };
     } catch (error) {
