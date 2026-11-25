@@ -619,6 +619,53 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 route, repo, snapshot_id=snapshot, max_output_bytes=2047
             )
 
+    async def test_contract_impact_follows_foreign_keys(self):
+        from deepthought.analysis_tools.data_contracts import DataContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        files = {
+            "pyproject.toml": '[project]\nname = "shop"\n',
+            "db/schema.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE orders (id int, user_id int REFERENCES users (id));\n",
+            "shop/store.py": "import sqlite3\n"
+            "\n"
+            "def totals(conn):\n"
+            '    return conn.execute("SELECT id FROM orders")\n',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in files.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(repo, languages={"python"})
+            tables = await DataContractTool(Path(directory)).analyze(
+                repo, languages=["python"]
+            )
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, tables], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        users = next(
+            i["qualified_name"]
+            for i in (
+                await self.service.search_contracts(
+                    "users", repo, snapshot_id=snapshot, kind="DbTable"
+                )
+            )["items"]
+        )
+        impact = await self.service.get_contract_impact(
+            users, repo, snapshot_id=snapshot, max_depth=3
+        )
+        # orders references users, and totals reads orders.
+        self.assertEqual(
+            [(row[0], row[1], row[3]) for row in self.rows(impact)],
+            [
+                ("orders", 1, ["REFERENCES_TABLE"]),
+                ("totals", 2, ["READS", "REFERENCES_TABLE"]),
+            ],
+        )
+
     @staticmethod
     def rows_edges(response):
         return [item["edges"] for item in response["items"]]
