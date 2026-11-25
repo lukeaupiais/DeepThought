@@ -41,7 +41,6 @@ from ..data_contracts import (
     extract_java_sql,
     extract_mybatis_xml,
     extract_prisma_client,
-    extract_prisma_schema,
     extract_python_sql,
     extract_script_sql,
     extract_ruby_models,
@@ -87,6 +86,7 @@ from ..data_contracts import (
 )
 from ..calls import name_bindings
 from ..engine import analyze_repository
+from ..prisma_schema import SchemaRead, read_schemas
 from ..scip_calls import ScipReferences
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
@@ -602,8 +602,9 @@ PRISMA_MODEL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.prisma-model",
         "resolved",
-        "The Prisma schema declares a model for this table: its @@map name, "
-        "else the model name.",
+        "Prisma's own schema engine (the prisma-schema-wasm build the "
+        "project's Prisma pins) reads a model for this table from the "
+        "schema: its @@map name, else the model name.",
     )
 )
 PRISMA_CLIENT_RULE = register_rule(
@@ -1055,14 +1056,17 @@ class DataContractTool(AnalysisTool):
             if found:
                 digests[path] = sha256(content).hexdigest()
                 doctrine_mapped.extend(found)
+        prisma_texts = {}
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
-            found = extract_prisma_schema(path, content)
-            if found is None:
+            try:
+                prisma_texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
                 unreadable.append(path)
-            else:
-                prisma.extend(found)
+        # Prisma's own schema engine, the build the project's Prisma pins.
+        prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
+        prisma.extend(prisma_read.models)
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1791,11 +1795,22 @@ class DataContractTool(AnalysisTool):
                 {"line": model.line, "model": model.model},
             )
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
+        # A caller whose own namespace has a schema the engine did not read
+        # is not linked to another namespace's model of the same name.
+        unread_scopes = {scope(path) for path in prisma_read.unread}
+        if unread_scopes:
+            orm_counts["prisma_schema_unread"] = 0
         for file, content, tree in script_trees:
             for use in extract_prisma_client(
                 tree, content, file, result.definitions, set(prisma_targets)
             ):
-                targets = _nearest(prisma_targets[use.model], scope(use.file))
+                use_scope = scope(use.file)
+                if use_scope in unread_scopes and all(
+                    s != use_scope for s, _ in prisma_targets[use.model]
+                ):
+                    orm_counts["prisma_schema_unread"] += 1
+                    continue
+                targets = _nearest(prisma_targets[use.model], use_scope)
                 if len(targets) != 1:
                     orm_counts["prisma_ambiguous"] += 1
                     continue
@@ -2653,10 +2668,17 @@ class DataContractTool(AnalysisTool):
         )
         status = (
             "partial"
-            if unreadable or kysely_unindexed or result.status != "succeeded"
+            if unreadable
+            or kysely_unindexed
+            or prisma_read.unread
+            or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"prisma_schema_unread: {path}: {reason}"
+            for path, reason in sorted(prisma_read.unread.items())
+        ]
         if kysely_unindexed:
             warnings.append(
                 f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
@@ -2724,6 +2746,10 @@ class DataContractTool(AnalysisTool):
                     "gorm_default_table_names": gorm_defaults,
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
+                    "prisma_schema": {
+                        "engines": dict(sorted(prisma_read.engines.items())),
+                        "unread": len(prisma_read.unread),
+                    },
                     "typeorm_entities": len(typeorm_mappings),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,

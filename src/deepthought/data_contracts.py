@@ -2078,8 +2078,6 @@ def extract_python_sql(tree, content, file, definitions):
 
 # TypeScript and JavaScript: Prisma and TypeORM -----------------------------
 
-_PRISMA_MODEL = re.compile(r"^[ \t]*model[ \t]+([A-Za-z_]\w*)[ \t]*\{", re.MULTILINE)
-_PRISMA_MAP = re.compile(r'@@map\(\s*(?:name\s*:\s*)?"([^"]+)"\s*\)')
 PRISMA_READS = {
     "findUnique",
     "findUniqueOrThrow",
@@ -2125,36 +2123,6 @@ class ModelUse:
     line: int
     column: int
     wrapper: bool = False  # TypeORM: through a project's getRepository
-
-
-def extract_prisma_schema(file, content: bytes):
-    """The models a Prisma schema declares, each with its table: the
-    ``@@map`` name, else the model name. None if the file is not UTF-8."""
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    # Comments (// and ///) blanked; Prisma has no block comments.
-    text = re.sub(
-        r'"(?:[^"\\\n]|\\.)*"|//[^\n]*',
-        lambda m: m.group(0) if m.group(0)[0] == '"' else _blank(m),
-        text,
-    )
-    found = []
-    for match in _PRISMA_MODEL.finditer(text):
-        end = re.search(r"^[ \t]*\}", text[match.end() :], re.MULTILINE)
-        body = text[match.end() : match.end() + end.start()] if end else ""
-        mapped = _PRISMA_MAP.search(body)
-        found.append(
-            PrismaModel(
-                file,
-                match.group(1),
-                mapped.group(1) if mapped else match.group(1),
-                mapped is not None,
-                text.count("\n", 0, match.start()) + 1,
-            )
-        )
-    return found
 
 
 def prisma_accessor(model):
