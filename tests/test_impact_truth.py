@@ -311,6 +311,24 @@ class FunctionValueTests(unittest.TestCase):
             impact_truth._TERM.search("src/`c.ts`/C#fetch.").group(1), "fetch"
         )
 
+    def test_span_of_a_function_value_without_an_index_range(self):
+        # scip-typescript gives a class field holding an arrow function no
+        # enclosing range; the oracle reads the initializer's extent.
+        def lines(text):
+            return impact_truth.initializer_lines(text)
+
+        self.assertEqual(lines(" = async (\n  a?: X,\n) => {\n  f(a < b)\n}\nx = 1"), 4)
+        self.assertEqual(lines(" = (a) => a + 1\nnext = 2"), 0)
+        self.assertEqual(lines(" = function (x) {\n  return '}'\n}"), 2)
+        self.assertEqual(lines(": Map<A, B> = (h: H): Hono<E, S> => {\n  // }\n}\n"), 2)
+        self.assertEqual(
+            lines(" = <T extends R = 302>(\n  l: string,\n): T<u, T> => {\n}"), 3
+        )
+        # Not function values: a call, an IIFE, a field with no initializer.
+        self.assertIsNone(lines(" = f(1, () => 2)"))
+        self.assertIsNone(lines(" = (() => {\n  return 1\n})()"))
+        self.assertIsNone(lines(": string\n  b = () => 1"))
+
 
 if __name__ == "__main__":
     unittest.main()
