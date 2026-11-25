@@ -74,6 +74,15 @@ func run(p *kafka.Producer, c *kafka.Consumer) {
 \tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &name}}, nil)
 \tc.SubscribeTopics([]string{"shipped", "^audit-.*"}, nil)
 \tc.Subscribe("orders", nil)
+\tretry := "retries"
+\tgo func() {
+\t\tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &retry}}, nil)
+\t}()
+\tagain := "first"
+\tagain = "second"
+\tgo func() {
+\t\tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &again}}, nil)
+\t}()
 }
 """
 
@@ -147,6 +156,8 @@ class GoKafkaTests(unittest.TestCase):
                 ("orders", "PUBLISHES", "kafka-go", "orders/kafka.go", 12),
                 ("refunds", "CONSUMES", "kafka-go", "billing/reader.go", 7),
                 ("refunds", "CONSUMES", "sarama", "shipping/main.go", 18),
+                # A func literal reads a variable written only once.
+                ("retries", "PUBLISHES", "confluent-kafka-go", "notify/main.go", 12),
                 ("shipped", "CONSUMES", "confluent-kafka-go", "notify/main.go", 8),
                 ("shipped", "PUBLISHES", "sarama", "shipping/main.go", 15),
             ],
@@ -155,8 +166,9 @@ class GoKafkaTests(unittest.TestCase):
     def test_unread(self):
         self.assertEqual(
             self.output.metadata.custom_metrics["unread"],
-            # "^audit-.*", and the flag-set package variable.
-            {"consume:topic_pattern": 1, "publish:destination_not_literal": 1},
+            # "^audit-.*", the flag-set package variable, and a variable a
+            # func literal reads after a second write.
+            {"consume:topic_pattern": 1, "publish:destination_not_literal": 2},
         )
 
     def test_module_files_are_not_written(self):

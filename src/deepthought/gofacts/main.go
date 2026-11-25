@@ -309,7 +309,7 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			flows.function(d.Body)
+			flows.function(d.Body, state{})
 		case *ast.GenDecl:
 			flows.expressions(d, nil)
 		}
@@ -516,16 +516,27 @@ func merge(states []state) state {
 // value, += appends to it, the branches of an if or switch are joined, and
 // a variable assigned in a loop body is not known in or after the loop. A
 // variable whose address is taken, that a func literal assigns, or that a
-// function with goto or labels holds, is never known. It records the value
-// each use of a variable reads.
+// function with goto or labels holds, is never known. A func literal starts
+// from the values its enclosing function has where the literal is, of the
+// variables written only once (their declaration): those hold that value
+// whenever the literal runs. It records the value each use of a variable
+// reads.
 type flow struct {
 	info    *types.Info
 	escaped map[*types.Var]bool
+	writes  map[*types.Var]int
 	uses    map[*ast.Ident]value
 }
 
 func newFlow(file *ast.File, info *types.Info) *flow {
-	f := &flow{info: info, escaped: map[*types.Var]bool{}, uses: map[*ast.Ident]value{}}
+	f := &flow{info: info, escaped: map[*types.Var]bool{}, writes: map[*types.Var]int{}, uses: map[*ast.Ident]value{}}
+	written := func(e ast.Expr) {
+		if id, ok := e.(*ast.Ident); ok {
+			if v := f.local(id); v != nil {
+				f.writes[v]++
+			}
+		}
+	}
 	// Variables a func literal assigns, or whose address is taken other
 	// than as a keyed element of a composite literal
 	// (kafka.TopicPartition{Topic: &topic}, read as topic's value there).
@@ -553,7 +564,19 @@ func newFlow(file *ast.File, info *types.Info) *flow {
 						f.escaped[v] = true
 					}
 				}
+			case *ast.ValueSpec:
+				for _, id := range n.Names {
+					written(id)
+				}
+			case *ast.RangeStmt:
+				written(n.Key)
+				written(n.Value)
+			case *ast.IncDecStmt:
+				written(n.X)
 			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					written(left)
+				}
 				if len(inside) > 0 {
 					literal := inside[len(inside)-1]
 					for _, left := range n.Lhs {
@@ -585,8 +608,20 @@ func (f *flow) local(id *ast.Ident) *types.Var {
 	return v
 }
 
-// function follows one function body.
-func (f *flow) function(body *ast.BlockStmt) {
+// captured is the part of a state a func literal starts from: the known
+// values of variables written once.
+func (f *flow) captured(st state) state {
+	out := state{}
+	for v, val := range st {
+		if val.known && f.writes[v] == 1 && !f.escaped[v] {
+			out[v] = val
+		}
+	}
+	return out
+}
+
+// function follows one function body from the values it captures.
+func (f *flow) function(body *ast.BlockStmt, captured state) {
 	if body == nil {
 		return
 	}
@@ -605,10 +640,10 @@ func (f *flow) function(body *ast.BlockStmt) {
 		return true
 	})
 	if jumps {
-		f.expressions(body, nil) // every variable stays unknown
+		f.expressions(body, captured) // every other variable stays unknown
 		return
 	}
-	f.block(body.List, state{})
+	f.block(body.List, captured.copy())
 }
 
 // expressions records the uses in a node with no variable known, and
@@ -620,7 +655,7 @@ func (f *flow) expressions(node ast.Node, st state) {
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			f.function(n.Body)
+			f.function(n.Body, f.captured(st))
 			return false
 		case *ast.Ident:
 			if v := f.local(n); v != nil && f.info.Uses[n] != nil {
