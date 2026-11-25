@@ -95,6 +95,7 @@ from ..calls import name_bindings
 from ..engine import analyze_repository
 from ..prisma_schema import SchemaRead, read_schemas
 from ..scip_calls import ScipReferences
+from .. import deploy_facts
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser, parse_source
@@ -1070,20 +1071,17 @@ class DataContractTool(AnalysisTool):
         # Compose build contexts, and the databases each one's services name
         # in connection URLs.
         contexts, compose_keys = set(), {}
-        for manifest in sorted(
-            {c.manifest for c in scan.components if c.kind == "compose_service"}
+        contexts.update(
+            c.context
+            for c in scan.components
+            if c.kind == "compose_service" and c.context is not None
+        )
+        selected = {c.manifest for c in scan.components if c.kind == "compose_service"}
+        projects = deploy_facts.collect(root, skipped=SKIPPED_DIRECTORIES).compose
+        for context, key in compose_databases(
+            p for p in projects if p.file in selected
         ):
-            contexts.update(
-                c.context
-                for c in scan.components
-                if c.manifest == manifest and c.context is not None
-            )
-            try:
-                found = compose_databases(manifest, (root / manifest).read_bytes())
-            except OSError:
-                continue
-            for context, key in found or ():
-                compose_keys.setdefault(context, set()).add(key)
+            compose_keys.setdefault(context, set()).add(key)
 
         def compose_database(path):
             """The one database that the services of the deepest Compose build

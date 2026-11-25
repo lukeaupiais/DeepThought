@@ -32,6 +32,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from go_ready import needs_go as needs_deploy_tools
 from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -2792,7 +2793,7 @@ func {_service.capitalize()}(db *sql.DB) {{
 
 
 class ComposeDatabaseTests(unittest.TestCase):
-    @needs_go
+    @needs_deploy_tools
     def test_services_naming_one_compose_database_share_its_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SHARED_COMPOSE_DATABASE)
