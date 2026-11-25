@@ -1,0 +1,160 @@
+{
+  "corpus": "rabbitmq-tutorials-go",
+  "repo": "https://github.com/rabbitmq/rabbitmq-tutorials",
+  "commit": "6deb41d2ab3f39166b94b0e375b9e4ee32712138",
+  "license": "Apache-2.0",
+  "root": "go",
+  "client": "amqp091-go",
+  "scope": "labelled",
+  "sources": [
+    "manual reading of every broker-client call and literal under root at the pinned commit"
+  ],
+  "notes": [
+    "Every file is its own program (package main, one main each); they share one directory.",
+    "AMQP destinations are exchange/routing-key for a publish. A consume names /queue for the default exchange plus exchange/key for each binding of that queue.",
+    "rpc_amqp10.go uses Azure/go-amqp (AMQP 1.0), a client the engine does not read; it is not counted."
+  ],
+  "not_counted": [
+    {
+      "file": "rpc_amqp10.go",
+      "line": null
+    }
+  ],
+  "sites": [
+    {
+      "file": "emit_log.go",
+      "line": 43,
+      "role": "publish",
+      "broker": "amqp",
+      "destinations": [
+        "logs/"
+      ]
+    },
+    {
+      "file": "emit_log_direct.go",
+      "line": 43,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key from the command line (severityFrom(os.Args))"
+    },
+    {
+      "file": "emit_log_topic.go",
+      "line": 43,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key from the command line (severityFrom(os.Args))"
+    },
+    {
+      "file": "new_task.go",
+      "line": 44,
+      "role": "publish",
+      "broker": "amqp",
+      "destinations": [
+        "/task_queue"
+      ]
+    },
+    {
+      "file": "publisher_confirms.go",
+      "line": 64,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key is a server-named queue (QueueDeclare with an empty name)"
+    },
+    {
+      "file": "publisher_confirms.go",
+      "line": 124,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key is a server-named queue (QueueDeclare with an empty name)"
+    },
+    {
+      "file": "publisher_confirms.go",
+      "line": 196,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key is a server-named queue (QueueDeclare with an empty name)"
+    },
+    {
+      "file": "receive.go",
+      "line": 39,
+      "role": "consume",
+      "broker": "amqp",
+      "destinations": [
+        "/hello"
+      ]
+    },
+    {
+      "file": "receive_logs.go",
+      "line": 56,
+      "role": "consume",
+      "broker": "amqp",
+      "destinations": [
+        "logs/"
+      ]
+    },
+    {
+      "file": "receive_logs_direct.go",
+      "line": 63,
+      "role": "consume",
+      "broker": "amqp",
+      "unresolved": "the queue is server-named (declared with an empty name) and bound only to names from the command line"
+    },
+    {
+      "file": "receive_logs_topic.go",
+      "line": 63,
+      "role": "consume",
+      "broker": "amqp",
+      "unresolved": "the queue is server-named (declared with an empty name) and bound only to names from the command line"
+    },
+    {
+      "file": "rpc_client.go",
+      "line": 52,
+      "role": "consume",
+      "broker": "amqp",
+      "unresolved": "a server-named reply queue, bound to nothing"
+    },
+    {
+      "file": "rpc_client.go",
+      "line": 68,
+      "role": "publish",
+      "broker": "amqp",
+      "destinations": [
+        "/rpc_queue"
+      ]
+    },
+    {
+      "file": "rpc_server.go",
+      "line": 54,
+      "role": "consume",
+      "broker": "amqp",
+      "destinations": [
+        "/rpc_queue"
+      ]
+    },
+    {
+      "file": "rpc_server.go",
+      "line": 77,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "routing key is the request's ReplyTo"
+    },
+    {
+      "file": "send.go",
+      "line": 41,
+      "role": "publish",
+      "broker": "amqp",
+      "destinations": [
+        "/hello"
+      ]
+    },
+    {
+      "file": "worker.go",
+      "line": 48,
+      "role": "consume",
+      "broker": "amqp",
+      "destinations": [
+        "/task_queue"
+      ]
+    }
+  ]
+}

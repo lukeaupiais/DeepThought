@@ -20,9 +20,12 @@ the tools that own each manifest format:
   npm packages: each workspace's locked dependencies that resolve to
   ``workspace:`` entries (needs PyYAML). Name-matched links are counted as
   confirmed or refuted.
-- Compose: ``docker compose -f FILE --profile '*' config --format json`` gives each file's
-  services, build contexts and depends_on; every service, context and
-  compose-depends-on link must match (optional, ``--compose``).
+- Compose: ``docker compose --profile '*' config --format json`` gives each
+  file's services, build contexts and depends_on; every service, context and
+  compose-depends-on link must match (optional, ``--compose``). A file Compose
+  finds by itself (compose.yaml, docker-compose.yml) is read in its directory
+  without ``-f``, so its override file is merged as Compose merges it; any
+  other file is read alone with ``-f FILE``.
 - Kubernetes: ``--kubernetes-oracle BINARY`` (build
   tools/kubernetes_selector_oracle with ``go build``) decodes every YAML file
   with the Kubernetes API types and matches Service selectors with
@@ -367,6 +370,15 @@ def check_dependencies(root, scan, tally):
         tally.add("deps.oracle-linked", key in ours, list(key))
 
 
+# The files `docker compose` looks for in a directory, in its order.
+_COMPOSE_DEFAULTS = (
+    "compose.yaml",
+    "compose.yml",
+    "docker-compose.yaml",
+    "docker-compose.yml",
+)
+
+
 def check_compose(root, scan, tally):
     from deepthought.component_dependencies import (
         COMPOSE_DEPENDS_ON,
@@ -385,19 +397,25 @@ def check_compose(root, scan, tally):
         if c.kind == "compose_service":
             services.setdefault(c.manifest, {})[c.name] = c
     for manifest, declared in sorted(services.items()):
+        # A file Compose finds by itself (compose.yaml, docker-compose.yml)
+        # is read the way `docker compose` reads it in that directory: with
+        # the override file beside it. Any other file is read on its own.
+        directory, name = posixpath.split(manifest)
+        earlier = (
+            _COMPOSE_DEFAULTS[: _COMPOSE_DEFAULTS.index(name)]
+            if name in _COMPOSE_DEFAULTS
+            else ()
+        )
+        if name in _COMPOSE_DEFAULTS and not any(
+            (root / directory / e).is_file() for e in earlier
+        ):
+            files, cwd = [], root / directory
+        else:
+            files, cwd = ["-f", manifest], root
         answer = run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                manifest,
-                "--profile",
-                "*",
-                "config",
-                "--format",
-                "json",
-            ],
-            root,
+            ["docker", "compose", *files]
+            + ["--profile", "*", "config", "--format", "json"],
+            cwd,
         )
         if answer.returncode:
             tally.skip("compose.service", "docker compose config failed")

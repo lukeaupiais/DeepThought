@@ -11,6 +11,16 @@
 //     there (followed through assignments, += and branches; see flow), of a
 //   - join (operands without a value written as Placeholder) or of sqlx's
 //     Rebind.
+//     A package variable initialized to a constant string has that value
+//     when nothing in the package assigns it or takes its address and it is
+//     unexported (or the package is main).
+//     An argument that is a []string literal (or a local assigned one once)
+//     has the value of each element instead; one that is field F of a local
+//     assigned from one call (q, err := ch.QueueDeclare(...); q.Name) names
+//     that call's position, result index and F.
+//   - "literal": every keyed composite literal of a named struct type
+//     declared in another package, with its type and, per key, the value its
+//     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
 //   - "error": a package that did not type-check completely; its facts are
@@ -52,9 +62,23 @@ type namedType struct {
 	Line    int    `json:"line,omitempty"`
 }
 
+type resultField struct {
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
+	Index  int    `json:"index"`
+	Field  string `json:"field"`
+}
+
 type argument struct {
-	Texts []string   `json:"texts,omitempty"`
-	Type  *namedType `json:"type,omitempty"`
+	Texts   []string     `json:"texts,omitempty"`
+	Strings [][]string   `json:"strings,omitempty"`
+	Result  *resultField `json:"result,omitempty"`
+	Type    *namedType   `json:"type,omitempty"`
+}
+
+type element struct {
+	Key string `json:"key"`
+	argument
 }
 
 type fact struct {
@@ -69,6 +93,7 @@ type fact struct {
 	Receiver  *namedType `json:"receiver,omitempty"`
 	Arguments []argument `json:"arguments,omitempty"`
 	Type      *namedType `json:"type,omitempty"`
+	Elements  []element  `json:"elements,omitempty"`
 	Table     string     `json:"table,omitempty"`
 	Package   string     `json:"package,omitempty"`
 	Message   string     `json:"message,omitempty"`
@@ -191,8 +216,10 @@ func main() {
 		}
 		var problems []string
 		conf := types.Config{
-			Importer: imp,
-			Error:    func(err error) { problems = append(problems, err.Error()) },
+			// import "C" in the module's own cgo files: C.x is not resolved.
+			FakeImportC: true,
+			Importer:    imp,
+			Error:       func(err error) { problems = append(problems, err.Error()) },
 		}
 		path := name
 		if module != "" && !strings.HasSuffix(name, "_test") {
@@ -250,17 +277,18 @@ func main() {
 			if c == nil || c.pkg == nil {
 				continue
 			}
+			fixed := packageValues(c.files, c.info, c.pkg)
 			for _, file := range c.files {
 				f, _, _ := where(file.Pos())
 				emit(fact{Kind: "file", File: f, Package: name})
-				facts(file, c.info, emit, where, named)
+				facts(file, c.info, emit, where, named, c.pkg.Path(), fixed)
 			}
 		}
 	}
 }
 
 // facts prints the call and TableName facts of one file.
-func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType) {
+func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -282,15 +310,69 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	// Calls anywhere in the file: functions, and func literals in package
 	// variables (a migration table).
 	flows := newFlow(file, info)
+	flows.fixed = fixed
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			flows.function(d.Body)
+			flows.function(d.Body, state{})
 		case *ast.GenDecl:
 			flows.expressions(d, nil)
 		}
 	}
+	literals, results := once(file, info)
+	describe := func(arg ast.Expr) argument {
+		a := argument{}
+		if val := stringValue(arg, info, flows); val.known {
+			a.Texts = val.texts
+		} else if values, ok := stringsValue(arg, info, flows, literals); ok {
+			a.Strings = values
+		} else if selector, ok := ast.Unparen(arg).(*ast.SelectorExpr); ok {
+			if id, ok := selector.X.(*ast.Ident); ok {
+				if v, ok := info.Uses[id].(*types.Var); ok {
+					if r, ok := results[v]; ok {
+						_, line, column := where(r.call.Pos())
+						a.Result = &resultField{line, column, r.index, selector.Sel.Name}
+					}
+				}
+			}
+		}
+		return a
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
+		if literal, ok := node.(*ast.CompositeLit); ok {
+			t := info.TypeOf(literal)
+			if t == nil {
+				return true
+			}
+			if _, ok := t.Underlying().(*types.Struct); !ok {
+				return true
+			}
+			n := named(t)
+			if n == nil || n.Package == own {
+				return true
+			}
+			out := fact{Kind: "literal", Type: n}
+			out.File, out.Line, out.Column = where(literal.Pos())
+			for _, e := range literal.Elts {
+				kv, ok := e.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				value := kv.Value
+				if unary, ok := value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+					value = unary.X
+				}
+				out.Elements = append(out.Elements, element{key.Name, describe(value)})
+			}
+			if len(out.Elements) > 0 {
+				emit(out)
+			}
+			return true
+		}
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -318,10 +400,8 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if i == 3 {
 				break
 			}
-			a := argument{Type: named(info.TypeOf(arg))}
-			if val := stringValue(arg, info, flows); val.known {
-				a.Texts = val.texts
-			}
+			a := describe(arg)
+			a.Type = named(info.TypeOf(arg))
 			out.Arguments = append(out.Arguments, a)
 		}
 		emit(out)
@@ -441,33 +521,148 @@ func merge(states []state) state {
 // value, += appends to it, the branches of an if or switch are joined, and
 // a variable assigned in a loop body is not known in or after the loop. A
 // variable whose address is taken, that a func literal assigns, or that a
-// function with goto or labels holds, is never known. It records the value
-// each use of a variable reads.
+// function with goto or labels holds, is never known. A func literal starts
+// from the values its enclosing function has where the literal is, of the
+// variables written only once (their declaration): those hold that value
+// whenever the literal runs. It records the value each use of a variable
+// reads.
 type flow struct {
 	info    *types.Info
 	escaped map[*types.Var]bool
+	writes  map[*types.Var]int
 	uses    map[*ast.Ident]value
+	fixed   map[*types.Var]string // see packageValues
+}
+
+// packageValues maps each package variable whose initializer is a constant
+// string to that string, when nothing else can change it: no assignment,
+// ++/--, range or address-of (other than as a keyed element of a composite
+// literal) in the package touches it, and it is
+// unexported (or the package is main, which nothing imports).
+func packageValues(files []*ast.File, info *types.Info, pkg *types.Package) map[*types.Var]string {
+	found := map[*types.Var]string{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if len(vs.Values) != len(vs.Names) {
+					continue
+				}
+				for i, id := range vs.Names {
+					v, ok := info.Defs[id].(*types.Var)
+					if !ok || (id.IsExported() && pkg.Name() != "main") {
+						continue
+					}
+					if c := info.Types[vs.Values[i]].Value; c != nil && c.Kind() == constant.String {
+						found[v] = constant.StringVal(c)
+					}
+				}
+			}
+		}
+	}
+	drop := func(e ast.Expr) {
+		if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+			if v, ok := info.Uses[id].(*types.Var); ok {
+				delete(found, v)
+			}
+		}
+	}
+	stored := map[*ast.UnaryExpr]bool{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				// &x as a keyed element, as for locals (see newFlow).
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
+			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					drop(left)
+				}
+			case *ast.IncDecStmt:
+				drop(n.X)
+			case *ast.RangeStmt:
+				drop(n.Key)
+				drop(n.Value)
+			case *ast.UnaryExpr:
+				if n.Op == token.AND && !stored[n] {
+					drop(n.X)
+				}
+			}
+			return true
+		})
+	}
+	return found
+}
+
+// packageValue is the value of a package variable packageValues fixes.
+func (f *flow) packageValue(id *ast.Ident) (value, bool) {
+	if v, ok := f.info.Uses[id].(*types.Var); ok {
+		if text, ok := f.fixed[v]; ok {
+			return known(text), true
+		}
+	}
+	return unknown, false
 }
 
 func newFlow(file *ast.File, info *types.Info) *flow {
-	f := &flow{info: info, escaped: map[*types.Var]bool{}, uses: map[*ast.Ident]value{}}
-	// Variables a func literal assigns, or whose address is taken.
+	f := &flow{info: info, escaped: map[*types.Var]bool{}, writes: map[*types.Var]int{}, uses: map[*ast.Ident]value{}}
+	written := func(e ast.Expr) {
+		if id, ok := e.(*ast.Ident); ok {
+			if v := f.local(id); v != nil {
+				f.writes[v]++
+			}
+		}
+	}
+	// Variables a func literal assigns, or whose address is taken other
+	// than as a keyed element of a composite literal
+	// (kafka.TopicPartition{Topic: &topic}, read as topic's value there).
+	stored := map[*ast.UnaryExpr]bool{}
 	var visit func(node ast.Node, inside []*ast.FuncLit)
 	visit = func(node ast.Node, inside []*ast.FuncLit) {
 		ast.Inspect(node, func(n ast.Node) bool {
 			switch n := n.(type) {
+			case *ast.CompositeLit:
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
 			case *ast.FuncLit:
 				if n != node {
 					visit(n.Body, append(inside, n))
 					return false
 				}
 			case *ast.UnaryExpr:
-				if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND {
+				if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
 					if v := f.local(id); v != nil {
 						f.escaped[v] = true
 					}
 				}
+			case *ast.ValueSpec:
+				for _, id := range n.Names {
+					written(id)
+				}
+			case *ast.RangeStmt:
+				written(n.Key)
+				written(n.Value)
+			case *ast.IncDecStmt:
+				written(n.X)
 			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					written(left)
+				}
 				if len(inside) > 0 {
 					literal := inside[len(inside)-1]
 					for _, left := range n.Lhs {
@@ -499,8 +694,20 @@ func (f *flow) local(id *ast.Ident) *types.Var {
 	return v
 }
 
-// function follows one function body.
-func (f *flow) function(body *ast.BlockStmt) {
+// captured is the part of a state a func literal starts from: the known
+// values of variables written once.
+func (f *flow) captured(st state) state {
+	out := state{}
+	for v, val := range st {
+		if val.known && f.writes[v] == 1 && !f.escaped[v] {
+			out[v] = val
+		}
+	}
+	return out
+}
+
+// function follows one function body from the values it captures.
+func (f *flow) function(body *ast.BlockStmt, captured state) {
 	if body == nil {
 		return
 	}
@@ -519,10 +726,10 @@ func (f *flow) function(body *ast.BlockStmt) {
 		return true
 	})
 	if jumps {
-		f.expressions(body, nil) // every variable stays unknown
+		f.expressions(body, captured) // every other variable stays unknown
 		return
 	}
-	f.block(body.List, state{})
+	f.block(body.List, captured.copy())
 }
 
 // expressions records the uses in a node with no variable known, and
@@ -534,7 +741,7 @@ func (f *flow) expressions(node ast.Node, st state) {
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			f.function(n.Body)
+			f.function(n.Body, f.captured(st))
 			return false
 		case *ast.Ident:
 			if v := f.local(n); v != nil && f.info.Uses[n] != nil {
@@ -551,7 +758,10 @@ func (f *flow) expressions(node ast.Node, st state) {
 func (f *flow) eval(e ast.Expr, st state) value {
 	return valueOf(e, f.info, func(id *ast.Ident) (value, bool) {
 		v := f.local(id)
-		if v == nil || f.escaped[v] {
+		if v == nil {
+			return f.packageValue(id)
+		}
+		if f.escaped[v] {
 			return unknown, false
 		}
 		val, ok := st[v]
@@ -824,6 +1034,9 @@ func (f *flow) forget(st state, list []ast.Stmt) state {
 // bind markers.
 func stringValue(arg ast.Expr, info *types.Info, f *flow) value {
 	return valueOf(arg, info, func(id *ast.Ident) (value, bool) {
+		if f.local(id) == nil {
+			return f.packageValue(id)
+		}
 		val, ok := f.uses[id]
 		return val, ok && val.known
 	}, 0)
@@ -881,4 +1094,156 @@ func valueOf(arg ast.Expr, info *types.Info, variable func(*ast.Ident) (value, b
 		return valueOf(e.Args[0], info, variable, depth+1)
 	}
 	return unknown
+}
+
+// resultOf is the call a local variable is assigned from, and which of the
+// call's results it holds.
+type resultOf struct {
+	call  *ast.CallExpr
+	index int
+}
+
+// once maps each local variable of a file that is assigned exactly once,
+// from a composite literal, to that literal; and each local assigned exactly
+// once, from one result of a multi-value call, to that call. A variable
+// whose address is taken (other than as a keyed element of a composite
+// literal) is in neither.
+func once(file ast.Node, info *types.Info) (map[*types.Var]*ast.CompositeLit, map[*types.Var]resultOf) {
+	count := map[*types.Var]int{}
+	literals := map[*types.Var]*ast.CompositeLit{}
+	calls := map[*types.Var]resultOf{}
+	escaped := map[*types.Var]bool{}
+	stored := map[*ast.UnaryExpr]bool{}
+	variable := func(id *ast.Ident) *types.Var {
+		obj := info.Defs[id]
+		if obj == nil {
+			obj = info.Uses[id]
+		}
+		v, _ := obj.(*types.Var)
+		return v
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			for i, left := range n.Lhs {
+				id, ok := left.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				v := variable(id)
+				if v == nil {
+					continue
+				}
+				count[v]++
+				if n.Tok != token.ASSIGN && n.Tok != token.DEFINE {
+					count[v]++
+					continue
+				}
+				if len(n.Rhs) == len(n.Lhs) {
+					if literal, ok := ast.Unparen(n.Rhs[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if call, ok := n.Rhs[0].(*ast.CallExpr); ok && len(n.Rhs) == 1 {
+					calls[v] = resultOf{call, i}
+				}
+			}
+		case *ast.ValueSpec:
+			for i, id := range n.Names {
+				v := variable(id)
+				if v == nil {
+					continue
+				}
+				count[v]++
+				if len(n.Values) == len(n.Names) {
+					if literal, ok := ast.Unparen(n.Values[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if len(n.Values) == 1 {
+					if call, ok := n.Values[0].(*ast.CallExpr); ok {
+						calls[v] = resultOf{call, i}
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			for _, e := range []ast.Expr{n.Key, n.Value} {
+				if id, ok := e.(*ast.Ident); ok {
+					if v := variable(id); v != nil {
+						count[v] += 2
+					}
+				}
+			}
+		case *ast.IncDecStmt:
+			if id, ok := n.X.(*ast.Ident); ok {
+				if v := variable(id); v != nil {
+					count[v] += 2
+				}
+			}
+		case *ast.CompositeLit:
+			// &x as a keyed element (kafka.TopicPartition{Topic: &topic})
+			// stores the pointer in a field; it is not read as a write.
+			for _, e := range n.Elts {
+				if kv, ok := e.(*ast.KeyValueExpr); ok {
+					if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+						stored[unary] = true
+					}
+				}
+			}
+		case *ast.UnaryExpr:
+			if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
+				if v := variable(id); v != nil {
+					escaped[v] = true
+				}
+			}
+		}
+		return true
+	})
+	for v := range literals {
+		if count[v] != 1 || escaped[v] {
+			delete(literals, v)
+		}
+	}
+	for v := range calls {
+		if count[v] != 1 || escaped[v] {
+			delete(calls, v)
+		}
+	}
+	return literals, calls
+}
+
+// stringsValue is the texts of each element of a []string literal, or of
+// the one such literal assigned to a local variable assigned once; nil for
+// an element without one.
+func stringsValue(arg ast.Expr, info *types.Info, f *flow, literals map[*types.Var]*ast.CompositeLit) ([][]string, bool) {
+	arg = ast.Unparen(arg)
+	if id, ok := arg.(*ast.Ident); ok {
+		v, ok := info.Uses[id].(*types.Var)
+		if !ok || literals[v] == nil {
+			return nil, false
+		}
+		arg = literals[v]
+	}
+	literal, ok := arg.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
+	}
+	t := info.TypeOf(literal)
+	if t == nil {
+		return nil, false
+	}
+	slice, ok := t.Underlying().(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	if b, ok := slice.Elem().Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+		return nil, false
+	}
+	values := [][]string{}
+	for _, e := range literal.Elts {
+		if val := stringValue(e, info, f); val.known {
+			values = append(values, val.texts)
+		} else {
+			values = append(values, nil)
+		}
+	}
+	return values, true
 }

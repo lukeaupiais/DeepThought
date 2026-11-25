@@ -270,13 +270,6 @@ def extract_dependencies(manifest: str, content: bytes) -> list[Dependency]:
     """Dependencies one manifest declares; an unreadable manifest has none
     (extract_components reports it)."""
     name = PurePosixPath(manifest).name
-    from .components import COMPOSE_FILE
-
-    if COMPOSE_FILE.match(name):
-        from .deployments import extract_compose
-
-        found = extract_compose(manifest, content)
-        return [] if found is None else found[1]
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
