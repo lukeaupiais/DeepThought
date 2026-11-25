@@ -132,6 +132,21 @@ python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle
 Truth derived from the same SCIP index that binds the calls checks the
 binding, not the indexer; independent oracles judge the indexer.
 
+In production, TreeSitterTool binds call sites from the indexes its own
+pinned indexers write. `check --scip` scores that path too: for each calls
+corpus in a language with a SCIP indexer (Python, TypeScript, JavaScript,
+Go), it builds the corpus's indexes with `index_workspace`, as `deepthought
+index-scip` does, binds the calls with `bind_calls` and scores them, and
+their impact, under the corpus's `scip` baseline. Indexes are cached under
+`--cache`, keyed by corpus commit and indexer versions, and checked against
+their receipts when reused. A missing indexer is a missing requirement, and a
+file an indexer fails on stops the check, since either would read as a
+regression. Without `--scip` the SCIP baseline is left as it was.
+
+```sh
+python tools/ground_truth.py check --scip --corpus hono   # needs scip-typescript
+```
+
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
 expected count. An improvement is accepted by updating the baseline in the
