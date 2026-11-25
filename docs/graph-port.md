@@ -356,7 +356,9 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
-| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, or whose target no declaration names, to the declaration pyright's go-to-definition gives |
+| `pyright.call-alias` | a Python call through a function local assigned once from a name or dotted name (`get = self.fetch`, `S = Segment`) to the declaration pyright gives for that name |
+| `pyright.call-class-parameter` | `cls(...)` in a classmethod to its class |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
@@ -371,11 +373,17 @@ follow a star re-export to the wrong function), an external target for
 index may name a builtin), and more than one target (the index names a
 function nested in a method by the class alone, `Group#decorator().`, so
 same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
-occurrence for (scip-python skips code it treats as unreachable), are answered
+occurrence for (scip-python skips code it treats as unreachable) or whose
+target no declaration names (a local variable), are answered
 by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
 language server's go-to-definition at the callee's last name gives the
 declaration, linked as `pyright.call-definition` with `producer:
-pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+pyright@1.1.409`. When pyright names a local instead (its own assignment), a
+function local assigned exactly once from a name or dotted name is followed to
+that name, up to three hops (`pyright.call-alias`), and a classmethod's first
+parameter to its class (`pyright.call-class-parameter`); locals assigned more
+than once, parameters, call results, module globals and class attributes stay
+unlinked, or the call stays unlinked as `pyright_no_definition`,
 `pyright_external` or `pyright_target_not_declaration`. The parser's link is
 never kept over the index. Pyright is required: binding a covered Python file
 without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
