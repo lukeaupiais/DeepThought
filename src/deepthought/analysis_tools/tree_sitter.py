@@ -889,6 +889,9 @@ class TreeSitterTool(AnalysisTool):
             )
             by_resolver[key] = by_resolver.get(key, 0) + 1
             site = sites[resolution.call_id]
+            # Where the callee's name is written: in a member chain over
+            # several lines, the line of its own `.name`, not of the chain.
+            at_line, at_column = site.callee_at or (site.line, site.column)
             if site.caller_id is None:
                 source = (["File"], files[site.file])
             else:
@@ -912,8 +915,8 @@ class TreeSitterTool(AnalysisTool):
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
                             "file_path": site.file,
-                            "line": site.line,
-                            "column": site.column,
+                            "line": at_line,
+                            "column": at_column,
                             "end_line": site.end_line,
                             "end_column": site.end_column,
                             "status": resolution.status,
@@ -944,7 +947,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": source[1], "repo_url": repo_url},
                         ["UnresolvedCall"],
                         {"qualified_name": call_name, "repo_url": repo_url},
-                        {"line": site.line, **_evidence(UNLINKED_CALL_RULE)},
+                        {"line": at_line, **_evidence(UNLINKED_CALL_RULE)},
                     )
                 )
                 continue
@@ -963,8 +966,8 @@ class TreeSitterTool(AnalysisTool):
                         "callee": site.callee,
                         "name": _call_name(site.callee),
                         "call_kind": site.kind,
-                        "line": site.line,
-                        "column": site.column,
+                        "line": at_line,
+                        "column": at_column,
                         **_produced(producer),
                         **_evidence(CALL_RULES[resolution.rule_id]),
                     },

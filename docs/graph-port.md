@@ -235,7 +235,12 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 `reason` it gives and, when ambiguous, the
 `candidates`' qualified names. Its caller (the innermost enclosing declaration,
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
-`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. The
+`line` and `column` of a CALLS edge, an `UnresolvedCall` and its
+`HAS_UNRESOLVED_CALL` edge are where the callee's last name is written
+(`CallSite.callee_at`), so each call of a member chain over several lines
+(`new Hono()` then `.basePath('/api')` lines later) sits on its own line;
+`end_line` and `end_column` still close the whole call. So one
 query counts the linked, ambiguous and unresolved calls of a name:
 `get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
