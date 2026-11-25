@@ -10,7 +10,7 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import replace
 import importlib.util
 import json
@@ -29,7 +29,11 @@ from ..data_contracts import (
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
+    extract_foreign_key_drops,
     extract_foreign_keys,
+    is_rollback_migration,
+    migration_set,
+    replay_foreign_keys,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
@@ -1185,6 +1189,24 @@ class DataContractTool(AnalysisTool):
             prefix = f"{base}/" if base else ""
             return any(f.startswith(prefix) for f in prisma_read.engines)
 
+        migration_sets = defaultdict(list)
+        foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
+        rollbacks = []
+
+        def read_keys(path, content, folder=None):
+            """Queue a SQL file's foreign keys and drops for the replay of
+            its migration set (``folder`` when given); a rollback (down)
+            migration is left out."""
+            if is_rollback_migration(path):
+                rollbacks.append(path)
+                return
+            keys, unparsed = extract_foreign_keys(path, content)
+            drops, drops_unparsed = extract_foreign_key_drops(path, content)
+            migration_sets[folder or migration_set(path)].append((path, keys, drops))
+            foreign_keys_unparsed.extend(
+                (path, line) for line in sorted({*unparsed, *drops_unparsed})
+            )
+
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1202,21 +1224,22 @@ class DataContractTool(AnalysisTool):
                 if prisma_migrations(path):
                     foreign_keys_superseded["prisma"] += 1
                     continue
-                keys, unparsed = extract_foreign_keys(path, content)
-                foreign_keys.extend(keys)
-                foreign_keys_unparsed.extend((path, line) for line in unparsed)
+                read_keys(path, content)
         for folder, migrations in sorted(drizzle_folders.items()):
             snapshot, keys = drizzle_foreign_keys(root, folder)
             if snapshot is not None:
                 drizzle_keys.extend(keys)
                 continue
             # Without the last snapshot the state is unknown: each migration
-            # is read as any SQL file is, and the warning says so.
+            # is replayed as any migration set is, and the warning says so.
             drizzle_unread.append(keys)
             for path, content in migrations:
-                keys, unparsed = extract_foreign_keys(path, content)
-                foreign_keys.extend(keys)
-                foreign_keys_unparsed.extend((path, line) for line in unparsed)
+                read_keys(path, content, folder)
+        for _, files in sorted(migration_sets.items()):
+            keys, dropped, unmatched = replay_foreign_keys(files)
+            foreign_keys.extend(keys)
+            foreign_keys_dropped += dropped
+            foreign_key_drops_unmatched.extend(unmatched)
         sources, changed, partial_scripts = [], [], []
         for coverage in result.coverage:
             if (
@@ -3175,6 +3198,9 @@ class DataContractTool(AnalysisTool):
                         "sql": len(set(foreign_keys)),
                         "prisma": sum(len(m.foreign_keys) for m in prisma),
                         "sql_not_parsed": len(foreign_keys_unparsed),
+                        "sql_dropped": foreign_keys_dropped,
+                        "sql_drops_naming_no_key": len(foreign_key_drops_unmatched),
+                        "sql_rollback_files": len(rollbacks),
                         "drizzle_snapshot": len(set(drizzle_keys)),
                         "drizzle_snapshot_unread": len(drizzle_unread),
                         "prisma_migration_files_superseded": foreign_keys_superseded[

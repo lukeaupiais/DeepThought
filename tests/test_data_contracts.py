@@ -23,7 +23,9 @@ from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
     extract_ddl,
+    extract_foreign_key_drops,
     extract_foreign_keys,
+    migration_set,
     mongoose_majors,
     mongoose_pluralize,
     statement_tables,
@@ -289,6 +291,9 @@ CREATE TABLE odd (x int REFERENCES users NOT SQL AT ALL (((;
                 "sql": 1,
                 "prisma": 0,
                 "sql_not_parsed": 1,
+                "sql_dropped": 0,
+                "sql_drops_naming_no_key": 0,
+                "sql_rollback_files": 0,
                 "drizzle_snapshot": 0,
                 "drizzle_snapshot_unread": 0,
                 "prisma_migration_files_superseded": 0,
@@ -387,6 +392,89 @@ CREATE TABLE odd (x int REFERENCES users NOT SQL AT ALL (((;
                 for w in output.metadata.warnings
             ),
             output.metadata.warnings,
+        )
+
+    def test_foreign_key_drops(self):
+        text = b"""ALTER TABLE "Signature" DROP CONSTRAINT "Signature_fieldId_fkey";
+ALTER TABLE IF EXISTS accounts DROP CONSTRAINT IF EXISTS accounts_owner_fkey;
+ALTER TABLE m DROP FOREIGN KEY m_ibfk_1;
+DROP TABLE IF EXISTS "Share", tags CASCADE;
+ALTER TABLE a DROP COLUMN b;
+DROP INDEX i;
+"""
+        found, unparsed = extract_foreign_key_drops("m.sql", text)
+        self.assertEqual(
+            [(d.line, d.table, d.constraint) for d in found],
+            [
+                (1, "signature", "signature_fieldid_fkey"),
+                (2, "accounts", "accounts_owner_fkey"),
+                (3, "m", "m_ibfk_1"),
+                (4, "share", None),
+                (4, "tags", None),
+            ],
+        )
+        self.assertEqual(unparsed, [])
+
+    def test_migration_sets(self):
+        self.assertEqual(
+            [
+                migration_set(p)
+                for p in (
+                    "prisma/migrations/20230404_initial_migration/migration.sql",
+                    "db/migration/V2__users.sql",
+                    "schema.sql",
+                )
+            ],
+            ["prisma/migrations", "db/migration", "schema.sql"],
+        )
+
+    def test_migrations_replay_dropped_foreign_keys(self):
+        files = {
+            "package.json": '{"name": "app"}',
+            "db/migrations/V1__init.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE posts (id int, author_id int REFERENCES users (id));\n"
+            "CREATE TABLE tags (id int, user_id int REFERENCES users (id));\n"
+            "CREATE TABLE notes (id int, post_id int,\n"
+            "  CONSTRAINT notes_post FOREIGN KEY (post_id) REFERENCES posts (id));\n",
+            # V2 sorts before V10: the key is changed, then the table dropped.
+            "db/migrations/V2__on_delete.sql": "ALTER TABLE notes DROP CONSTRAINT "
+            "notes_post;\nALTER TABLE notes ADD CONSTRAINT notes_post FOREIGN KEY "
+            "(post_id) REFERENCES posts (id) ON DELETE CASCADE;\n"
+            "ALTER TABLE posts DROP CONSTRAINT posts_pkey;\n",
+            "db/migrations/V10__drop.sql": "DROP TABLE tags;\n"
+            "ALTER TABLE posts DROP CONSTRAINT posts_author_id_fkey;\n",
+            # A rollback is not part of the schema the migrations build.
+            "db/migrations/V10__drop.down.sql": "CREATE TABLE tags (id int, "
+            "user_id int REFERENCES users (id));\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        keys = [r for r in output.relationships if r.type == "REFERENCES_TABLE"]
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.properties["file_path"],
+                    r.properties["line"],
+                    r.properties.get("on_delete"),
+                )
+                for r in keys
+            ],
+            [("notes", "posts", "db/migrations/V2__on_delete.sql", 2, "CASCADE")],
+        )
+        metrics = output.metadata.custom_metrics["foreign_keys"]
+        self.assertEqual(
+            (
+                metrics["sql"],
+                metrics["sql_dropped"],
+                metrics["sql_drops_naming_no_key"],
+                metrics["sql_rollback_files"],
+            ),
+            (1, 3, 1, 1),
         )
 
     def test_default_physical_names(self):
