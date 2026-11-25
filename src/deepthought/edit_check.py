@@ -2,9 +2,11 @@
 
 A unified diff is applied to a scratch copy of the workspace and the
 checker of each edited language runs on the workspace as it is and on the
-copy: ``go test -run ^$ -exec true -vet=off`` (compiles every package of the
-module and its tests; ``-exec true`` runs no test binary), ``tsc --noEmit``
-of each TypeScript project, and ``pyright`` of each Python project. A
+copy: go/types over every package of each Go module and its tests
+(``gocheck/main.go``; unlike ``go build`` or ``go vet``, a package with
+errors does not stop its importers from being checked), ``tsc --noEmit``
+of each TypeScript project, and ``pyright`` over every Python file of each
+Python project (not only the files its configuration includes). A
 diagnostic that only the edited copy has is a break. Each break is reported
 at its line in the unedited source, with the declaration that holds it (or
 ``(top level of file)``), so it can be looked up in the graph by file and
@@ -45,11 +47,8 @@ PYRIGHT_RELEASE = "1.1.409"
 TOP_LEVEL = "(top level of file)"
 _TIMEOUT = 900
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-_GO_DIAGNOSTIC = re.compile(
-    r"^(?P<file>[^\s:][^:]*\.go):(?P<line>\d+):(?P<column>\d+): (?P<message>.*)$"
-)
 _TS_DIAGNOSTIC = re.compile(
-    r"^(?P<file>.+?\.[cm]?[jt]sx?)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+): (?P<message>.*)$"
+    r"^(?P<file>.+?)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+): (?P<message>.*)$"
 )
 _SKIPPED = {".git", "node_modules"}
 _WRAPPER = ".deepthought-check."
@@ -214,6 +213,7 @@ class Check:
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
     notes: list = field(default_factory=list)
+    unchecked: list = field(default_factory=list)  # files no checker read
 
 
 def _relative(path, root):
@@ -260,49 +260,85 @@ def _go_projects(root, files):
 
 
 def _go_run(go, root, module, timeout):
-    env = dict(os.environ, GOTOOLCHAIN="local", CGO_ENABLED="0")
-    completed = subprocess.run(
-        [
-            go,
-            "test",
-            "-count=1",
-            "-run",
-            "^$",
-            "-exec",
-            "true",
-            "-vet=off",
-            "-gcflags=-e",
-            "./...",
-        ],
-        cwd=module,
-        env=env,
-        capture_output=True,
-        timeout=timeout,
+    """(diagnostics, unchecked packages) of one module, from gocheck: every
+    package and its tests type-checked from source with go/types. A package
+    with errors does not stop its importers from being checked (``go build``
+    and ``go vet`` stop there and report nothing for them). The module's
+    dependencies are downloaded into the module cache first, through a copy
+    of its go.mod, so nothing of the workspace is written."""
+    from .go_facts import (
+        _environment,
+        _info,
+        build,
+        download,
+        module_files,
+        module_toolchain,
     )
-    found = []
-    for line in (
-        (completed.stdout + completed.stderr).decode(errors="replace").splitlines()
-    ):
-        match = _GO_DIAGNOSTIC.match(line.strip())
-        if match:
-            path = os.path.normpath(os.path.join(module, match["file"]))
+
+    with tempfile.TemporaryDirectory(prefix="deepthought-gocheck-") as scratch:
+        modfile = module_files(module, scratch)
+        download(go, module, modfile)
+        command = module_toolchain(go, _info(go), (module / "go.mod").read_text())
+        binary, goroot = build(command, program="gocheck")
+        completed = subprocess.run(
+            [str(binary), str(module)],
+            cwd=module,
+            env=_environment(command, goroot, modfile),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+        )
+    found, unchecked = [], []
+    for line in completed.stdout.splitlines():
+        item = json.loads(line)
+        if item["kind"] == "error" and item.get("file"):
+            path = os.path.normpath(os.path.join(module, item["file"]))
             found.append(
                 (
                     _relative(path, root),
-                    int(match["line"]),
-                    int(match["column"]),
+                    item["line"],
+                    item["column"],
                     "go",
-                    match["message"],
+                    item["message"],
                 )
+            )
+        elif item["kind"] == "unchecked":
+            unchecked.append(
+                f"{item['directory']} ({item['package']}): {item['message']}"
+            )
+    return found, unchecked
+
+
+def _go_unbuilt(root, module):
+    """Go files of the module in directories the go tool does not build
+    (a leading ``_`` or ``.``, such as ``_examples``): no build checks them,
+    but they may call what the edit changes. testdata and vendor hold
+    fixtures and copies of dependencies, and nested modules are checked on
+    their own."""
+    found = []
+    for directory, names, files in os.walk(module):
+        here = Path(directory)
+        names[:] = sorted(
+            n
+            for n in names
+            if n not in {"testdata", "vendor", "node_modules", ".git"}
+            and not (here / n / "go.mod").exists()
+        )
+        if any(part.startswith(("_", ".")) for part in here.relative_to(module).parts):
+            found.extend(
+                _relative(here / f, root) for f in sorted(files) if f.endswith(".go")
             )
     return found
 
 
 def _check_go(root, edited_root, files, timeout):
-    go = os.environ.get("DEEPTHOUGHT_GO") or shutil.which("go")
+    from .go_facts import toolchain
+
+    go = toolchain()
     checks = []
     for module in _go_projects(root, files):
-        check = Check("go", "go test -run ^$", _relative(module, root) or ".")
+        check = Check("go", "go/types", _relative(module, root) or ".")
         if go is None:
             check.status, check.reason = (
                 "unavailable",
@@ -310,14 +346,20 @@ def _check_go(root, edited_root, files, timeout):
             )
         else:
             try:
-                check.before = _go_run(go, root, module, timeout)
-                check.after = _go_run(
+                check.before, _ = _go_run(go, root, module, timeout)
+                check.after, unchecked = _go_run(
                     go,
                     edited_root,
                     Path(edited_root) / module.relative_to(root),
                     timeout,
                 )
-            except (OSError, subprocess.SubprocessError) as error:
+                check.unchecked = _go_unbuilt(root, module)
+                if unchecked:
+                    check.status = "failed"
+                    check.reason = (
+                        "packages not type-checked: " + "; ".join(unchecked)[:300]
+                    )
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
                 check.status, check.reason = "failed", str(error)[:300]
         checks.append(check)
     return checks
@@ -510,6 +552,103 @@ def _project_config(node, package, project, timeout):
     return missing, [t for t in types if t not in missing]
 
 
+def _package_name(specifier):
+    parts = specifier.split("/")
+    return "/".join(parts[:2]) if specifier.startswith("@") else parts[0]
+
+
+def _installed(directory, name):
+    return any(
+        (folder / "node_modules" / name / "package.json").is_file()
+        for folder in (directory, *directory.parents)
+    )
+
+
+def _missing_extends(config, root, seen=None):
+    """{package: config directory} of the packages the ``extends`` chain of
+    ``config`` names that are not installed where tsc looks for them."""
+    seen = seen if seen is not None else set()
+    if config in seen or not config.is_file():
+        return {}
+    seen.add(config)
+    extends = _tsconfig(config).get("extends")
+    found = {}
+    for specifier in extends if isinstance(extends, list) else [extends]:
+        if not isinstance(specifier, str) or not specifier:
+            continue
+        if specifier.startswith((".", "/")):
+            target = (config.parent / specifier).resolve()
+            if target.is_dir():
+                target = target / "tsconfig.json"
+            elif not target.suffix:
+                target = target.with_suffix(".json")
+            found.update(_missing_extends(target, root, seen))
+        else:
+            name = _package_name(specifier)
+            if not _installed(config.parent, name):
+                found[name] = config.parent
+    return found
+
+
+def _declared(root, directory, name):
+    """The release or range of npm package ``name`` that the nearest
+    package.json from ``directory`` up declares, or None."""
+    for folder in (directory, *directory.parents):
+        manifest = _json(folder / "package.json")
+        if isinstance(manifest, dict):
+            for section in ("devDependencies", "dependencies", "peerDependencies"):
+                declared = manifest.get(section)
+                if isinstance(declared, dict) and isinstance(declared.get(name), str):
+                    return declared[name]
+        if folder == root:
+            break
+    return None
+
+
+def _link_package(directory, name, package):
+    """Link ``package`` as ``directory``/node_modules/``name`` in a scratch
+    copy. A node_modules (or scope directory) that links to the workspace's
+    own is replaced by a directory linking each of its entries, so nothing
+    is written into the workspace."""
+    current = directory / "node_modules"
+    for part in ["", *name.split("/")[:-1]]:
+        current = current / part if part else current
+        if current.is_symlink():
+            original = current.resolve()
+            current.unlink()
+            current.mkdir()
+            for entry in original.iterdir():
+                (current / entry.name).symlink_to(entry, entry.is_dir())
+        current.mkdir(parents=True, exist_ok=True)
+    target = directory / "node_modules" / name
+    if not target.exists():
+        target.symlink_to(package, target_is_directory=True)
+
+
+def _install_extends(config, root, environ):
+    """Install into the cache, and link into the scratch copy, each package
+    the project's ``extends`` chain names that is not installed (tsc stops
+    before checking any file when an extended config is missing). The
+    package.json release or range is used, else the newest release. The
+    names installed."""
+    missing = _missing_extends(config, root)
+    if not missing:
+        return []
+    npm = shutil.which("npm", path=environ.get("PATH"))
+    if npm is None:
+        raise RuntimeError(
+            "npm is required to install extended tsconfig packages: "
+            + ", ".join(missing)
+        )
+    for name, directory in sorted(missing.items()):
+        spec = _declared(root, directory, name) or "latest"
+        if not _RELEASE.fullmatch(spec):
+            listed = _npm_view(npm, f"{name}@{spec}", "version", environ=environ)
+            spec = listed[-1] if isinstance(listed, list) else listed
+        _link_package(directory, name, _npm_install(npm, name, spec, environ))
+    return sorted(missing)
+
+
 def _tsc_run(node, package, root, project, timeout):
     """(diagnostics, errors with no file, missing type packages). An error
     with no file (a bad option) stops tsc before it checks any file, so a
@@ -546,7 +685,11 @@ def _tsc_run(node, package, root, project, timeout):
     found, general = [], []
     for line in completed.stdout.decode(errors="replace").splitlines():
         match = _TS_DIAGNOSTIC.match(line.strip())
-        if match:
+        if match and not match["file"].endswith(_TS_SUFFIXES):
+            # An error in a config file (an extends that does not resolve, a
+            # bad option) stops tsc before it checks any source file.
+            general.append(line.strip())
+        elif match:
             path = os.path.normpath(os.path.join(project.parent, match["file"]))
             found.append(
                 (
@@ -573,10 +716,16 @@ def _check_typescript(root, edited_root, files, timeout):
             if node is None:
                 raise RuntimeError("node is required to check TypeScript edits")
             package, check.release = _typescript_package(root, project, environ)
+            edited_project = Path(edited_root) / project.relative_to(root)
+            installed = _install_extends(project, root, environ)
+            _install_extends(edited_project, Path(edited_root), environ)
+            if installed:
+                check.notes.append(
+                    "extended configs installed into the cache: " + ", ".join(installed)
+                )
             check.before, general, missing = _tsc_run(
                 node, package, root, project, timeout
             )
-            edited_project = Path(edited_root) / project.relative_to(root)
             check.after, general_after, _ = _tsc_run(
                 node, package, edited_root, edited_project, timeout
             )
@@ -622,12 +771,46 @@ def _pyright(environ):
     return [node, str(package / "index.js")], PYRIGHT_RELEASE
 
 
+def _python_files(project):
+    """Every Python file under ``project``, outside virtual environments,
+    installed packages and hidden or cache directories. A project's pyright
+    ``include`` often leaves out tests and examples; they call the code an
+    edit changes too, so they are checked."""
+    found = []
+    for directory, names, files in os.walk(project):
+        names[:] = sorted(
+            n
+            for n in names
+            if not n.startswith(".")
+            and n not in {"node_modules", "__pycache__", "site-packages"}
+            and not (Path(directory) / n / "pyvenv.cfg").exists()
+        )
+        found.extend(
+            str(Path(directory) / f) for f in sorted(files) if f.endswith(_PY_SUFFIXES)
+        )
+    return found
+
+
 def _pyright_run(command, root, project, timeout):
+    """pyright's errors in every Python file of the project (see
+    _python_files), with the project's own configuration for everything but
+    which files are checked."""
+    found = []
+    files = _python_files(project)
+    for start in range(0, len(files), 500):
+        found.extend(
+            _pyright_files(command, root, project, files[start : start + 500], timeout)
+        )
+    return found
+
+
+def _pyright_files(command, root, project, files, timeout):
     completed = subprocess.run(
-        [*command, "--outputjson"],
+        [*command, "--outputjson", *files],
         cwd=project,
         capture_output=True,
         timeout=timeout,
+        check=False,
     )
     try:
         report = json.loads(completed.stdout or b"{}")
@@ -788,6 +971,7 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
     complete = bool(checks) and all(check.status == "checked" for check in checks)
     unchecked = sorted(
         {f for f in edited if not any(f.endswith(s) for _, s, _ in _CHECKERS)}
+        | {f for check in checks for f in check.unchecked}
     )
     return {
         "edited_files": edited,

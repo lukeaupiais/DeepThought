@@ -159,6 +159,43 @@ class GoEditTest(unittest.TestCase):
                 bad.write_text("--- a/none.go\n+++ b/none.go\n@@ -1 +1 @@\n-x\n+y\n")
                 self.assertEqual(main(["check-edit", root, str(bad)]), 2)
 
+    def test_importers_are_checked_when_the_edited_package_breaks(self):
+        # go build and go vet stop at a package with errors and never check
+        # its importers or its tests.
+        lib = "package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
+        files = {
+            "go.mod": "module example.com/calc\n\ngo 1.21\n",
+            "calc.go": lib,
+            "own.go": "package calc\n\nfunc Inc(a int) int {\n\treturn Add(a, 1)\n}\n",
+            "calc_test.go": (
+                'package calc\n\nimport "testing"\n\n'
+                "func TestAdd(t *testing.T) {\n\t_ = Add(1, 2)\n}\n"
+            ),
+            "app/app.go": (
+                'package app\n\nimport "example.com/calc"\n\n'
+                "func Run() int {\n\treturn calc.Add(2, 3)\n}\n"
+            ),
+            "_examples/demo/main.go": (
+                'package main\n\nimport "example.com/calc"\n\n'
+                "func main() { _ = calc.Add(1, 1) }\n"
+            ),
+        }
+        edited = lib.replace("a, b int", "a, b, c int")
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, files)
+            result = check_edit(root, _diff("calc.go", lib, edited))
+        self.assertEqual(
+            {(b["file"], b["line"], b["declaration"]) for b in result["breaks"]},
+            {
+                ("own.go", 4, "Inc"),
+                ("calc_test.go", 6, "TestAdd"),
+                ("app/app.go", 6, "Run"),
+            },
+        )
+        # No build reads _examples: it is listed, and the check is incomplete.
+        self.assertEqual(result["unchecked_files"], ["_examples/demo/main.go"])
+        self.assertFalse(result["complete"])
+
     def test_mistakes_in_the_edit_are_not_breaks(self):
         lib = "package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
         with tempfile.TemporaryDirectory() as root:
@@ -231,6 +268,30 @@ class TypeScriptEditTest(unittest.TestCase):
             [("src/app.ts", 5, "App.run", "TS2554")],
         )
 
+    def test_a_config_error_fails_the_check(self):
+        # tsc stops before checking any file when its config does not load.
+        lib = "export function greet(name: string): string {\n  return name;\n}\n"
+        files = {
+            "tsconfig.json": '{"extends": "./missing.json", "include": ["src"]}\n',
+            "src/greet.ts": lib,
+            "src/app.ts": 'import { greet } from "./greet";\nexport const a = greet("a");\n',
+        }
+        previous = os.environ.get("DEEPTHOUGHT_TYPESCRIPT")
+        os.environ["DEEPTHOUGHT_TYPESCRIPT"] = _typescript()
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                _write(root, files)
+                edited = lib.replace("name: string)", "name: string, x: number)")
+                result = check_edit(root, _diff("src/greet.ts", lib, edited))
+        finally:
+            if previous is None:
+                os.environ.pop("DEEPTHOUGHT_TYPESCRIPT")
+            else:
+                os.environ["DEEPTHOUGHT_TYPESCRIPT"] = previous
+        self.assertEqual(result["checks"][0]["status"], "failed")
+        self.assertIn("TS", result["checks"][0]["reason"])
+        self.assertFalse(result["complete"])
+
 
 @unittest.skipUnless(
     os.environ.get("DEEPTHOUGHT_PYRIGHT") or shutil.which("pyright"), "needs pyright"
@@ -239,7 +300,12 @@ class PythonEditTest(unittest.TestCase):
     def test_reports_callers_in_the_project(self):
         lib = "def area(width: float, height: float) -> float:\n    return width * height\n"
         files = {
-            "pyproject.toml": '[project]\nname = "shapes"\nversion = "0"\n',
+            "pyproject.toml": (
+                '[project]\nname = "shapes"\nversion = "0"\n\n'
+                '[tool.pyright]\ninclude = ["shapes"]\n'
+            ),
+            # Outside the configured include: still checked.
+            "examples/demo.py": "from shapes.geometry import area\n\nprint(area(3.0, 4.0))\n",
             "shapes/__init__.py": "",
             "shapes/geometry.py": lib,
             "shapes/report.py": (
@@ -256,7 +322,10 @@ class PythonEditTest(unittest.TestCase):
         self.assertTrue(result["complete"], result["checks"])
         self.assertEqual(
             [(b["file"], b["line"], b["declaration"]) for b in result["breaks"]],
-            [("shapes/report.py", 6, "Report.total")],
+            [
+                ("examples/demo.py", 3, TOP_LEVEL),
+                ("shapes/report.py", 6, "Report.total"),
+            ],
         )
 
 

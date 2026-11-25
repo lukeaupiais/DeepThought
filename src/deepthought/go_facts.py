@@ -296,21 +296,22 @@ def _cache_directory():
     return Path(base) / "deepthought"
 
 
-def build(go, timeout=300):
-    """(path of the gofacts binary for this source and toolchain, built into
-    the cache directory when missing; the toolchain's GOROOT)."""
-    source = resources.files(__package__).joinpath("gofacts/main.go").read_bytes()
+def build(go, timeout=300, program="gofacts"):
+    """(path of the ``program`` binary (a directory of this package holding
+    main.go) for this source and toolchain, built into the cache directory
+    when missing; the toolchain's GOROOT)."""
+    source = resources.files(__package__).joinpath(f"{program}/main.go").read_bytes()
     environment = _environment(go)
     info = _info(go)
     version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
     key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
-    binary = _cache_directory() / f"gofacts-{key}"
+    binary = _cache_directory() / f"{program}-{key}"
     if binary.is_file():
         return binary, version[3]
     binary.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="deepthought-gofacts-") as scratch:
+    with tempfile.TemporaryDirectory(prefix=f"deepthought-{program}-") as scratch:
         (Path(scratch) / "main.go").write_bytes(source)
-        output = Path(scratch) / "gofacts"
+        output = Path(scratch) / program
         subprocess.run(
             [go, "build", "-trimpath", "-o", str(output), "main.go"],
             cwd=scratch,
