@@ -71,7 +71,7 @@
       "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language typescript",
       "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/hono.tsv",
-      "impact_command": "git ls-files '*.ts' '*.tsx' | node tools/ts_member_dispatch.cjs TYPESCRIPT_JS . > dispatch.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/hono.tsv HISTORY --language typescript --revision 9075031ea46533ae3b6e5b6c11f8333d67a7d6c2 --possible-calls dispatch.tsv"
+      "impact_command": "git ls-files '*.ts' '*.tsx' | node tools/ts_member_dispatch.cjs TYPESCRIPT_JS . > dispatch.tsv && git ls-files '*.ts' '*.tsx' | node tools/ts_callback_regions.cjs TYPESCRIPT_JS . > callbacks.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/hono.tsv HISTORY --language typescript --revision 9075031ea46533ae3b6e5b6c11f8333d67a7d6c2 --possible-calls dispatch.tsv --initializers callbacks.tsv"
     },
     {
       "name": "preact",
@@ -88,7 +88,7 @@
       "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language javascript",
       "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/preact.tsv",
-      "impact_command": "python tools/impact_truth.py derive index.scip calls.tsv HISTORY --language javascript --revision 1fbc07f67bd841315332cac73de8ce1ae3e8b7b5"
+      "impact_command": "git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | node tools/ts_callback_regions.cjs TYPESCRIPT_JS . > callbacks.tsv && python tools/impact_truth.py derive index.scip calls.tsv HISTORY --language javascript --revision 1fbc07f67bd841315332cac73de8ce1ae3e8b7b5 --initializers callbacks.tsv"
     },
     {
       "name": "cobra",
