@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -1280,12 +1281,34 @@ export class AuditService {
 }
 
 
-NODE = shutil.which("node") and shutil.which("npm")
+def _npm_registry():
+    """node and npm, and the npm registry reachable: the engine fetches the
+    prisma-schema-wasm build a schema's Prisma pins. The acceptance sandbox
+    has no network; the database job, which has, runs these tests."""
+    npm = shutil.which("npm")
+    if not (shutil.which("node") and npm):
+        return False
+    try:
+        return (
+            subprocess.run(
+                [npm, "view", "prisma@6.19.0", "version"],
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+NODE = _npm_registry()
 
 
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
-@unittest.skipUnless(NODE, "Prisma schemas are read with node and npm")
 class ScriptOrmTests(unittest.TestCase):
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
     def test_prisma_and_typeorm(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SCRIPT_ORMS)
@@ -1515,7 +1538,9 @@ class PrismaVersionTests(unittest.TestCase):
             )
 
 
-@unittest.skipUnless(NODE, "Prisma schemas are read with node and npm")
+@unittest.skipUnless(
+    NODE, "Prisma schemas are read with node, npm and the npm registry"
+)
 class PrismaSchemaTests(unittest.TestCase):
     def test_folders_rejections_and_missing_versions(self):
         from deepthought.prisma_schema import read_schemas
