@@ -15,6 +15,7 @@ records no occurrence (code it treats as unreachable), the Python call is answer
 go-to-definition (``pyright_calls``), never by the parser.
 """
 
+import ast
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -36,6 +37,11 @@ NOT_DECLARATION = "scip_target_not_declaration"
 SUSPECT = "scip_suspect_target"
 # A Python call pyright answered: linked to the declaration it names.
 PYRIGHT_CALL_DEFINITION = "pyright.call-definition"
+PYRIGHT_CALL_ALIAS = "pyright.call-alias"
+PYRIGHT_CALL_CLASS_PARAMETER = "pyright.call-class-parameter"
+# Local aliases followed (``f = obj.m``, ``g = f``) before a call is left as
+# the index's local.
+_ALIAS_HOPS = 3
 PYRIGHT_NO_DEFINITION = "pyright_no_definition"
 PYRIGHT_EXTERNAL = "pyright_external"
 PYRIGHT_NOT_DECLARATION = "pyright_target_not_declaration"
@@ -174,8 +180,8 @@ def bind_calls(
             # class share a symbol.
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         producer = view.tool
-        if bound.reason in {SUSPECT, NO_OCCURRENCE} and site.file.endswith(
-            (".py", ".pyi")
+        if bound.reason in {SUSPECT, NO_OCCURRENCE, NOT_DECLARATION} and (
+            site.file.endswith((".py", ".pyi"))
         ):
             if python_definitions is None:
                 raise ValueError("binding Python calls requires pyright")
@@ -196,17 +202,30 @@ def _bind_pyright(site, pyright, lines, in_file, by_symbol) -> CallResolution:
     line, column = site.callee_at
     text = lines.get(site.file, line)
     places = pyright.definitions(site.file, line, _to_index(text, column, "utf-16"))
-    targets, external = {}, False
-    for file, target_line, target_column in places:
-        if file is None:
-            external = True
+    rule = PYRIGHT_CALL_DEFINITION
+    for _ in range(_ALIAS_HOPS):
+        targets, external = _pyright_targets(places, lines, in_file)
+        if targets or len(places) != 1 or places[0][0] is None:
+            break
+        # One definition that is no declaration: a local. Pyright gives a
+        # local's own assignment, so a call through an alias (``get =
+        # console.get_style``; ``S = Segment``) asks again at the value, and
+        # a classmethod's ``cls``, which pyright types as the class itself
+        # without a place, is that class.
+        (file, target_line, target_column) = places[0]
+        found = _python_local(lines, file, target_line, target_column)
+        if found is None:
+            break
+        kind, (value_line, value_column) = found
+        if kind == "class":
+            places = [(file, value_line, value_column)]
+            rule = PYRIGHT_CALL_CLASS_PARAMETER
             continue
-        target_text = lines.get(file, target_line)
-        start = _to_utf8(target_text, target_column, "utf-16")
-        name = re.match(rb"\w*", target_text[start:]).group().decode("utf-8")
-        parsed = _innermost(in_file, file, (target_line, start), name)
-        if parsed is not None:
-            targets[parsed.id] = parsed
+        value_text = lines.get(file, value_line)
+        places = pyright.definitions(
+            file, value_line, _to_index(value_text, value_column, "utf-16")
+        )
+        rule = PYRIGHT_CALL_ALIAS
     if not targets:
         return CallResolution(
             site.id,
@@ -219,8 +238,109 @@ def _bind_pyright(site, pyright, lines, in_file, by_symbol) -> CallResolution:
         )
     chosen = _choose(site, list(targets.values()), False, by_symbol)
     if chosen.rule_id == SCIP_CALL_OCCURRENCE:
-        return replace(chosen, rule_id=PYRIGHT_CALL_DEFINITION)
+        return replace(chosen, rule_id=rule)
     return chosen
+
+
+def _pyright_targets(places, lines, in_file):
+    """({id: parsed declaration} at pyright's places, whether one is outside
+    the workspace)."""
+    targets, external = {}, False
+    for file, target_line, target_column in places:
+        if file is None:
+            external = True
+            continue
+        target_text = lines.get(file, target_line)
+        start = _to_utf8(target_text, target_column, "utf-16")
+        name = re.match(rb"\w*", target_text[start:]).group().decode("utf-8")
+        parsed = _innermost(in_file, file, (target_line, start), name)
+        if parsed is not None:
+            targets[parsed.id] = parsed
+    return targets, external
+
+
+def _python_local(lines, file, line, column):
+    """What the Python local pyright places at ``line`` and UTF-16 ``column``
+    of ``file`` stands for, read with Python's own parser: ("value", (line,
+    UTF-8 column)) of the last name of a dotted name a function's local is
+    alone assigned (``x = a.b``, ``x: T = b``), ("class", (line, UTF-8 column)) of the
+    class name when it is a classmethod's first parameter; None otherwise."""
+    column = _to_utf8(lines.get(file, line), column, "utf-16")
+    return lines.python_locals(file).get((line, column))
+
+
+def _python_locals(tree, lines, file):
+    """{(line, UTF-8 column) of a local: what ``_python_local`` reads it as}."""
+    found = {}
+    # Only a function's own locals: a class attribute (``context_class =
+    # Context``) or a module global can be replaced from elsewhere.
+    assignments = [
+        node
+        for function in ast.walk(tree)
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in _function_statements(function)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+    ]
+    for node in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)] + (
+        assignments
+    ):
+        if isinstance(node, ast.ClassDef):
+            text = lines.get(file, node.lineno)
+            named = re.search(rb"\bclass\s+" + re.escape(node.name.encode()), text)
+            for method in node.body:
+                if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                arguments = method.args.posonlyargs + method.args.args
+                if (
+                    named is not None
+                    and arguments
+                    and any(
+                        isinstance(d, ast.Name) and d.id == "classmethod"
+                        for d in method.decorator_list
+                    )
+                ):
+                    found[(arguments[0].lineno, arguments[0].col_offset)] = (
+                        "class",
+                        (node.lineno, named.end() - len(node.name.encode())),
+                    )
+            continue
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            continue
+        place = (targets[0].lineno, targets[0].col_offset)
+        if isinstance(value, ast.Name):
+            found[place] = ("value", (value.lineno, value.col_offset))
+        elif isinstance(value, ast.Attribute) and _dotted_name(value):
+            # The attribute's name ends the expression.
+            found[place] = (
+                "value",
+                (value.end_lineno, value.end_col_offset - len(value.attr.encode())),
+            )
+    return found
+
+
+def _function_statements(function):
+    """The nodes in a function's body, without those of the classes and
+    functions it declares."""
+    stack = list(function.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(
+            node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+        ):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _dotted_name(node):
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name)
 
 
 class ScipReferences:
@@ -358,7 +478,18 @@ class _Lines:
     """Source lines of the analyzed files, read when first needed."""
 
     def __init__(self, root):
-        self.root, self.cache = root, {}
+        self.root, self.cache, self.trees = root, {}, {}
+
+    def python_locals(self, file):
+        """``_python_locals`` of the file, parsed by Python's own parser
+        (empty if it does not parse)."""
+        if file not in self.trees:
+            try:
+                tree = ast.parse((self.root / file).read_bytes())
+            except (OSError, SyntaxError, ValueError):
+                tree = None
+            self.trees[file] = {} if tree is None else _python_locals(tree, self, file)
+        return self.trees[file]
 
     def get(self, file, line):
         if file not in self.cache:
