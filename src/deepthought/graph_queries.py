@@ -197,8 +197,9 @@ class GraphQueryService:
 
     async def _anchor(self, subject, repo_url, snapshot_id, timeout):
         """The qualified name a query is about. A qualified name is kept; a
-        place, ``file:line``, names the declaration whose name is on that
-        line, or else the innermost declaration around it. Several declared
+        place, ``file:line``, names the parsed declaration whose name is on
+        that line, or else the innermost one around it (never an indexer's
+        definition node, which also covers parameters and locals). Several declared
         on that line are ambiguous: a ValueError lists them."""
         place = _PLACE.fullmatch(subject)
         if place is None:
@@ -206,6 +207,9 @@ class GraphQueryService:
         found = await self._read(
             "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:$file}) "
             "WHERE d.start_line <= $line AND $line <= coalesce(d.end_line, d.start_line) "
+            # Parsed declarations only: an indexer's definitions (its
+            # parameters and locals among them) carry source_definition_id.
+            "AND d.source_definition_id IS NULL "
             # Declarations named on the line start last of all around it.
             "WITH d, d.start_line = $line AS named "
             "ORDER BY d.start_line DESC, d.end_line, d.qualified_name "
