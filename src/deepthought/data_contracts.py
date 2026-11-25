@@ -2865,7 +2865,9 @@ def _sa_fields(body, content):
         if left is None or left.type != "identifier":
             continue
         name = _text(left, content)
-        if name.startswith("_") or name == "model_config":
+        # Dunder names are SQLAlchemy's own settings; an underscored name is
+        # a column like any other (``_password = Column("password")``).
+        if (name.startswith("__") and name.endswith("__")) or name == "model_config":
             continue
         annotation = node.child_by_field_name("type")
         written = _text(annotation, content) if annotation is not None else ""
@@ -2945,7 +2947,8 @@ def _sa_fields(body, content):
             primary = value is not None and value.type == "true"
         elif annotation is not None:
             kind = "mapped" if _SA_MAPPED.match(written) else "annotated"
-        if kind is None:
+        if kind is None or (kind == "annotated" and name.startswith("_")):
+            # A SQLModel (Pydantic) private attribute is no field.
             continue
         found.append(
             SaField(

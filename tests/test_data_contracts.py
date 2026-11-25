@@ -153,7 +153,8 @@ SA_COLUMNS = {
     "class Solve(Post):\n"
     '    __tablename__ = "solves"\n'
     '    id = Column(ForeignKey("posts.id"), primary_key=True)\n'
-    "    author_id = column_property(Column(Integer), Post.author_id)\n",
+    "    author_id = column_property(Column(Integer), Post.author_id)\n"
+    '    _password = Column("password", String)\n',
     "app/views.py": "from sqlalchemy import select, update, insert\n"
     "from .models import User, Post, Admin, Solve\n"
     "def find(session, name):\n"
@@ -6742,6 +6743,7 @@ class SqlalchemyColumnTests(unittest.TestCase):
                 "posts::column::id",
                 "solves::column::author_id",
                 "solves::column::id",
+                "solves::column::password",
                 "users::column::created",
                 "users::column::email",
                 "users::column::full_name",
