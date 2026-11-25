@@ -2128,11 +2128,13 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
+        from .storage.graph.encoding import decode_properties
+
         for item in response["items"]:
             item["coverage"] = [
                 {
                     key: value
-                    for key, value in sorted(record.items())
+                    for key, value in sorted(decode_properties(record).items())
                     if key not in _COVERAGE_STORAGE
                 }
                 for record in item["coverage"]

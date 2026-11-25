@@ -4922,6 +4922,26 @@ ID, scope, capabilities and analysis status, with one item holding its content
 hash, tool, completion time and commits. Raw Cypher answers leave these out, so
 a reader takes them from here once.
 
+The item's `coverage` lists the snapshot's `EdgeCoverage` nodes, sorted by
+family, protocol and language. TreeSitterTool writes one per analyzed language
+and family, `CALLS` and `IMPORTS` (qualified name
+`<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
+families. Each says whether a deterministic resolver (a compiler-backed SCIP
+index or pyright, named in `producer` on the edges) decided the family's sites:
+
+| Field | Meaning |
+|---|---|
+| `status` | `linked` (every file of the language with such sites), `partial` (some), `not_linked` (none), `no_sites` (the language has none) |
+| `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
+| `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
+| `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+
+A file that failed to parse is not counted. Every import is decided by the
+parser's rules here, so `IMPORTS` is `not_linked` (or `no_sites`). An empty
+`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
+lists are; `describeSnapshot` decodes it.
+
 ## Incremental re-indexing
 
 The original updater found changed files from Git history and patched one graph

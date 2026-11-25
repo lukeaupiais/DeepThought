@@ -36,8 +36,10 @@ class EdgeCoverageTests(unittest.TestCase):
             ("t.ts", "typescript", "analyzed"),
             ("u.ts", "typescript", "analyzed"),
             ("j.js", "javascript", "analyzed"),
-            # A file that failed to parse has no facts to cover.
+            # A file that failed to parse has no facts to cover, and a
+            # language with no other file has no record.
             ("bad.go", "go", "failed"),
+            ("bad.rs", "rust", "failed"),
         )
         calls = family(
             [
@@ -45,6 +47,8 @@ class EdgeCoverageTests(unittest.TestCase):
                 ("p2", "a.py", "unresolved"),
                 ("p3", "b.py", "ambiguous"),
                 ("g1", "g.go", "linked"),
+                # One site of g.go is the index's, one the parser's.
+                ("g2", "g.go", "linked"),
                 ("t1", "t.ts", "linked"),
                 ("t2", "u.ts", "linked"),
             ],
@@ -53,6 +57,7 @@ class EdgeCoverageTests(unittest.TestCase):
                 "p2": "pyright@1.1.409",
                 "p3": "scip-python@0.6.8",
                 "t1": "scip-typescript@0.3",
+                "g2": "scip-go@0.1",
             },
         )
         imports = family([("i1", "a.py", "linked")], {})
@@ -105,7 +110,7 @@ class EdgeCoverageTests(unittest.TestCase):
             },
             {
                 "status": "not_linked",
-                "resolver": [PARSER],
+                "resolver": ["scip-go@0.1", PARSER],
                 "files": 1,
                 "files_linked": 0,
                 "reason": "parser_rules",
