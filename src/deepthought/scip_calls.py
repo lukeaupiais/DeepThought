@@ -187,14 +187,17 @@ def bind_calls(
             chosen = parser
             kept.add(site.id)
         elif (
-            bound.reason == EXTERNAL
+            bound.reason in {EXTERNAL, NOT_DECLARATION}
             and parser.rule_id in _COMPILER_IMPORT_RULES
             and languages.get(site.file) in _SCRIPT_LANGUAGES
         ):
             # The index names a symbol it does not define, such as a
             # package importing itself by name, which scip-typescript leaves
             # to node_modules; the TypeScript compiler resolves that import
-            # to a workspace file and binds the call there.
+            # to a workspace file and binds the call there. Or the index
+            # names a local it does not follow, such as a name destructured
+            # from require(), which scip-typescript records as a variable of
+            # its own and the compiler as an alias of the module's export.
             chosen = parser
             compiler_kept.add(site.id)
         else:

@@ -475,6 +475,10 @@ class ScipCallTests(unittest.TestCase):
                 "function log() {}\n"
                 "import { again } from './index';\n"
                 "import { typed } from './types';\n"
+                "let h = run;\n"
+                "h();\n"
+                "import { other as third } from './lib';\n"
+                "third();\n"
             ),
             "c.py": "def f():\n    pass\n",
             "b.py": "from c import f\nf()\n",
@@ -498,6 +502,8 @@ class ScipCallTests(unittest.TestCase):
                         (2, "log", outside + "log().", False, 0),
                         (2, "again", outside + "other().", False, 0),
                         (2, "typed", outside + "typed().", False, 0),
+                        (6, "h", "local 2", True, 0),
+                        (7, "h", "local 2", False, 0),
                     ],
                 ),
                 ("lib.ts", []),
@@ -554,15 +560,30 @@ class ScipCallTests(unittest.TestCase):
                     None,
                     "typescript",
                 ),
+                # The index's target is the import's own local binding,
+                # which it does not follow: the compiler's binding stands.
+                ("main.ts", "go"): (
+                    "run",
+                    deepthought.calls.CALL_IMPORTED_NAME,
+                    None,
+                    "typescript",
+                ),
                 # A target the index defines but the parser does not
                 # declare, and a call no import binds, stay the index's.
-                ("main.ts", "go"): (
+                ("main.ts", "h"): (
                     None,
                     None,
                     scip_calls.NOT_DECLARATION,
                     "scip",
                 ),
                 ("main.ts", "log"): (None, None, scip_calls.EXTERNAL, "scip"),
+                # Nor does a call the index has no reference at.
+                ("main.ts", "third"): (
+                    None,
+                    None,
+                    scip_calls.NO_OCCURRENCE,
+                    "scip",
+                ),
                 # Only JavaScript and TypeScript imports are the compiler's.
                 ("b.py", "f"): (None, None, scip_calls.EXTERNAL, "scip"),
             },

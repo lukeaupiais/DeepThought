@@ -109,9 +109,13 @@ Tree-sitter extraction records each static import statement as an `Import` fact
 (analysis schema 3): Python `import` and `from ... import`, and TypeScript and
 JavaScript `import ... from` and `export ... from`. A TypeScript or JavaScript
 `import("x")` call (kind `dynamic_import`) and a JavaScript `require("x")` call
-(kind `require`) are facts too, binding no names, when the specifier is a string
-literal or a template without substitutions: the calls the TypeScript compiler
-records as imports. It records `require()` in JavaScript files only, so the
+(kind `require`) are facts too, when the specifier is a string literal or a
+template without substitutions: the calls the TypeScript compiler records as
+imports. They bind no names, except a `require()` that initializes an object
+destructuring (`const { a, b: c } = require("x")`), which binds `a` and `c` to
+the module's exports `a` and `b`, as the compiler takes them (aliases of those
+exports). A nested pattern, default value, rest element or computed key binds
+none. It records `require()` in JavaScript files only, so the
 parser does too. Other dynamic loads, such as `importlib`, are not facts here. Calls are numbered
 apart from statements in their IDs, so each statement keeps the ID it had
 before calls were recorded. `deepthought.imports.resolve_imports`
@@ -269,13 +273,16 @@ follow a star re-export to the wrong function), and an external target for
 `self.x()` when the enclosing class or a repository base declares `x` (the
 index may name a builtin). Both are `scip_suspect_target`: the parser's link
 stands if it has one, otherwise the call stays unlinked. In a JavaScript or
-TypeScript file, a `scip_external` call that the TypeScript compiler binds
+TypeScript file, a `scip_external` or `scip_target_not_declaration` call that
+the TypeScript compiler binds
 through an import (`call-imported-name`, `call-module-attribute`,
 `typescript.call-compiler-export`, `typescript.call-declaration-file`) keeps
 the compiler's link. scip-typescript 0.6.2 leaves a package that imports
 itself by name (preact's `compat/` importing `preact`) to `node_modules`, and
 calls those symbols external. The compiler resolves the same import to the
-workspace file the package's `exports` name. Files no index covers
+workspace file the package's `exports` name. scip-typescript also records a
+name destructured from `require()` as a variable of its own, where the
+compiler follows it to the module's export. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
