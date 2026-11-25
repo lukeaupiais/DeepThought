@@ -59,6 +59,30 @@ def _bounds(limit, max_output_bytes, timeout):
         raise ValueError("timeout must be finite, positive and at most 30 seconds")
 
 
+TOP_LEVEL = "(top level of file)"
+# Each source role with the pattern a whole path matches, for Cypher.
+_ROLES = [
+    {"name": name, "pattern": ROLE_PATTERNS[name]} for name in sorted(ROLE_PATTERNS)
+]
+
+
+def _declaration(variable):
+    """A Cypher map naming the declaration ``variable`` binds: its qualified
+    name, name, kind, file, line span and signature. A File stands for the
+    code outside every declaration (module-level calls, anonymous
+    callbacks): it is named ``(top level of file)``, with no line span, and
+    ``top_level`` is true."""
+    v = variable
+    return (
+        f"{v} {{.qualified_name,"
+        f"name:CASE WHEN {v}:File THEN '{TOP_LEVEL}' ELSE {v}.name END,"
+        f"kind:CASE WHEN {v}:File THEN 'File' ELSE {v}.kind END,"
+        f"file_path:coalesce({v}.file_path,{v}.path),"
+        f".start_line,.end_line,"
+        f".signature,top_level:{v}:File}}"
+    )
+
+
 def _evidence_filter(evidence_types):
     """None keeps every edge; otherwise a nonempty subset of the evidence types."""
     from .analysis_tools.evidence import EVIDENCE_TYPES
@@ -773,9 +797,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -824,8 +850,7 @@ class GraphQueryService:
         # The function, method or file around the call, and whether its file
         # is a test or an example.
         enclosing = (
-            "caller {.qualified_name,.name,.start_line,.end_line,"
-            "kind:coalesce(caller.kind, 'File')} AS caller,"
+            _declaration("caller") + " AS caller,"
             "[role IN $roles WHERE coalesce(caller.file_path, caller.path, '') "
             "=~ role.pattern | role.name] AS source_roles,"
         )
@@ -861,13 +886,7 @@ class GraphQueryService:
             "RETURN status,callee,file_path,line,column,caller,source_roles,reason,"
             "resolver,target,candidates,relationship "
             "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
-            parameters
-            | {
-                "roles": [
-                    {"name": role, "pattern": ROLE_PATTERNS[role]}
-                    for role in sorted(ROLE_PATTERNS)
-                ]
-            },
+            parameters | {"roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -1192,10 +1211,14 @@ class GraphQueryService:
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
                 "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest "
+                "min(length(path)) AS nearest, "
+                # The lines of every edge the dependent starts toward the
+                # change, on any path.
+                "collect(DISTINCT relationships(path)[0].line) AS lines "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
-                ".file_path,.start_line,"
+                ".file_path,.start_line,.end_line,.signature,top_level:dependent:File,"
                 "labels:labels(dependent)} AS element, "
+                "[line IN lines WHERE line IS NOT NULL] AS lines, "
                 "length(best.path) AS depth, "
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
@@ -1205,7 +1228,9 @@ class GraphQueryService:
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
-                "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
+                "evidence_type:r.evidence_type,rule_id:r.rule_id,line:r.line,"
+                "from:[n IN [startNode(r)] | " + _declaration("n") + "][0],"
+                "to:[n IN [endNode(r)] | " + _declaration("n") + "][0]}] AS edges "
                 "ORDER BY CASE nearest WHEN 1 THEN 0 ELSE 1 END, depth, best.weakness, "
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
@@ -1221,10 +1246,7 @@ class GraphQueryService:
                 "offset": offset,
                 "evidence": evidence,
                 "exclude": exclude,
-                "roles": [
-                    {"name": name, "pattern": ROLE_PATTERNS[name]}
-                    for name in sorted(ROLE_PATTERNS)
-                ],
+                "roles": _ROLES,
                 "reverse": (reverse or "").split("|") if reverse else [],
             },
             repo_url,
@@ -1235,6 +1257,8 @@ class GraphQueryService:
         )
         if not response["items"]:
             response["status"] = "unsupported_or_unobserved"
+        for item in response["items"]:
+            item["lines"] = sorted(item["lines"])
         if exclude_roles is not None:
             response["exclude_roles"] = sorted(set(exclude_roles))
         response["max_depth"] = max_depth
@@ -1392,9 +1416,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,

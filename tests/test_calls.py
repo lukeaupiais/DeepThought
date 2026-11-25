@@ -2071,8 +2071,29 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             observed,
             [
-                ("main.py", CALL_LEXICAL_NAME, "name_matched"),
+                ("(top level of file)", CALL_LEXICAL_NAME, "name_matched"),
                 ("run", CALL_LEXICAL_NAME, "name_matched"),
+            ],
+        )
+        # Each caller is named with its file, line span and signature; the
+        # code outside every declaration is the top level of its file.
+        self.assertEqual(
+            sorted(
+                (
+                    item["element"]["name"],
+                    item["element"]["file_path"],
+                    item["element"]["start_line"],
+                    item["element"]["end_line"],
+                    item["element"]["signature"],
+                    item["element"]["top_level"],
+                    item["relationship"]["properties"]["line"],
+                    item["source_roles"],
+                )
+                for item in callers["items"]
+            ),
+            [
+                ("(top level of file)", "main.py", None, None, None, True, 4, []),
+                ("run", "main.py", 2, 3, "def run():", False, 3, []),
             ],
         )
         self.assertEqual(
@@ -2173,7 +2194,7 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
             [
                 ("go", "Function", 6, 9, []),
                 ("go", "Function", 6, 9, []),
-                ("main.py", "File", None, None, []),
+                ("(top level of file)", "File", None, None, []),
                 ("f", "Function", 1, 2, []),
                 ("test_run", "Function", 1, 2, ["test"]),
             ],
