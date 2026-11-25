@@ -4916,6 +4916,12 @@ complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
 
+`describe_snapshot(repo, snapshot_id=...)` (CLI `snapshot`, MCP
+`describeSnapshot`) gives one complete snapshot's own facts: its repository and
+ID, scope, capabilities and analysis status, with one item holding its content
+hash, tool, completion time and commits. Raw Cypher answers leave these out, so
+a reader takes them from here once.
+
 ## Incremental re-indexing
 
 The original updater found changed files from Git history and patched one graph
@@ -5057,7 +5063,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots`, `describeSnapshot` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
@@ -5092,6 +5098,9 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`.
+It does not repeat the repository, snapshot, scope, capabilities and analysis
+status with every call; `describeSnapshot` (CLI `snapshot`) gives them once.
 
 ## Verification and validation
 

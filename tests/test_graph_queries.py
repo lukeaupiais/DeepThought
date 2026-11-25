@@ -244,6 +244,18 @@ class GraphQueryIntegrationTests(unittest.TestCase):
             self.assertTrue(exists["items"][0]["exists"])
             with self.assertRaises(ValueError):
                 await service.search_elements("", repo, snapshot_id="missing")
+            described = await service.describe_snapshot(repo, snapshot_id=snapshot)
+            self.assertEqual(
+                (
+                    described["repo_url"],
+                    described["snapshot_id"],
+                    described["capabilities"],
+                ),
+                (repo, snapshot, ["definitions", "calls"]),
+            )
+            self.assertEqual(described["returned"], 1)
+            with self.assertRaises(ValueError):
+                await service.describe_snapshot(repo, snapshot_id="missing")
             # Raw Cypher tests require an exclusively owned single-snapshot database.
             raw_enabled = (
                 os.environ.get("DEEPTHOUGHT_NEO4J_SINGLE_SNAPSHOT_TEST") == "1"
@@ -271,7 +283,15 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                     snapshot_id=snapshot,
                     allow_database_scope=True,
                 )
-                self.assertEqual(raw["items"], [{"n": 4}])
+                self.assertEqual(
+                    raw,
+                    {
+                        "status": "succeeded",
+                        "items": [{"n": 4}],
+                        "returned": 1,
+                        "truncated": False,
+                    },
+                )
                 raw = await service.query_cypher(
                     "RETURN $value AS value",
                     {"value": {"nested": [1, 2]}},

@@ -176,6 +176,7 @@ class GraphQueryService:
         repository_scope=False,
         required_capability=None,
         metric=None,
+        bare=False,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -242,6 +243,13 @@ class GraphQueryService:
                 if repository_scope:
                     # Several snapshots; their own analysis facts are per item.
                     del response["capabilities"], response["analysis_status"]
+                if bare:
+                    # The snapshot's facts are read once (describe_snapshot),
+                    # not repeated with every answer.
+                    response = {
+                        key: response[key]
+                        for key in ("status", "items", "returned", "truncated")
+                    }
                 async for record in result:
                     if len(response["items"]) >= limit:
                         response["truncated"] = True
@@ -2091,6 +2099,26 @@ class GraphQueryService:
             timeout=timeout,
         )
 
+    async def describe_snapshot(
+        self, repo_url, *, snapshot_id, max_output_bytes=16000, timeout=5
+    ):
+        """The snapshot's own facts, which raw Cypher answers leave out: its
+        repository and ID, capabilities, analysis status, content hash, the
+        tool that published it, when, and the commits it came from."""
+        return await self._read(
+            """MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,
+                status:'complete'})
+            RETURN s.content_hash AS content_hash,s.tool_name AS tool_name,
+                s.completed_at AS completed_at,
+                coalesce(s.source_commits,[]) AS commits""",
+            {},
+            repo_url,
+            snapshot_id,
+            limit=1,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+
     async def get_unknown_symbols(
         self, repo_url, *, snapshot_id, limit=20, max_output_bytes=16000, timeout=5
     ):
@@ -2166,6 +2194,9 @@ class GraphQueryService:
     ):
         """Execute bounded parameterized reads in a dedicated snapshot database.
 
+        The answer holds only ``status``, ``items``, ``returned`` and
+        ``truncated``; ``describe_snapshot`` gives the snapshot's own facts.
+
         This is deliberately explicit opt-in: arbitrary Cypher is database-scoped,
         not automatically rewritten for repository/tenant isolation. Database read
         privileges/read-only configuration remain required for untrusted callers.
@@ -2205,4 +2236,5 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
             database_scope=True,
+            bare=True,
         )
