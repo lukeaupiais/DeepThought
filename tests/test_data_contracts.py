@@ -639,6 +639,145 @@ class SqlModelTests(unittest.TestCase):
         )
 
 
+KYSELY = {
+    "package.json": '{"name": "app", "dependencies": {"kysely": "0.29.8"}}',
+    "src/repo.ts": "import { Kysely } from 'kysely';\n"
+    "export class Repo {\n"
+    "  constructor(private db: Kysely<any>) {}\n"
+    "  list() { return this.db.selectFrom('asset as a').innerJoin('user', 'user.id', 'a.ownerId').execute(); }\n"
+    "  add(v: any) { return this.db.insertInto('album').values(v).execute(); }\n"
+    "  cte() { return this.db.with('asset', (qb) => qb.selectFrom('asset')).selectFrom('asset').execute(); }\n"
+    "  rec() { return this.db.withRecursive('tree', (qb) => qb.selectFrom('tag').union(qb.selectFrom('tree'))).selectFrom('tree').execute(); }\n"
+    "  shadow() { return this.db.with('album', (d) => d.insertInto('album').values({})).selectFrom('album').execute(); }\n"
+    "  many() { return this.db.selectFrom(['person', 'pet']).execute(); }\n"
+    "}\n",
+    # Not kysely: no import, and in the index another library's method.
+    "src/other.ts": "export const other = (client: any) => client.selectFrom('nope');\n",
+    # tree-sitter cannot parse the tagged template's object type argument.
+    "src/partial.ts": "import { sql } from 'kysely';\n"
+    "export function f(db: any) {\n"
+    "  return db.selectFrom('face').select(sql<{ a: string }>`x`.as('a'));\n"
+    "}\n",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class KyselyTests(unittest.TestCase):
+    def analyze(self, with_index, metrics=False):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, KYSELY)
+            indexes = (self.index(directory),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        found = output.metadata.custom_metrics
+        if metrics:
+            return edges, found["kysely"], found
+        return edges, found["kysely"]
+
+    def index(self, directory):
+        """A scip-typescript index whose method references are Kysely's,
+        except add()'s insertInto and other.ts's selectFrom."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        kysely = "scip-typescript npm kysely 0.29.8 dist/`query-creator.d.ts`/"
+        builder = (
+            "scip-typescript npm kysely 0.29.8 "
+            "dist/query-builder/`select-query-builder.d.ts`/SelectQueryBuilder#"
+        )
+        documents = {
+            "src/repo.ts": [
+                (3, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (3, "innerJoin", builder + "innerJoin().", 0),
+                (
+                    4,
+                    "insertInto",
+                    "scip-typescript npm app 1 src/`fake.ts`/Fake#insertInto().",
+                    0,
+                ),
+                (5, "with", kysely + "QueryCreator#with().", 0),
+                (5, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (5, "selectFrom", kysely + "QueryCreator#selectFrom().", 1),
+                (6, "withRecursive", kysely + "QueryCreator#withRecursive().", 0),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 1),
+                (6, "selectFrom", kysely + "QueryCreator#selectFrom().", 2),
+                (7, "with", kysely + "QueryCreator#with().", 0),
+                (7, "insertInto", kysely + "QueryCreator#insertInto().", 0),
+                (7, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+                (8, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+            ],
+            "src/other.ts": [
+                (
+                    0,
+                    "selectFrom",
+                    "scip-typescript npm other 2 Client#selectFrom().",
+                    0,
+                ),
+            ],
+            "src/partial.ts": [
+                (2, "selectFrom", kysely + "QueryCreator#selectFrom().", 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = KYSELY[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, nth in occurrences:
+                column = -1
+                for _ in range(nth + 1):
+                    column = lines[line].index("." + text + "(", column + 1)
+                document.occurrences.add(
+                    symbol=symbol, range=[line, column + 1, column + 1 + len(text)]
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_without_an_index_kysely_is_not_read_and_the_run_says_so(self):
+        edges, counts, metrics = self.analyze(False, metrics=True)
+        self.assertEqual(edges, [])
+        # repo.ts and partial.ts (repaired); other.ts does not import kysely.
+        self.assertEqual(counts, {"calls_scip": 0, "not_kysely": 0, "no_scip_index": 8})
+        self.assertEqual(metrics["analysis_status"], "partial")
+
+    def test_methods_resolved_through_a_scip_index(self):
+        edges, counts = self.analyze(True)
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "Repo.cte", "asset", "kysely-scip"),
+                ("READS", "Repo.list", "asset", "kysely-scip"),
+                ("READS", "Repo.list", "user", "kysely-scip"),
+                ("READS", "Repo.many", "person", "kysely-scip"),
+                ("READS", "Repo.many", "pet", "kysely-scip"),
+                ("READS", "Repo.rec", "tag", "kysely-scip"),
+                ("READS", "f", "face", "kysely-scip"),
+                ("WRITES", "Repo.shadow", "album", "kysely-scip"),
+            ],
+        )
+        self.assertEqual(counts, {"calls_scip": 7, "not_kysely": 2, "no_scip_index": 0})
+
+
 class StatementTests(unittest.TestCase):
     def test_readers(self):
         # sqlglot reads SQL; the token reader only what no parser accepts.

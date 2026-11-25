@@ -1482,6 +1482,13 @@
       "missed": 137,
       "wrong": 0
     },
+    "tables-immich-typeorm": {
+      "expected": 203,
+      "extra": 0,
+      "found": 0,
+      "missed": 203,
+      "wrong": 0
+    },
     "tables-kimai": {
       "expected": 29,
       "extra": 0,
@@ -1493,6 +1500,13 @@
       "expected": 69,
       "extra": 0,
       "found": 69,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-lobe-chat-drizzle": {
+      "expected": 112,
+      "extra": 0,
+      "found": 112,
       "missed": 0,
       "wrong": 0
     },

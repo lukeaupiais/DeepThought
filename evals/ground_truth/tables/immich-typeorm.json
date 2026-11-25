@@ -1,0 +1,2072 @@
+{
+  "repo": "https://github.com/immich-app/immich",
+  "commit": "8c2195c8205156f6e3168cc52fa34db334568ea9",
+  "labelled_by": "read by hand: every TypeORM call in server/src/repositories/*.repository.ts (NestJS; database.repository.ts left out, as it touches only system catalogs, extensions and tables named at run time) that reads or writes a table. A Repository<E> method (find, findOne, count, exist(s), save, insert, update, upsert, delete, remove, softDelete, softRemove, restore, increment, clear and the like) is labelled on the line of the method name with E's @Entity table, READS for reads and WRITES for writes; save, upsert and softRemove count as WRITES only. An EntityManager method that takes an entity class (clear, upsert, createQueryBuilder(E)) is labelled the same way with that class's table. A query builder is labelled on its createQueryBuilder line with its root table only (the repository's entity, the entity argument, or the table string its from/into names), WRITES when it is an update, delete or insert, READS otherwise, including a builder used only as a subquery or CTE; joined relations are not labelled. A raw query whose SQL is a literal at the call (asset.repository.ts:198, person.repository.ts:52) is labelled with the tables of that SQL. The repositories reach TypeORM through constructor injection (@InjectRepository), through repositories passed by position into the access classes' constructors (access.repository.ts:445-452), and through the repository's own manager and the injected DataSource. The project's own save/create/update wrappers that call those methods are not accesses themselves. Not counted: runtime SET statements, builders over a CTE that name no table, a raw query whose SQL is built elsewhere (search.repository.ts:277), DDL (search.repository.ts:316), a pg_attribute lookup, and Repository.create, which touches no table. The labels are a sample of the repositories folder, so lines outside it are not counted.",
+  "scope": "labelled",
+  "accesses": [
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 44,
+      "tables": [
+        [
+          "activity",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 62,
+      "tables": [
+        [
+          "activity",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 82,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 112,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 130,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 153,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 182,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 219,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 238,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 257,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 305,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 327,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 347,
+      "tables": [
+        [
+          "memories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 372,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 390,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/access.repository.ts",
+      "line": 414,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/activity.repository.ts",
+      "line": 24,
+      "tables": [
+        [
+          "activity",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/activity.repository.ts",
+      "line": 51,
+      "tables": [
+        [
+          "activity",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/activity.repository.ts",
+      "line": 56,
+      "tables": [
+        [
+          "activity",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/activity.repository.ts",
+      "line": 76,
+      "tables": [
+        [
+          "activity",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/activity.repository.ts",
+      "line": 77,
+      "tables": [
+        [
+          "activity",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album-user.repository.ts",
+      "line": 14,
+      "tables": [
+        [
+          "albums_shared_users_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album-user.repository.ts",
+      "line": 15,
+      "tables": [
+        [
+          "albums_shared_users_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album-user.repository.ts",
+      "line": 19,
+      "tables": [
+        [
+          "albums_shared_users_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album-user.repository.ts",
+      "line": 20,
+      "tables": [
+        [
+          "albums_shared_users_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album-user.repository.ts",
+      "line": 26,
+      "tables": [
+        [
+          "albums_shared_users_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 49,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 56,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 71,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 93,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 121,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 131,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 142,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 156,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 174,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 184,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 188,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 192,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 197,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 208,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 219,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 239,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 261,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 277,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 293,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 297,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 298,
+      "tables": [
+        [
+          "albums",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 321,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 331,
+      "tables": [
+        [
+          "albums_assets_assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/album.repository.ts",
+      "line": 341,
+      "tables": [
+        [
+          "albums",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 15,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 19,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 20,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 24,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 29,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 46,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/api-key.repository.ts",
+      "line": 51,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset-stack.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "asset_stack",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset-stack.repository.ts",
+      "line": 26,
+      "tables": [
+        [
+          "asset_stack",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset-stack.repository.ts",
+      "line": 38,
+      "tables": [
+        [
+          "asset_stack",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset-stack.repository.ts",
+      "line": 39,
+      "tables": [
+        [
+          "asset_stack",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 71,
+      "tables": [
+        [
+          "exif",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 75,
+      "tables": [
+        [
+          "asset_job_status",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 79,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 85,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 111,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 122,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 141,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 159,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 190,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 198,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 212,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 219,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 238,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 257,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 269,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 277,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 289,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 294,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 298,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 302,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 315,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 326,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 341,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 357,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 546,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 553,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 561,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 645,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 674,
+      "tables": [
+        [
+          "smart_info",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/asset.repository.ts",
+      "line": 698,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/audit.repository.ts",
+      "line": 15,
+      "tables": [
+        [
+          "audit",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/audit.repository.ts",
+      "line": 31,
+      "tables": [
+        [
+          "audit",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 29,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 42,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 57,
+      "tables": [
+        [
+          "libraries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 61,
+      "tables": [
+        [
+          "libraries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 65,
+      "tables": [
+        [
+          "libraries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 75,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 100,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 122,
+      "tables": [
+        [
+          "libraries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/library.repository.ts",
+      "line": 123,
+      "tables": [
+        [
+          "libraries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/map.repository.ts",
+      "line": 76,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/map.repository.ts",
+      "line": 127,
+      "tables": [
+        [
+          "geodata_places",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/map.repository.ts",
+      "line": 159,
+      "tables": [
+        [
+          "geodata_places",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/map.repository.ts",
+      "line": 196,
+      "tables": [
+        [
+          "geodata_places",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/map.repository.ts",
+      "line": 200,
+      "tables": [
+        [
+          "geodata_places",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "memories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 29,
+      "tables": [
+        [
+          "memories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 48,
+      "tables": [
+        [
+          "memories",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 59,
+      "tables": [
+        [
+          "memories_assets_assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 72,
+      "tables": [
+        [
+          "memories_assets_assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 83,
+      "tables": [
+        [
+          "memories_assets_assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 94,
+      "tables": [
+        [
+          "memories",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/memory.repository.ts",
+      "line": 95,
+      "tables": [
+        [
+          "memories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/metadata.repository.ts",
+      "line": 65,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/metadata.repository.ts",
+      "line": 81,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/metadata.repository.ts",
+      "line": 102,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/metadata.repository.ts",
+      "line": 127,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/metadata.repository.ts",
+      "line": 148,
+      "tables": [
+        [
+          "exif",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/move.repository.ts",
+      "line": 15,
+      "tables": [
+        [
+          "move_history",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/move.repository.ts",
+      "line": 20,
+      "tables": [
+        [
+          "move_history",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/move.repository.ts",
+      "line": 24,
+      "tables": [
+        [
+          "move_history",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/move.repository.ts",
+      "line": 28,
+      "tables": [
+        [
+          "move_history",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/partner.repository.ts",
+      "line": 14,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/partner.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/partner.repository.ts",
+      "line": 26,
+      "tables": [
+        [
+          "partners",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/partner.repository.ts",
+      "line": 34,
+      "tables": [
+        [
+          "partners",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/partner.repository.ts",
+      "line": 35,
+      "tables": [
+        [
+          "partners",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 34,
+      "tables": [
+        [
+          "asset_faces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 44,
+      "tables": [
+        [
+          "person",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 48,
+      "tables": [
+        [
+          "person",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 52,
+      "tables": [
+        [
+          "asset_faces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 69,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 92,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 102,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 116,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 130,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 149,
+      "tables": [
+        [
+          "asset_faces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 159,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 165,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 184,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 199,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 224,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 248,
+      "tables": [
+        [
+          "person",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 252,
+      "tables": [
+        [
+          "asset_faces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 259,
+      "tables": [
+        [
+          "person",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 260,
+      "tables": [
+        [
+          "person",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 266,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/person.repository.ts",
+      "line": 271,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 51,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 83,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 122,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 125,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 166,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 220,
+      "tables": [
+        [
+          "asset_faces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 256,
+      "tables": [
+        [
+          "geodata_places",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 296,
+      "tables": [
+        [
+          "smart_search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 315,
+      "tables": [
+        [
+          "smart_search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/search.repository.ts",
+      "line": 323,
+      "tables": [
+        [
+          "smart_search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 16,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 21,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 32,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 47,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 51,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/session.repository.ts",
+      "line": 56,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 16,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 48,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 66,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 85,
+      "tables": [
+        [
+          "shared_links",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 89,
+      "tables": [
+        [
+          "shared_links",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/shared-link.repository.ts",
+      "line": 90,
+      "tables": [
+        [
+          "shared_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/system-metadata.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "system_metadata",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/system-metadata.repository.ts",
+      "line": 26,
+      "tables": [
+        [
+          "system_metadata",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 18,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 30,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 42,
+      "tables": [
+        [
+          "tags",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 46,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 68,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 78,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 84,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 94,
+      "tables": [
+        [
+          "assets",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 99,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 114,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 123,
+      "tables": [
+        [
+          "tags",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/tag.repository.ts",
+      "line": 124,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 27,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 38,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 43,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 48,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 59,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 64,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 68,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 72,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 96,
+      "tables": [
+        [
+          "user_metadata",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 100,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 106,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 131,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 138,
+      "tables": [
+        [
+          "assets",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 146,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 159,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "server/src/repositories/user.repository.ts",
+      "line": 160,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    }
+  ],
+  "not_counted": [
+    [
+      "server/src/repositories/search.repository.ts",
+      139
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      181
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      237
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      239
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      277
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      316
+    ],
+    [
+      "server/src/repositories/search.repository.ts",
+      327
+    ],
+    [
+      "server/src/repositories/map.repository.ts",
+      211
+    ]
+  ]
+}

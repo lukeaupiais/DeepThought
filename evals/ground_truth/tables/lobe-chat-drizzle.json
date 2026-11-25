@@ -1,0 +1,1129 @@
+{
+  "repo": "https://github.com/lobehub/lobe-chat",
+  "commit": "39bd969d6fc32d48035cf3aadb7d91f55108d172",
+  "labelled_by": "read by hand: every Drizzle table access in six model files of packages/database (src/models/apiKey.ts, aiProvider.ts, asyncTask.ts, chunk.ts, session.ts, thread.ts). Their tables are declared with pgTable across about 120 files under src/schemas and imported through the schemas index. An access is labelled on the line where the table is passed: select().from(t) and the join methods (innerJoin, leftJoin and the like) are READS of t, including a select used as a subquery; insert(t), update(t) and delete(t) are WRITES of t only; db.query.t.findFirst/findMany (the relational API, on db or a transaction) is READS of t on the line naming t. Column references (t.id) and sql`` fragments that name no other table are not accesses. These files use no relational with: clauses. Array.from calls are not accesses. The labels are a sample of the package, so other lines are not counted.",
+  "scope": "labelled",
+  "accesses": [
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 66,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 83,
+      "tables": [
+        [
+          "ai_models",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 86,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 91,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 95,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 112,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 120,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 127,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 150,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 173,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 183,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 197,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 235,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 245,
+      "tables": [
+        [
+          "ai_providers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/aiProvider.ts",
+      "line": 286,
+      "tables": [
+        [
+          "ai_providers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 21,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 75,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 102,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 107,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 126,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 127,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 167,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 179,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 197,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 205,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/apiKey.ts",
+      "line": 213,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 38,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 51,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 55,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 61,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 91,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 119,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 130,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 148,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 154,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 170,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 212,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 253,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 283,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 336,
+      "tables": [
+        [
+          "async_tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/asyncTask.ts",
+      "line": 351,
+      "tables": [
+        [
+          "async_tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 39,
+      "tables": [
+        [
+          "chunks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 56,
+      "tables": [
+        [
+          "file_chunks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 64,
+      "tables": [
+        [
+          "unstructured_chunks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 71,
+      "tables": [
+        [
+          "chunks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 77,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 78,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 89,
+      "tables": [
+        [
+          "chunks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 96,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 113,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 114,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 130,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 131,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 148,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 159,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 187,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 188,
+      "tables": [
+        [
+          "embeddings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 189,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 190,
+      "tables": [
+        [
+          "files",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 234,
+      "tables": [
+        [
+          "chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 235,
+      "tables": [
+        [
+          "embeddings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 236,
+      "tables": [
+        [
+          "file_chunks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/chunk.ts",
+      "line": 237,
+      "tables": [
+        [
+          "files",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 48,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 49,
+      "tables": [
+        [
+          "agents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 67,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 68,
+      "tables": [
+        [
+          "agents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 101,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 102,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 103,
+      "tables": [
+        [
+          "agents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 104,
+      "tables": [
+        [
+          "session_groups",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 141,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 149,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 150,
+      "tables": [
+        [
+          "agents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 151,
+      "tables": [
+        [
+          "session_groups",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 162,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 193,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 229,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 249,
+      "tables": [
+        [
+          "agents",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 280,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 296,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 308,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 333,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 341,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 348,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 353,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 374,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 382,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 389,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 394,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 413,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 418,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 420,
+      "tables": [
+        [
+          "agents",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 421,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 431,
+      "tables": [
+        [
+          "agents_to_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 443,
+      "tables": [
+        [
+          "agents",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 462,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 468,
+      "tables": [
+        [
+          "topics",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 473,
+      "tables": [
+        [
+          "messages",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/session.ts",
+      "line": 484,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 93,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 107,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 111,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 117,
+      "tables": [
+        [
+          "threads",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 130,
+      "tables": [
+        [
+          "threads",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 131,
+      "tables": [
+        [
+          "messages",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 146,
+      "tables": [
+        [
+          "agent_operations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 166,
+      "tables": [
+        [
+          "threads",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 186,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 215,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 241,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "src/models/thread.ts",
+      "line": 259,
+      "tables": [
+        [
+          "threads",
+          "WRITES"
+        ]
+      ]
+    }
+  ],
+  "not_counted": []
+}

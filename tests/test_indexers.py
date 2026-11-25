@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 FAKE = textwrap.dedent(
     """\
     #!{python}
-    import os, sys
+    import json, os, sys
     sys.path.insert(0, {src!r})
     from deepthought._scip import scip_pb2
     argv = sys.argv[1:]
@@ -30,7 +31,13 @@ FAKE = textwrap.dedent(
     index = scip_pb2.Index()
     index.metadata.tool_info.name = os.environ["FAKE_NAME"]
     index.metadata.tool_info.version = os.environ["FAKE_VERSION"]
-    for path in reversed(os.environ["FAKE_DOCUMENTS"].split(",")):
+    documents = os.environ["FAKE_DOCUMENTS"].split(",")
+    if argv[-1].endswith("tsconfig.json"):
+        # A pass over chosen files: its project names them, absolute.
+        with open(argv[-1]) as config:
+            project = json.load(config)
+        documents = [os.path.relpath(f) for f in project["files"]] + documents
+    for path in reversed(documents):
         document = index.documents.add()
         document.relative_path = path
         for line in (0,):
@@ -166,6 +173,63 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
         self.assertFalse((self.root / "tsconfig.json").exists())
 
+    def test_files_outside_every_tsconfig_get_a_second_pass(self):
+        (self.root / "tsconfig.json").write_text("{}")
+        (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "deno.ts").write_text("export const b = 1;\n")
+        self.fake("scip-typescript")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("typescript",),
+            environ=self.environ(
+                FAKE_NAME="scip-typescript",
+                FAKE_VERSION="0.6.2",
+                FAKE_DOCUMENTS="web.ts",
+            ),
+        )
+        self.assertEqual(report["uncovered"], 0)
+        self.assertEqual(
+            report["coverage"]["scripts/deno.ts"],
+            {
+                "language": "typescript",
+                "status": "covered",
+                "indexer": "scip-typescript",
+                "pass": "outside_tsconfig",
+            },
+        )
+        self.assertNotIn("pass", report["coverage"]["web.ts"])
+        first, second = report["runs"]
+        self.assertEqual((first["documents"], second["documents"]), (1, 1))
+        receipt = indexers.validate_receipt(self.root, second["index"])
+        self.assertEqual(receipt["documents"], ["scripts/deno.ts"])
+        self.assertEqual(
+            receipt["producer"]["project"],
+            {
+                "compilerOptions": {
+                    "allowImportingTsExtensions": True,
+                    "allowJs": True,
+                    "noEmit": True,
+                },
+                "extends": "tsconfig.json",
+                "files": ["scripts/deno.ts"],
+            },
+        )
+        # The passes cover disjoint files, so the scip tool reads both.
+        import asyncio
+
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        tool = ScipAnalysisTool(
+            self.root, index_paths=[first["index"], second["index"]]
+        )
+        self.assertEqual(asyncio.run(tool.analyze("repo")).metadata.files_processed, 2)
+        with self.assertRaisesRegex(ValueError, "scip-typescript"):
+            indexers.run_indexer(
+                indexers.INDEXERS["scip-python"], self.root, self.out / "p", files=[]
+            )
+
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
             index = scip_pb2.Index()
@@ -249,6 +313,103 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertIn("indexer_not_installed", result.stderr)
         self.assertEqual(json.loads(result.stdout)["uncovered"], 2)
+
+    def index_args(self, **values):
+        from argparse import Namespace
+
+        return Namespace(
+            **{
+                "workspace": self.root,
+                "language": ["python"],
+                "include": None,
+                "exclude": None,
+                "repository_id": "repo",
+                **values,
+            }
+        )
+
+    def test_default_index_fails_only_when_an_indexer_fails(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        from deepthought.graph_cli import index_scip
+
+        old = os.environ.copy()
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update({"PATH": ""})
+        os.environ.pop("DEEPTHOUGHT_SCIP_PYTHON", None)
+        stderr = StringIO()
+        with (
+            redirect_stderr(stderr),
+            self.assertRaisesRegex(ValueError, "2 source files have no SCIP index"),
+        ):
+            index_scip(self.index_args(), self.out)
+        self.assertIn("indexer_not_installed", stderr.getvalue())
+        # A file the installed indexer leaves out is named and parser-bound.
+        self.fake("scip-python")
+        os.environ.update(self.environ())
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            report, indexes = index_scip(self.index_args(), self.out)
+        self.assertIn("src/pkg/b.py: no SCIP index (not_in_index)", stderr.getvalue())
+        self.assertEqual(report["uncovered"], 1)
+        self.assertEqual([i.coverage[0].file for i, _ in indexes], ["src/pkg/a.py"])
+        # Files the run does not analyze are not counted.
+        with redirect_stderr(StringIO()):
+            report, _ = index_scip(self.index_args(include=["src/pkg/a.py"]), self.out)
+        self.assertEqual(report["uncovered"], 0)
+        # A run over languages no indexer serves indexes nothing.
+        self.assertEqual(
+            index_scip(self.index_args(language=["rust"]), self.out), (None, [])
+        )
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-python"])
+    and importlib.util.find_spec("tree_sitter_python"),
+    "Install scip-python and the python extra",
+)
+class DefaultIndexTest(unittest.TestCase):
+    def test_tree_sitter_calls_come_from_the_pinned_indexer(self):
+        import asyncio
+        from argparse import Namespace
+
+        from deepthought.analysis_tools.tree_sitter import TreeSitterTool
+        from deepthought.graph_cli import index_scip
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "work"
+            (root / "pkg").mkdir(parents=True)
+            (root / "pkg" / "__init__.py").write_text("")
+            (root / "pkg" / "a.py").write_text("def helper():\n    return 1\n")
+            (root / "pkg" / "b.py").write_text(
+                "from pkg.a import helper as h\n\n\ndef run():\n    return h()\n"
+            )
+            args = Namespace(
+                workspace=root,
+                language=["python"],
+                include=None,
+                exclude=None,
+                repository_id="repo",
+            )
+            report, scip_indexes = index_scip(args, Path(scratch) / "out")
+            self.assertEqual(report["uncovered"], 0)
+            output = asyncio.run(
+                TreeSitterTool(root).analyze(
+                    "repo", languages={"python"}, scip_indexes=scip_indexes
+                )
+            )
+        calls = [r for r in output.relationships if r.type == "CALLS"]
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(
+            calls[0]
+            .target_match["qualified_name"]
+            .startswith("repo::pkg/a.py::helper::")
+        )
+        self.assertEqual(calls[0].properties["producer"], "scip-python@0.6.8")
+        self.assertEqual(
+            calls[0].properties["receipt"], report["runs"][0]["receipt_sha256"]
+        )
 
 
 if __name__ == "__main__":
