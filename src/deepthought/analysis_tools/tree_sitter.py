@@ -101,64 +101,6 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
-                import_rules.TYPESCRIPT_RELATIVE_MODULE,
-                "resolved",
-                "A relative specifier resolves to an analyzed file in TypeScript's "
-                "extension and index lookup order, then to JavaScript sources as "
-                "with allowJs; package.json files are not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_RELATIVE_FILE,
-                "resolved",
-                "A relative specifier with a JavaScript extension names an "
-                "analyzed file at exactly that path.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_EXTENSIONLESS_MODULE,
-                "pattern_matched",
-                "An extensionless relative specifier matches an analyzed file by "
-                "the bundler/CommonJS lookup (.js, .jsx, .mjs, .cjs, then index); "
-                "Node ES modules would not resolve it, and bundler config is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.TYPESCRIPT_PATH_ALIAS,
-                "resolved",
-                "A bare specifier matches a compilerOptions.paths pattern of the "
-                "nearest tsconfig.json or jsconfig.json (exact, else the longest "
-                "wildcard prefix) and a target resolves to an analyzed file in "
-                "TypeScript's lookup order, a directory through its package.json "
-                "typings, types and main; include, exclude and extended configs "
-                "are not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_PATH_ALIAS,
-                "pattern_matched",
-                "A JavaScript file's bare specifier resolves through the nearest "
-                "jsconfig.json or tsconfig.json paths as TypeScript resolves it; "
-                "the runtime resolves it only through a matching bundler alias, "
-                "which is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.SCRIPT_DECLARATION_SOURCE,
-                "pattern_matched",
-                "A path alias reaches a directory whose package.json typings or "
-                "types names a declaration file that is not analyzed; the link "
-                "is to the JavaScript file of the same name beside it, which the "
-                "declaration file describes by convention.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
                 import_rules.GO_MODULE_PACKAGE,
                 "resolved",
                 "A Go import path inside the importing file's own module (the "
@@ -359,12 +301,6 @@ _CALL_RULE_TEXT = {
     "or as 'module.name', names a module that does not declare the name but "
     "binds it with exactly one 'from M import name'; that import is followed, "
     "step by step, to the module that declares it at top level.",
-    call_rules.CALL_JS_REEXPORT: "A JavaScript or TypeScript callee bound by "
-    "an import, bare or as 'module.name', names a module that does not "
-    "declare the name but re-exports it with 'export { name } from' (aliases "
-    "applied) or, failing that, 'export * from'; each step is followed to the "
-    "module that declares it. Default exports are not followed, and a name "
-    "several star exports give is ambiguous.",
     call_rules.CALL_JS_STATIC_METHOD: "A JavaScript or TypeScript callee "
     "'C.m' whose C is the class declared where the call's scopes see C, or "
     "the one class a named import binds to C (followed as for an imported "

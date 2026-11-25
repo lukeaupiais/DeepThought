@@ -1617,17 +1617,11 @@ def score_imports(result, truth, workspace, directory=False, examples=10):
     target: found when an import spanning the line links to one of them.
     """
     from deepthought.imports import resolve_imports
-    from deepthought.ts_modules import _LANGUAGES, bind_imports, compiler_imports
 
     expected, indexed = truth
     # JavaScript and TypeScript imports as the engine resolves them: by the
     # TypeScript compiler (deepthought.ts_modules).
-    scripts = sorted(c.file for c in result.coverage if c.language in _LANGUAGES)
     resolutions = resolve_imports(result)
-    if scripts and result.compiler_modules is None:
-        resolutions = bind_imports(
-            result, workspace, compiler_imports(workspace, scripts), resolutions
-        )
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()

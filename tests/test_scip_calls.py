@@ -12,8 +12,9 @@ import unittest
 import deepthought
 import deepthought.calls
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
-from deepthought.engine import analyze_repository
+from deepthought.engine import analyze_repository as _analyze_repository
 from deepthought import scip_calls
+from deepthought.ts_modules import with_compiler_modules
 import test_scip_tool as fixtures
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -59,6 +60,12 @@ PY = (
 )
 BUILTIN = "scip-python python builtins 3 "
 EXTERNAL = "scip-typescript npm typescript 5 lib/Console#log()."
+
+
+def analyze_repository(root, **options):
+    """The engine's analysis, with the compiler's JavaScript and TypeScript
+    modules attached as the analysis tool attaches them."""
+    return with_compiler_modules(_analyze_repository(root, **options), root)
 
 
 def _column(line, text, encoding, start=0):
@@ -228,13 +235,14 @@ class ScipCallTests(unittest.TestCase):
                         scip_calls.SCIP_CALL_OCCURRENCE,
                         tool,
                     ),
-                    # b.ts is not covered: the parser's import rule links it.
+                    # b.ts is not covered. It imports `helper`, which a.ts
+                    # exports only as `aliasName`: the compiler binds nothing.
                     (
                         "b.ts",
                         "helper",
-                        "linked",
-                        ("helper", 2),
-                        "tree-sitter.call-imported-name",
+                        "unresolved",
+                        "imported_name_not_declared",
+                        None,
                         None,
                     ),
                 ],

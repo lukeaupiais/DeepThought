@@ -197,6 +197,9 @@ class CompilerCallTests(unittest.TestCase):
             ),
             self.root,
         )
+        # Attached once: a result that carries the compiler's view is
+        # returned as it is, without running the compiler again.
+        self.assertIs(ts_modules.with_compiler_modules(result, self.root), result)
         imports = {i.id: i for i in result.imports}
         # The IMPORTS edge names the declaration file the compiler resolves;
         # only calls run the implementation beside it.

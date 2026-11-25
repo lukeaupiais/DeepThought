@@ -20,6 +20,7 @@ import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from .. import ts_modules
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
@@ -970,6 +971,8 @@ class DataContractTool(AnalysisTool):
             max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         scan = scan_components(root, include=include, exclude=exclude)
         packages = {c: c for c in scan.components if c.kind in PACKAGE_KINDS}
         cache = {}

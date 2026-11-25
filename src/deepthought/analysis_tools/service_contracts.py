@@ -28,6 +28,7 @@ from ..data_contracts import (
     resolve_script_alias,
     resolve_script_module,
 )
+from .. import ts_modules
 from ..engine import analyze_repository
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
@@ -1861,6 +1862,8 @@ class ServiceContractTool(AnalysisTool):
             exclude=() if skip_patterns is None else tuple(skip_patterns),
         )
         root = self.repo_path.resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
         graphql_resolvers = []
