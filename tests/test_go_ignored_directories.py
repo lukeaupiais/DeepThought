@@ -18,6 +18,11 @@ FILES = {
     "_examples/broken/main.go": (
         'package main\n\nimport "example.com/missing/x"\n\nfunc main() { x.Y() }\n'
     ),
+    # A testdata package other packages import, as grpc-go's is.
+    "testdata/data.go": (
+        'package testdata\n\nimport "example.com/m/lib"\n\n'
+        "func Path() string { return lib.Hello() }\n"
+    ),
     "_tools/go.mod": "module example.com/tools\n\ngo 1.22\n",
     "_tools/t.go": "package tools\n\nfunc T() {}\n",
 }
@@ -61,19 +66,24 @@ class IgnoredDirectoriesTest(unittest.TestCase):
                 coverage["_examples/broken/main.go"]["ignored_directory_pass"],
                 "does_not_load",
             )
+            self.assertEqual(coverage["testdata/data.go"]["pass"], "ignored_directory")
             self.assertEqual(indexers.failed_files(report), {})
             index = scip_pb2.Index()
             index.ParseFromString(
                 (out / "scip-go-ignored-directories.scip").read_bytes()
             )
-            (document,) = index.documents
-            self.assertEqual(document.relative_path, "_examples/hello/main.go")
-            self.assertTrue(
-                any(
-                    o.symbol.endswith("`example.com/m/lib`/Hello().")
-                    for o in document.occurrences
-                )
+            documents = {d.relative_path: d for d in index.documents}
+            self.assertEqual(
+                sorted(documents), ["_examples/hello/main.go", "testdata/data.go"]
             )
+            for document in documents.values():
+                self.assertTrue(
+                    any(
+                        o.symbol.endswith("`example.com/m/lib`/Hello().")
+                        for o in document.occurrences
+                    ),
+                    document.relative_path,
+                )
 
 
 if __name__ == "__main__":

@@ -1078,8 +1078,9 @@ def _index_workspace(
             runs.append(second)
             for path in second.documents:
                 passes[path] = (second, {"pass": "outside_tsconfig"})
-    # Packages in directories the go command's ./... skips (_examples/hello)
-    # still compile when named: a scip-go pass of their own names each one
+    # Packages in directories the go command's ./... skips (_examples/hello,
+    # testdata) still compile when named; grpc-go imports its testdata
+    # package from dozens of tests: a scip-go pass of their own names each one
     # the go command loads without errors (scip-go fails a whole run on one
     # that does not), so a broken example costs only its own files.
     ignored_pass = {}
@@ -1094,7 +1095,8 @@ def _index_workspace(
             and go_module_of(path, list(go_runs)) == module
             and path not in run.documents
             and any(
-                part.startswith("_") for part in Path(path[len(prefix) :]).parent.parts
+                part.startswith("_") or part == "testdata"
+                for part in Path(path[len(prefix) :]).parent.parts
             )
         )
         if not candidates:
