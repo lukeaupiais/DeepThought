@@ -192,7 +192,8 @@ _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 def fixture_uses(sources):
     """Every fixture use in ``sources`` (repository-relative path to Python
-    text), in file and line order. Files that do not parse are skipped."""
+    text), once each, in file and line order. Files that do not parse are
+    skipped."""
     trees = {}
     for path, text in sources.items():
         try:
@@ -303,4 +304,5 @@ def fixture_uses(sources):
                             for d in item.decorator_list
                         )
                         consume(item, path, node, not static)
-    return sorted(uses, key=lambda u: (u.consumer, u.line, u.name))
+    # A name repeated in one usefixtures mark is one use.
+    return sorted(set(uses), key=lambda u: (u.consumer, u.line, u.name))
