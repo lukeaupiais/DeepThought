@@ -17,6 +17,7 @@ from fnmatch import fnmatchcase
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
+from . import deploy_facts
 from .models import is_relative_file
 from .syntax import extract_go_module
 
@@ -29,8 +30,8 @@ MANIFESTS = {
     "pom.xml": "maven_module",
 }
 # Compose files: compose.yaml, docker-compose.yml and their variants such as
-# compose.override.yaml or docker-compose.prod.yml; each declares services.
-COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:\.[A-Za-z0-9_.-]+)?\.ya?ml$")
+# compose.override.yaml, docker-compose.prod.yml or docker-compose-kafka.yml.
+COMPOSE_FILE = deploy_facts.COMPOSE_FILE
 PACKAGE_KINDS = frozenset(MANIFESTS.values())
 DEPLOYMENT_KINDS = frozenset({"compose_service", "k8s_workload", "k8s_service"})
 COMPONENT_KINDS = PACKAGE_KINDS | DEPLOYMENT_KINDS
@@ -72,7 +73,7 @@ class Component:
         if self.kind == "compose_service":
             valid = bool(COMPOSE_FILE.match(file_name))
         elif self.kind in DEPLOYMENT_KINDS:
-            valid = bool(YAML_FILE.search(file_name))
+            valid = bool(YAML_FILE.search(file_name)) or file_name == "Kustomization"
         else:
             valid = MANIFESTS.get(file_name) == self.kind
         if not valid:
@@ -151,12 +152,9 @@ def extract_components(manifest: str, content: bytes) -> list[Component] | None:
     - ``go.mod``: the ``module`` directive's path.
     - ``Cargo.toml``: ``[package] name``; a virtual workspace declares nothing.
     - ``pom.xml``: the project's own ``artifactId``.
-    """
-    if COMPOSE_FILE.match(PurePosixPath(manifest).name):
-        from .deployments import extract_compose
 
-        found = extract_compose(manifest, content)
-        return None if found is None else found[0]
+    Compose files are loaded per project, not per file (see scan_components).
+    """
     kind = MANIFESTS.get(PurePosixPath(manifest).name)
     if kind is None:
         raise ValueError("Unsupported manifest file")
@@ -246,6 +244,15 @@ def scan_components(
     components, manifests, diagnostics = [], [], []
     dependencies, coordinates, artifacts = [], [], []
     kubernetes = deployments.yaml_available()
+    # Compose projects, charts and kustomizations as their tools render them.
+    facts = deploy_facts.collect(root, skipped=SKIPPED_DIRECTORIES)
+    compose, compose_errors = deployments.compose_declarations(facts)
+    rendered = {r.source: r for r in facts.renderings}
+    unrendered = {
+        (tool, directory): message
+        for directory, tool, message in facts.errors
+        if tool in ("helm", "kustomize")
+    }
 
     def directory_error(exc):
         diagnostics.append(("", "Could not enumerate a selected directory"))
@@ -259,7 +266,7 @@ def scan_components(
                 kubernetes
                 and name not in MANIFESTS
                 and not COMPOSE_FILE.match(name)
-                and YAML_FILE.search(name)
+                and (YAML_FILE.search(name) or name == "Kustomization")
             )
             if name not in MANIFESTS and not COMPOSE_FILE.match(name):
                 if not other_yaml:
@@ -286,9 +293,41 @@ def scan_components(
                 diagnostics.append((relative, "Manifest could not be read"))
                 continue
             if other_yaml:
-                # Any other YAML file may hold Kubernetes objects or a
-                # Skaffold config; one that does not, or does not parse
-                # (for example a Helm template), is not a manifest.
+                # A chart's Chart.yaml and a kustomization file give the
+                # objects their tool renders; the other files those tools
+                # read are not manifests of their own. Any other YAML file
+                # may hold Kubernetes objects or a Skaffold config; one that
+                # does not, or does not parse, is not a manifest.
+                directory_of = PurePosixPath(relative).parent.as_posix()
+                directory_of = "" if directory_of == "." else directory_of
+                tool = (
+                    "helm"
+                    if name == "Chart.yaml"
+                    else "kustomize"
+                    if name in deploy_facts.KUSTOMIZATION_FILES
+                    else None
+                )
+                if relative in rendered:
+                    found = deployments.kubernetes_objects(
+                        relative, list(rendered[relative].documents)
+                    )
+                    manifests.append((relative, sha256(content).hexdigest()))
+                    if found is not None:
+                        components.extend(found[0])
+                        artifacts.extend(found[1])
+                    continue
+                if (tool, directory_of) in unrendered:
+                    manifests.append((relative, sha256(content).hexdigest()))
+                    diagnostics.append(
+                        (
+                            relative,
+                            f"{tool} could not render it: "
+                            + unrendered[(tool, directory_of)][:500],
+                        )
+                    )
+                    continue
+                if facts.tool_input(relative):
+                    continue
                 if len(content) > max_file_bytes:
                     continue
                 found = deployments.extract_kubernetes(relative, content)
@@ -303,6 +342,24 @@ def scan_components(
                 diagnostics.append((relative, "Manifest exceeds max_file_bytes"))
                 continue
             manifests.append((relative, sha256(content).hexdigest()))
+            if COMPOSE_FILE.match(name):
+                if relative in compose:
+                    services, depends_on = compose[relative]
+                    components.extend(services)
+                    dependencies.extend(depends_on)
+                elif relative in compose_errors:
+                    diagnostics.append(
+                        (
+                            relative,
+                            "Compose could not load it: "
+                            + compose_errors[relative][:500],
+                        )
+                    )
+                else:
+                    diagnostics.append(
+                        (relative, "Manifest is not valid or declares no name")
+                    )
+                continue
             try:
                 declared = extract_components(relative, content)
             except ImportError as exc:  # tomli on Python 3.10, or PyYAML
