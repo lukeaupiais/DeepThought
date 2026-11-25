@@ -20,6 +20,7 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
+from ..signature_types import signature_types
 from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -69,6 +70,18 @@ UNLINKED_CALL_RULE = register_rule(
         "The parse tree places this call inside the declaration (or at the top "
         "level of the file); no call rule links it to exactly one declaration, "
         "for the reason the call site records.",
+    )
+)
+
+SIGNATURE_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "scip.signature-type-reference",
+        "resolved",
+        "A SCIP index records a reference inside the declaration's signature "
+        "(the parse tree's span of the declaration up to its body: receiver, "
+        "type parameters, parameters with their annotations and defaults, "
+        "result type) to a symbol it defines at a type declaration of the "
+        "repository (class, interface, struct, type alias, enum).",
     )
 )
 
@@ -1031,6 +1044,25 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        named_types = signature_types(result, scip_indexes, self.repo_path)
+        for fact in named_types:
+            relationships.append(
+                RelationshipData(
+                    "SIGNATURE_USES",
+                    [kinds[fact.definition_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[fact.definition_id],
+                        "repo_url": repo_url,
+                    },
+                    [kinds[fact.type_id], "Symbol"],
+                    {"qualified_name": qualified[fact.type_id], "repo_url": repo_url},
+                    {
+                        "line": fact.line,
+                        "column": fact.column,
+                        **_evidence(SIGNATURE_TYPE_RULE),
+                    },
+                )
+            )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
         for resolution in base_rules.resolve_supertypes(result):
@@ -1165,6 +1197,7 @@ class TreeSitterTool(AnalysisTool):
                     for resolver, counts in sorted(resolver_counts.items())
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "signature_types": len(named_types),
                 "go_implementations": len(implementations),
                 "source_context": {
                     "declarations": len(sources),

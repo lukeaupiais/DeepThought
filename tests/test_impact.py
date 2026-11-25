@@ -30,6 +30,7 @@ READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
 )
 JAVA_READY = importlib.util.find_spec("tree_sitter_java")
 GO_READY = importlib.util.find_spec("tree_sitter_go")
+TS_READY = importlib.util.find_spec("tree_sitter_typescript")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
@@ -102,6 +103,37 @@ GRPC_CLIENT = {
     "func main() {\n"
     "\tclient := pb.NewGuideClient(nil)\n"
     "\t_ = report(client)\n"
+    "}\n",
+}
+# The same client in TypeScript, against grpc-tools' generated declarations:
+# SCIP resolves the stub call and the types each signature names.
+TS_GRPC_CLIENT = {
+    "package.json": '{"name": "guide", "version": "1.0.0", "private": true}\n',
+    "tsconfig.json": '{"compilerOptions": {"strict": true}, "include": ["**/*.ts"]}\n',
+    "pb/guide.proto": GRPC_CLIENT["pb/guide.proto"],
+    "pb/guide_pb.d.ts": "export class Point {\n  getX(): number;\n}\n"
+    "export class Feature {\n  getName(): string;\n}\n",
+    "pb/guide_grpc_pb.d.ts": 'import { Point, Feature } from "./guide_pb";\n'
+    "export class GuideClient {\n"
+    "  constructor(address: string, credentials: unknown);\n"
+    "  getFeature(request: Point, callback: "
+    "(error: Error | null, response: Feature) => void): void;\n"
+    "}\n",
+    "client.ts": 'import * as services from "./pb/guide_grpc_pb";\n'
+    'import { Point, Feature } from "./pb/guide_pb";\n'
+    "\n"
+    'const client = new services.GuideClient("localhost:50051", null);\n'
+    "\n"
+    "export function lookup(point: Point, done: (f: Feature) => void): void {\n"
+    "  client.getFeature(point, (error, feature) => done(feature));\n"
+    "}\n"
+    "\n"
+    "export function named(x: number): void {\n"
+    "  lookup(new Point(), (f) => console.log(f.getName(), x));\n"
+    "}\n"
+    "\n"
+    "export function report(): void {\n"
+    "  named(1);\n"
     "}\n",
 }
 # Two services joined by one HTTP contract: StatsReader.read requests the
@@ -748,6 +780,45 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(actions["named"], (2, "must_change"))
         self.assertEqual(actions["report"], (3, "retest"))
         self.assertEqual(actions["main"], (4, "retest"))
+
+    @unittest.skipUnless(TS_READY, "Provision the typescript grammar")
+    async def test_typescript_contract_messages_come_from_the_stub_signature(self):
+        from deepthought.analysis_tools.service_contracts import ServiceContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in TS_GRPC_CLIENT.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(
+                repo, languages={"typescript"}
+            )
+            contracts = await ServiceContractTool(Path(directory)).analyze(repo)
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, contracts], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        method = next(n.properties for n in contracts.nodes if "GrpcMethod" in n.labels)
+        self.assertEqual(
+            (method["request_message"], method["response_message"]),
+            ("guide.Point", "guide.Feature"),
+        )
+        self.assertNotIn("message_types", method)
+        impact = await self.service.get_contract_impact(
+            method["qualified_name"], repo, snapshot_id=snapshot, max_depth=5
+        )
+        actions = {
+            item["element"]["name"]: (item["depth"], item["action"])
+            for item in impact["items"]
+            if item["element"]["name"]
+        }
+        # named builds the Point lookup's signature takes; report only calls
+        # named, whose signature names no message.
+        self.assertEqual(actions["lookup"], (1, "must_change"))
+        self.assertEqual(actions["named"], (2, "must_change"))
+        self.assertEqual(actions["report"], (3, "retest"))
 
     async def test_contract_impact_action_is_unknown_without_message_types(self):
         repo = "impact-" + uuid4().hex
