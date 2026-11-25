@@ -610,6 +610,7 @@ class TreeSitterTool(AnalysisTool):
         self._definitions: dict[str, dict] = {}
         self.last_analysis = None
         self.last_reuse = {}
+        self.last_scip_report = None
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -649,6 +650,27 @@ class TreeSitterTool(AnalysisTool):
             )
         )
 
+    def _index(self, repo_url, languages, file_patterns, skip_patterns):
+        import shutil
+        import tempfile
+
+        from ..indexers import index_for_analysis
+
+        directory = tempfile.mkdtemp(prefix="deepthought-scip-")
+        try:
+            # Ingested indexes live in memory; the files are not needed after.
+            self.last_scip_report, indexes = index_for_analysis(
+                self.repo_path,
+                directory,
+                repository_id=repo_url,
+                languages=None if languages is None else sorted(languages),
+                include=file_patterns,
+                exclude=skip_patterns,
+            )
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+        return indexes
+
     async def analyze(
         self,
         repo_url,
@@ -656,14 +678,17 @@ class TreeSitterTool(AnalysisTool):
         file_patterns=None,
         skip_patterns=None,
         previous=None,
-        scip_indexes=(),
+        scip_indexes=None,
     ):
         """Analyze the workspace; ``previous`` is an earlier AnalysisResult.
 
-        ``scip_indexes`` are pairs of an ingested SCIP index
-        (``deepthought.ingest_scip``, with the workspace's file paths) and the
-        digest of its receipt: call sites in the files they cover take their
-        targets from them (``deepthought.scip_calls``).
+        Call sites in the files a SCIP index covers take their targets from it
+        (``deepthought.scip_calls``). By default the analysis first runs the
+        pinned indexers (``deepthought.indexers.index_for_analysis``) into a
+        scratch directory, and a missing or failing indexer stops it; the
+        report is kept on ``last_scip_report``. ``scip_indexes`` instead passes
+        indexes a caller already ran: pairs of an ingested index (with the
+        workspace's file paths) and the digest of its receipt.
 
         Unchanged files reuse ``previous`` facts (see analyze_repository); the
         output equals a full run. The analysis and reuse counts are kept on
@@ -687,6 +712,14 @@ class TreeSitterTool(AnalysisTool):
         # them, are the TypeScript compiler's.
         result = ts_modules.with_compiler_modules(result, self.repo_path)
         self.last_analysis = result
+        self.last_scip_report = None
+        if scip_indexes is None and result.status == "failed":
+            # Nothing was parsed (no grammars installed): no call to bind.
+            scip_indexes = ()
+        if scip_indexes is None:
+            scip_indexes = self._index(
+                repo_url, languages, file_patterns, skip_patterns
+            )
         # Preserve the original engine's Repository -> File -> declaration
         # projection. Extraction still belongs to the unchanged SDK parser.
         repository_name = f"{repo_url}::repository"
