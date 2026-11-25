@@ -1,0 +1,187 @@
+"""The project's declared Python dependencies, installed for scip-python.
+
+scip-python (pyright) types a call into a library only when that library is
+importable: without it, ``session.add(obj)`` on a SQLAlchemy session has no
+type and binds nowhere. Before scip-python runs, the dependencies the project
+declares are installed into a scratch directory, from wheels only, so no
+package's build or install code runs. The indexer's interpreter is an empty
+virtual environment, so packages of the machine running the engine never
+reach the index.
+
+Declared means the workspace root's ``requirements*.txt`` files,
+``pyproject.toml`` ``[project]`` dependencies and optional dependencies, and
+``setup.cfg`` ``install_requires`` and ``extras_require``. The project itself
+is never installed. pip reads its usual configuration (``PIP_INDEX_URL``,
+``PIP_FIND_LINKS``, ``PIP_NO_INDEX``), so an offline mirror works unchanged.
+"""
+
+import configparser
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# A requirement line pip can take from a wheel index: a name, optional
+# extras, specifiers and markers. URLs, paths and editable installs are not.
+_REQUIREMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?\s*([<>=!~;(@ ]|$)")
+
+
+def requirement_files(root):
+    root = Path(root)
+    return sorted(
+        p.name
+        for p in root.iterdir()
+        if p.is_file() and p.name.startswith("requirements") and p.suffix == ".txt"
+    )
+
+
+def declared(root):
+    """The requirement strings the workspace root declares, in a fixed order."""
+    root = Path(root)
+    found = []
+    for name in requirement_files(root):
+        found += _requirement_lines(root / name, root)
+    found += _pyproject(root / "pyproject.toml")
+    found += _setup_cfg(root / "setup.cfg")
+    return sorted(set(found))
+
+
+def _requirement_lines(path, root, seen=None):
+    seen = set() if seen is None else seen
+    if path in seen or not path.is_file():
+        return []
+    seen.add(path)
+    lines = []
+    for raw in path.read_text(errors="replace").splitlines():
+        line = raw.split(" #")[0].strip()
+        if line.startswith(("-r ", "--requirement ")):
+            included = (path.parent / line.split(None, 1)[1]).resolve()
+            if included.is_relative_to(root.resolve()):
+                lines += _requirement_lines(included, root, seen)
+        elif line and not line.startswith(("#", "-")) and _REQUIREMENT.match(line):
+            if "://" not in line and " @ " not in line:
+                lines.append(line)
+    return lines
+
+
+def _pyproject(path):
+    if not path.is_file():
+        return []
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10
+        return []
+    try:
+        project = tomllib.loads(path.read_text()).get("project", {})
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return []
+    found = list(project.get("dependencies", []))
+    for extra in project.get("optional-dependencies", {}).values():
+        found += extra
+    return [r for r in found if isinstance(r, str) and _REQUIREMENT.match(r)]
+
+
+def _setup_cfg(path):
+    if not path.is_file():
+        return []
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(path.read_text())
+    except (configparser.Error, UnicodeDecodeError):
+        return []
+    found = []
+    if parser.has_option("options", "install_requires"):
+        found += parser.get("options", "install_requires").splitlines()
+    if parser.has_section("options.extras_require"):
+        for _, value in parser.items("options.extras_require"):
+            found += value.splitlines()
+    return [r.strip() for r in found if r.strip() and _REQUIREMENT.match(r.strip())]
+
+
+def install(root, scratch, *, environ=None, timeout=600):
+    """Install the declared dependencies under ``scratch``.
+
+    Returns ``{"status", "python", "requirements", "packages", "failed",
+    "detail", "bin", "site"}``. ``status`` is ``none`` (nothing declared),
+    ``installed``, ``partial`` (some requirements have no installable wheel)
+    or ``failed`` (none could be installed, or pip is unavailable). ``bin``
+    holds the empty interpreter scip-python runs, ``site`` the packages.
+    """
+    scratch = Path(scratch)
+    env = dict(os.environ if environ is None else environ)
+    environment = scratch / "python"
+    site = scratch / "site-packages"
+    site.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(environment)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    requirements = declared(root)
+    outcome = {
+        "status": "none",
+        "python": "{}.{}.{}".format(*sys.version_info[:3]),
+        "requirements": requirements,
+        "packages": [],
+        "failed": [],
+        "detail": None,
+        "bin": str(environment / ("Scripts" if os.name == "nt" else "bin")),
+        "site": str(site),
+    }
+    if not requirements:
+        return outcome
+
+    def pip(*arguments):
+        try:
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    *arguments,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={**env, "PYTHONNOUSERSITE": "1"},
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+
+    def install_all(items):
+        return pip(
+            "install",
+            "--only-binary",
+            ":all:",
+            "--target",
+            str(site),
+            "--upgrade",
+            *items,
+        )
+
+    result = install_all(requirements)
+    if result is None or result.returncode:
+        # One requirement without a wheel must not cost the rest: each is
+        # tried alone, and the ones pip refuses are named.
+        outcome["detail"] = (
+            "pip timed out" if result is None else (result.stderr or "")[-2000:]
+        )
+        for requirement in requirements:
+            alone = install_all([requirement])
+            if alone is None or alone.returncode:
+                outcome["failed"].append(requirement)
+    listed = pip("list", "--path", str(site), "--format", "freeze")
+    if listed is not None and not listed.returncode:
+        outcome["packages"] = sorted(
+            line.strip() for line in listed.stdout.splitlines() if "==" in line
+        )
+    if outcome["failed"] == requirements:
+        outcome["status"] = "failed"
+    else:
+        outcome["status"] = "partial" if outcome["failed"] else "installed"
+    return outcome

@@ -148,10 +148,13 @@ class IndexersTest(unittest.TestCase):
         # Source roots go on PYTHONPATH so src-layout imports resolve.
         argv, python_path = self.args_log.read_text().split("\n")
         self.assertIn("--project-version 0", argv)
+        # The source roots, then the scratch directory the project's
+        # declared dependencies are installed into.
+        *roots, site = python_path.split(os.pathsep)
         self.assertEqual(
-            python_path.split(os.pathsep),
-            [str(self.root.resolve()), str((self.root / "src").resolve())],
+            roots, [str(self.root.resolve()), str((self.root / "src").resolve())]
         )
+        self.assertTrue(site.endswith("site-packages"), site)
         receipt = indexers.validate_receipt(self.root, run["index"])
         self.assertEqual(receipt["profile"], "scip-python-v2")
         self.assertEqual(receipt["producer"]["python_path"], [".", "src"])

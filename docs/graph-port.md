@@ -2072,6 +2072,24 @@ project with workspace-relative paths, its coverage entries say
 indexes never cover the same file. On hono it covers the 75 files the first
 pass leaves out.
 
+scip-python types a call into a library only when the library is importable,
+so before it runs the project's declared dependencies are installed
+(`deepthought.python_dependencies`): the workspace root's `requirements*.txt`,
+`pyproject.toml` `[project]` dependencies and optional dependencies, and
+`setup.cfg` `install_requires` and `extras_require`. They are installed with
+`pip install --only-binary :all:` into a scratch directory, so no package's
+build or install code runs and the project itself is never installed. The
+indexer's `python` is an empty virtual environment, so the packages of the
+machine running the engine never reach the index. pip reads its usual
+settings (`PIP_INDEX_URL`, `PIP_FIND_LINKS`, `PIP_NO_INDEX`). The run and its
+receipt record `dependencies`: `status` (`none`, `installed`, `partial`,
+`failed`), the interpreter version, the declared requirements, the installed
+`name==version` set and the requirements no wheel satisfied. When any failed,
+each covered Python file's coverage entry says
+`warning: dependencies_unavailable` and is named on stderr, with the missing
+requirements; the run does not fail, since the indexer ran. With SQLModel
+declared, `session.add(obj)` resolves to SQLAlchemy's `Session#add`.
+
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
