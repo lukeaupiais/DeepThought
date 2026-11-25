@@ -51,7 +51,8 @@
       "inherits": "inherits/ky.tsv",
       "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
       "imports": "imports/ky.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language typescript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/ky.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
@@ -67,7 +68,8 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "scip-typescript index",
       "imports": "imports/hono.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language typescript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/hono.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/hono.tsv HISTORY --language typescript --revision 9075031ea46533ae3b6e5b6c11f8333d67a7d6c2"
     },
@@ -83,7 +85,8 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "git ls-files -z '*.d.ts' | xargs -0 rm && python tools/javascript_tsconfig.py . --alias preact=src/index.js --alias preact/compat=compat/src/index.js --alias preact/jsx-runtime=jsx-runtime/src/index.js --alias preact/jsx-dev-runtime=jsx-runtime/src/index.js --alias preact/debug=debug/src/index.js --alias preact/devtools=devtools/src/index.js --alias preact/hooks=hooks/src/index.js --alias preact/test-utils=test-utils/src/index.js && scip-typescript index && python tools/ground_truth.py derive . index.scip | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))' > calls.tsv",
       "imports": "imports/preact.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language javascript | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))'",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language javascript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/preact.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip calls.tsv HISTORY --language javascript --revision 1fbc07f67bd841315332cac73de8ce1ae3e8b7b5"
     },
