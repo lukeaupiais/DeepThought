@@ -2042,7 +2042,12 @@ for a private root package, since Yarn refuses to list the workspaces of
 any other ("Workspaces can only be enabled in private projects"). An npm
 workspace root that is not private (apollographql/spotify-showcase, 417
 files that used to be `indexer_failed`) is indexed one tsconfig project at a
-time. A workspace with neither
+time. `--pnpm-workspaces` runs `pnpm ls`, and pnpm 9.7 and later first
+switch to the release a package.json's `packageManager` names, downloading
+it; hono pins `pnpm@12.6.0`, and where that download failed all 460 of its
+files were `indexer_failed`. scip-typescript and every package install run
+with `npm_config_manage_package_manager_versions=false`, so the pnpm on PATH
+answers. A workspace with neither
 and no root `tsconfig.json` (JavaScript) is indexed as a project the engine
 writes in a scratch directory: `allowJs`, every file outside
 `node_modules`, recorded in the receipt as `project`. scip-typescript's own

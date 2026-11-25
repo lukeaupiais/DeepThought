@@ -290,7 +290,16 @@ def _environment(spec, root, environ, platform=None, dependencies=None):
         env["PYTHONPATH"] = os.pathsep.join(roots)
     if spec.name == "scip-go":
         env.update(_go_environment(platform or GO_PLATFORM))
+    if spec.name == "scip-typescript":
+        env.update(PNPM_ENVIRONMENT)
     return env
+
+
+# scip-typescript --pnpm-workspaces runs `pnpm ls`. pnpm 9.7 and later switch
+# to the release a package.json's packageManager names, downloading it first;
+# hono pins pnpm@12.6.0, the download failed, and every file was
+# indexer_failed. The pnpm on PATH lists the workspaces instead.
+PNPM_ENVIRONMENT = {"npm_config_manage_package_manager_versions": "false"}
 
 
 # The platform a Go module is compiled for unless a file builds only elsewhere;

@@ -120,7 +120,13 @@ def _no_scripts():
     npm runs a ``file:`` dependency's ``prepare`` script even with
     ``--ignore-scripts`` (npm 10.9); a shell that does nothing makes any
     script npm still starts a no-op."""
-    settings = {"CI": "1", "npm_config_ignore_scripts": "true"}
+    settings = {
+        "CI": "1",
+        "npm_config_ignore_scripts": "true",
+        # pnpm would otherwise download and run the release packageManager
+        # names (hono pins pnpm@12.6.0); the pnpm on PATH installs.
+        "npm_config_manage_package_manager_versions": "false",
+    }
     noop = shutil.which("true")
     if noop is not None:
         settings["npm_config_script_shell"] = noop
