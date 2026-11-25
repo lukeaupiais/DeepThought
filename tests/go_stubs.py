@@ -4,8 +4,10 @@ Each is the part of a client library's API the tests call, in a module
 directory of its own; ``go_mod`` writes a go.mod that requires the modules
 and replaces them with these directories, so the download and the
 type checker read them without the network. ``needs_go`` skips a test where
-the Go toolchain is not installed (the offline acceptance sandbox), as the
-other Go tests do.
+the Go toolchain is not installed. The toolchain is required, so the skip is
+TEMPORARY: it exists only because the offline acceptance sandbox does not yet
+provision Go. Remove it once the acceptance jobs install Go and the sandbox
+PATH carries it (#323, #344).
 """
 
 import unittest
