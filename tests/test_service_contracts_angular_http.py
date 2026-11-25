@@ -10,10 +10,8 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
-from deepthought.service_contracts.script_constants import (
-    ScriptConstants,
-    angular_defines,
-)
+from deepthought import ts_facts
+from deepthought.service_contracts.script_constants import angular_defines
 from deepthought.syntax import make_parser
 
 READY = (
@@ -200,50 +198,74 @@ class AngularHttpTests(unittest.TestCase):
         )
 
 
-def _sources(files):
-    parser = make_parser("typescript", ".ts")
+def _compiled(files, defines=()):
+    """{file: {source text of a name: value}} the TypeScript compiler gives."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text, encoding="utf-8")
+        facts = ts_facts.collect(root, list(files), defines)
     return {
-        name: (parser.parse(text.encode()), text.encode(), "typescript")
-        for name, text in files.items()
+        file: {
+            files[file].encode()[start:end].decode(): value
+            for (start, end), value in values.items()
+        }
+        for file, values in facts.values.items()
     }
 
 
-def _resolve(file, module):
-    return "src/" + module.lstrip("./") + ".ts"
+class CompilerValueTests(unittest.TestCase):
+    """What the hand-written module reader did, now the compiler's."""
 
-
-@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
-class ScriptConstantsTests(unittest.TestCase):
     def test_star_exports_that_disagree_export_nothing(self):
-        constants = ScriptConstants(
-            _sources(
-                {
-                    "src/a.ts": "export const URL = 'a'; export const ONLY = 'x';",
-                    "src/b.ts": "export const URL = 'b';",
-                    "src/index.ts": "export * from './a';\nexport * from './b';",
-                    "src/own.ts": "export * from './a';\nexport const URL = 'own';",
-                }
-            ),
-            _resolve,
+        found = _compiled(
+            {
+                "src/a.ts": "export const URL = 'a'; export const ONLY = 'x';",
+                "src/b.ts": "export const URL = 'b';",
+                "src/index.ts": "export * from './a';\nexport * from './b';",
+                "src/use.ts": "import { URL, ONLY } from './index';\nf(URL, ONLY);",
+            }
         )
-        self.assertEqual(constants.exports("src/index.ts"), {"ONLY": "x"})
-        self.assertEqual(constants.exports("src/own.ts"), {"ONLY": "x", "URL": "own"})
+        self.assertEqual(found["src/use.ts"], {"ONLY": "x"})
 
-    def test_let_is_not_exported_and_imports_shadow_globals(self):
-        constants = ScriptConstants(
-            _sources(
-                {
-                    "src/a.ts": "export let URL = 'a'; export const API = 'api';",
-                    "src/use.ts": "import { API as SERVER_API_URL } from './a';",
-                }
-            ),
-            _resolve,
-            [("src", {"SERVER_API_URL": "", "OTHER": "o"})],
+    def test_let_is_not_a_value_and_imports_shadow_globals(self):
+        found = _compiled(
+            {
+                "src/a.ts": "export let URL = 'a'; export const API = 'api';",
+                "src/g.d.ts": "declare const SERVER_API_URL: string;",
+                "src/use.ts": (
+                    "import { API as SERVER_API_URL, URL } from './a';\n"
+                    "f(SERVER_API_URL, URL);"
+                ),
+            },
+            [("src", {"SERVER_API_URL": ""})],
         )
-        self.assertEqual(constants.exports("src/a.ts"), {"API": "api"})
+        self.assertEqual(found["src/use.ts"], {"SERVER_API_URL": "api"})
+
+    def test_enums_paths_and_const_objects(self):
+        found = _compiled(
+            {
+                "tsconfig.base.json": (
+                    '{"compilerOptions": {"baseUrl": ".", '
+                    '"paths": {"@shop/shared": ["libs/shared/index.ts"]}}}'
+                ),
+                "apps/api/tsconfig.json": (
+                    '{"extends": "../../tsconfig.base.json", "include": ["*.ts"]}'
+                ),
+                "libs/shared/index.ts": (
+                    "export enum Resources { USERS = 'users' }\n"
+                    "export const ROUTES = { health: '/health' } as const;\n"
+                ),
+                "apps/api/main.ts": (
+                    "import { Resources, ROUTES } from '@shop/shared';\n"
+                    "f(Resources.USERS, ROUTES.health);"
+                ),
+            }
+        )
         self.assertEqual(
-            constants.externals("src/use.ts"),
-            {"SERVER_API_URL": "api", "OTHER": "o"},
+            found["apps/api/main.ts"],
+            {"Resources.USERS": "users", "ROUTES.health": "/health"},
         )
 
     def test_angular_defines(self):
