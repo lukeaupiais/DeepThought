@@ -874,8 +874,11 @@ def canonical_bytes(index):
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
-    identities are reproducible.
+    identities are reproducible. The indexer's own arguments are dropped:
+    scip-go 0.2 records its scratch output path there, and the receipt keeps
+    the arguments with paths left out.
     """
+    del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
         occurrences = sorted(

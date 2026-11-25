@@ -389,6 +389,16 @@ class IndexersTest(unittest.TestCase):
 
         self.assertEqual(build(["a.go", "b.go"]), build(["b.go", "a.go"]))
 
+    def test_canonical_bytes_do_not_depend_on_the_indexer_arguments(self):
+        # scip-go 0.2 records its arguments, with the scratch output path.
+        def build(output):
+            index = scip_pb2.Index()
+            index.metadata.tool_info.name = "scip-go"
+            index.metadata.tool_info.arguments.extend(["index", "--output", output])
+            return indexers.canonical_bytes(index)
+
+        self.assertEqual(build("/tmp/one/index.scip"), build("/tmp/two/index.scip"))
+
     def test_scip_tool_composes_indexes_of_several_languages(self):
         import asyncio
 
