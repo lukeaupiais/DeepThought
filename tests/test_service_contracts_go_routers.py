@@ -406,6 +406,8 @@ func main() {
 	api.Get("/items/:id", auth, Show)
 	api.Add([]string{"PUT", "PATCH"}, "/items/:id", Show)
 	api.Route("/orders").Get(Show).Post(auth, Show)
+	todo := app.Group("/todo").Use(auth)
+	todo.Post("/create", Show)
 	app.Listen(":3000")
 }
 
@@ -488,6 +490,8 @@ class FiberRouterTests(unittest.TestCase):
                 # Route(path) returns a Register whose verbs take no path.
                 (12, "fiber", ("GET",), "/api/orders", False, "Show"),
                 (12, "fiber", ("POST",), "/api/orders", False, "Show"),
+                # Use returns the router it is called on, prefix and all.
+                (14, "fiber", ("POST",), "/todo/create", False, "Show"),
             ],
         )
 
