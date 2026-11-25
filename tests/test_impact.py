@@ -157,7 +157,12 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("app.py", 3, "resolved", ["CALLS", "CALLS", "CALLS"]),
             ],
         )
+        # The storage label every node carries is left out.
+        self.assertEqual(
+            sorted(impact["items"][0]["element"]["labels"]), ["Function", "Symbol"]
+        )
         for item in impact["items"]:
+            self.assertNotIn("GraphNode", item["element"]["labels"])
             self.assertTrue(all(len(e["edge_id"]) == 64 for e in item["edges"]))
             self.assertTrue(all(e["rule_id"] for e in item["edges"]))
         shallow = await self.service.get_impact(

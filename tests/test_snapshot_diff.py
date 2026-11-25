@@ -171,6 +171,12 @@ class SnapshotDiffNeo4jTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn({"key": "start_line", "base": 1, "head": 3}, helper["properties"])
         self.assertIsNone(helper["labels"])
+        added = {
+            item["node"]["name"]: sorted(item["node"]["labels"])
+            for item in result["changes"]["nodes.added"]["items"]
+        }
+        self.assertEqual(added["added"], ["Function", "Symbol"])
+        self.assertEqual(added["c.py"], ["File"])
         calls = {
             category: [
                 (item["line"], item["evidence_type"])

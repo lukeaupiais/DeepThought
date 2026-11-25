@@ -291,6 +291,9 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertTrue(raw["truncated"])
                 self.assertEqual(raw["items"][0]["r"]["type"], "DEFINES")
                 self.assertEqual(len(raw["items"][0]["p"]["nodes"]), 2)
+                # The storage label every node carries is left out.
+                self.assertEqual(raw["items"][0]["f"]["labels"], ["File"])
+                self.assertEqual(raw["items"][0]["p"]["nodes"][0]["labels"], ["File"])
                 raw = await service.query_cypher(
                     "RETURN 'x' + 'y' AS value",
                     {},
