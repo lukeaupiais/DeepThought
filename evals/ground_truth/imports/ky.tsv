@@ -30,6 +30,73 @@
 # indexed	source/utils/timeout.ts
 # indexed	source/utils/type-guards.ts
 # indexed	source/utils/types.ts
+# indexed	test-d/error-names.ts
+# indexed	test-d/fetch-extensions.ts
+# indexed	test-d/fetch-options.ts
+# indexed	test-d/fetch-request.ts
+# indexed	test-d/forced-retry.ts
+# indexed	test-d/headers.ts
+# indexed	test-d/hooks.ts
+# indexed	test-d/init-search-params.ts
+# indexed	test-d/json-undefined-schema.ts
+# indexed	test-d/method-options.ts
+# indexed	test-d/network-error-cause.ts
+# indexed	test-d/normalized-options.ts
+# indexed	test-d/request-clone.ts
+# indexed	test-d/request-options.ts
+# indexed	test-d/response-clone.ts
+# indexed	test-d/response-promise.ts
+# indexed	test-d/response-size.ts
+# indexed	test-d/retry.ts
+# indexed	test-d/search-params.ts
+# indexed	test-d/timeout-options.ts
+# indexed	test-d/url-options.ts
+# indexed	test/base-url.ts
+# indexed	test/body-size.ts
+# indexed	test/browser.ts
+# indexed	test/bytes.ts
+# indexed	test/context.ts
+# indexed	test/error-data.ts
+# indexed	test/errors.ts
+# indexed	test/fetch.ts
+# indexed	test/formdata-searchparams.ts
+# indexed	test/headers.ts
+# indexed	test/helpers/create-http-test-server.ts
+# indexed	test/helpers/create-large-file.ts
+# indexed	test/helpers/index.ts
+# indexed	test/helpers/parse-body.ts
+# indexed	test/helpers/with-page.ts
+# indexed	test/helpers/with-performance.ts
+# indexed	test/hooks.ts
+# indexed	test/http-error.ts
+# indexed	test/http-metadata.ts
+# indexed	test/http-redirects.ts
+# indexed	test/http-response-bodies.ts
+# indexed	test/http-semantics.ts
+# indexed	test/main.ts
+# indexed	test/memory-leak.ts
+# indexed	test/merge.ts
+# indexed	test/methods.ts
+# indexed	test/network-error.ts
+# indexed	test/normalize.ts
+# indexed	test/prefix.ts
+# indexed	test/request-body-serialization.ts
+# indexed	test/request-construction.ts
+# indexed	test/request-options.ts
+# indexed	test/request-stream-support-runtimes.ts
+# indexed	test/request-stream-support.ts
+# indexed	test/resilience.ts
+# indexed	test/response-consumption.ts
+# indexed	test/response-handling.ts
+# indexed	test/response-size.ts
+# indexed	test/retry-decisions.ts
+# indexed	test/retry-options.ts
+# indexed	test/retry-timing.ts
+# indexed	test/retry.ts
+# indexed	test/stream.ts
+# indexed	test/type-guards.ts
+# indexed	test/validation.ts
+# indexed	test/with-page.ts
 source/core/Ky.ts	1	import	source/errors/HTTPError.ts	0	module
 source/core/Ky.ts	2	import	source/errors/NetworkError.ts	0	module
 source/core/Ky.ts	3	import	source/errors/NonError.ts	0	module
@@ -129,3 +196,215 @@ source/utils/type-guards.ts	3	import	source/errors/NetworkError.ts	0	module
 source/utils/type-guards.ts	4	import	source/errors/ResponseSizeError.ts	0	module
 source/utils/type-guards.ts	5	import	source/errors/TimeoutError.ts	0	module
 source/utils/type-guards.ts	6	import	source/errors/ForceRetryError.ts	0	module
+test-d/error-names.ts	7	import	-	0	external
+test-d/fetch-extensions.ts	1	import	-	0	external
+test-d/fetch-extensions.ts	2	import	-	0	external
+test-d/fetch-options.ts	1	import	-	0	external
+test-d/fetch-options.ts	2	import	-	0	external
+test-d/fetch-request.ts	1	import	-	0	external
+test-d/fetch-request.ts	2	import	-	0	external
+test-d/forced-retry.ts	1	import	-	0	external
+test-d/headers.ts	1	import	-	0	external
+test-d/headers.ts	2	import	-	0	external
+test-d/hooks.ts	1	import	-	0	external
+test-d/hooks.ts	4	import	-	0	external
+test-d/init-search-params.ts	1	import	-	0	external
+test-d/init-search-params.ts	2	import	-	0	external
+test-d/json-undefined-schema.ts	1	import	-	0	external
+test-d/json-undefined-schema.ts	2	import	-	0	external
+test-d/method-options.ts	1	import	-	0	external
+test-d/network-error-cause.ts	1	import	-	0	external
+test-d/network-error-cause.ts	2	import	-	0	external
+test-d/normalized-options.ts	1	import	-	0	external
+test-d/normalized-options.ts	10	import	-	0	external
+test-d/request-clone.ts	1	import	-	0	external
+test-d/request-clone.ts	2	import	-	0	external
+test-d/request-options.ts	1	import	-	0	external
+test-d/response-clone.ts	1	import	-	0	external
+test-d/response-clone.ts	2	import	-	0	external
+test-d/response-promise.ts	1	import	-	0	external
+test-d/response-promise.ts	2	import	-	0	external
+test-d/response-size.ts	1	import	-	0	external
+test-d/response-size.ts	4	import	-	0	external
+test-d/retry.ts	1	import	-	0	external
+test-d/retry.ts	2	import	-	0	external
+test-d/search-params.ts	1	import	-	0	external
+test-d/search-params.ts	2	import	-	0	external
+test-d/timeout-options.ts	1	import	-	0	external
+test-d/timeout-options.ts	2	import	-	0	external
+test-d/url-options.ts	1	import	-	0	external
+test-d/url-options.ts	2	import	-	0	external
+test/base-url.ts	1	import	-	0	external
+test/base-url.ts	2	import	source/index.ts	0	module
+test/base-url.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/body-size.ts	1	import	-	0	external
+test/body-size.ts	2	import	source/index.ts	0	module
+test/body-size.ts	3	import	source/utils/body.ts	0	module
+test/body-size.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/browser.ts	1	import	-	0	external
+test/browser.ts	2	import	-	0	external
+test/browser.ts	3	import	-	0	external
+test/browser.ts	8	import	-	0	external
+test/browser.ts	9	import	source/index.ts	0	module
+test/browser.ts	10	import	source/index.ts	0	module
+test/browser.ts	11	import	test/helpers/create-http-test-server.ts	0	module
+test/browser.ts	12	import	test/helpers/parse-body.ts	0	module
+test/browser.ts	13	import	test/helpers/with-page.ts	0	module
+test/bytes.ts	1	import	-	0	external
+test/bytes.ts	2	import	-	0	external
+test/bytes.ts	3	import	source/index.ts	0	module
+test/bytes.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/context.ts	1	import	-	0	external
+test/context.ts	2	import	source/index.ts	0	module
+test/context.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/error-data.ts	1	import	-	0	external
+test/error-data.ts	2	import	source/index.ts	0	module
+test/errors.ts	1	import	-	0	external
+test/errors.ts	2	import	-	0	external
+test/errors.ts	16	import	source/index.ts	0	module
+test/errors.ts	17	import	source/errors/NonError.ts	0	module
+test/errors.ts	18	import	source/utils/is-network-error.ts	0	module
+test/errors.ts	19	import	source/utils/delay.ts	0	module
+test/fetch.ts	1	import	-	0	external
+test/fetch.ts	2	import	-	0	external
+test/fetch.ts	3	import	source/index.ts	0	module
+test/fetch.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/formdata-searchparams.ts	1	import	-	0	external
+test/formdata-searchparams.ts	2	import	source/index.ts	0	module
+test/formdata-searchparams.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/headers.ts	1	import	-	0	external
+test/headers.ts	2	import	-	0	external
+test/headers.ts	3	import	-	0	external
+test/headers.ts	4	import	-	0	external
+test/headers.ts	5	import	-	0	external
+test/headers.ts	6	import	source/index.ts	0	module
+test/headers.ts	7	import	test/helpers/create-http-test-server.ts	0	module
+test/helpers/create-http-test-server.ts	1	import	-	0	external
+test/helpers/create-http-test-server.ts	2	import	-	0	external
+test/helpers/create-http-test-server.ts	3	import	-	0	external
+test/helpers/create-http-test-server.ts	4	import	-	0	external
+test/helpers/create-http-test-server.ts	5	import	-	0	external
+test/helpers/index.ts	1	import	test/helpers/create-http-test-server.ts	0	module
+test/helpers/index.ts	2	import	test/helpers/parse-body.ts	0	module
+test/helpers/index.ts	3	import	test/helpers/with-page.ts	0	module
+test/helpers/index.ts	4	import	test/helpers/create-large-file.ts	0	module
+test/helpers/parse-body.ts	1	import	-	0	external
+test/helpers/parse-body.ts	2	import	-	0	external
+test/helpers/with-page.ts	1	import	-	0	external
+test/helpers/with-page.ts	2	import	-	0	external
+test/helpers/with-page.ts	9	import	-	0	external
+test/helpers/with-performance.ts	1	import	-	0	external
+test/helpers/with-performance.ts	2	import	-	0	external
+test/helpers/with-performance.ts	3	import	-	0	external
+test/hooks.ts	1	import	-	0	external
+test/hooks.ts	2	import	-	0	external
+test/hooks.ts	3	import	-	0	external
+test/hooks.ts	13	import	source/index.ts	0	module
+test/hooks.ts	14	import	source/types/options.ts	0	module
+test/hooks.ts	15	import	test/helpers/create-http-test-server.ts	0	module
+test/http-error.ts	1	import	-	0	external
+test/http-error.ts	2	import	-	0	external
+test/http-error.ts	3	import	-	0	external
+test/http-error.ts	4	import	source/index.ts	0	module
+test/http-error.ts	5	import	source/utils/types.ts	0	module
+test/http-error.ts	6	import	test/helpers/create-http-test-server.ts	0	module
+test/http-metadata.ts	1	import	-	0	external
+test/http-metadata.ts	2	import	source/index.ts	0	module
+test/http-metadata.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/http-redirects.ts	1	import	-	0	external
+test/http-redirects.ts	2	import	source/index.ts	0	module
+test/http-redirects.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/http-redirects.ts	4	import	test/helpers/parse-body.ts	0	module
+test/http-response-bodies.ts	1	import	-	0	external
+test/http-response-bodies.ts	2	import	-	0	external
+test/http-response-bodies.ts	3	import	source/index.ts	0	module
+test/http-response-bodies.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/http-semantics.ts	1	import	-	0	external
+test/http-semantics.ts	2	import	source/index.ts	0	module
+test/http-semantics.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/main.ts	1	import	-	0	external
+test/main.ts	2	import	-	0	external
+test/main.ts	3	import	-	0	external
+test/main.ts	4	import	-	0	external
+test/main.ts	13	import	source/index.ts	0	module
+test/main.ts	14	import	test/helpers/create-http-test-server.ts	0	module
+test/main.ts	15	import	test/helpers/parse-body.ts	0	module
+test/memory-leak.ts	1	import	-	0	external
+test/memory-leak.ts	2	import	-	0	external
+test/memory-leak.ts	3	import	-	0	external
+test/memory-leak.ts	4	import	source/index.ts	0	module
+test/memory-leak.ts	5	import	test/helpers/create-http-test-server.ts	0	module
+test/merge.ts	1	import	-	0	external
+test/merge.ts	2	import	source/index.ts	0	module
+test/merge.ts	3	import	source/utils/merge.ts	0	module
+test/methods.ts	1	import	-	0	external
+test/methods.ts	2	import	source/index.ts	0	module
+test/methods.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/network-error.ts	1	import	-	0	external
+test/network-error.ts	2	import	source/index.ts	0	module
+test/normalize.ts	1	import	-	0	external
+test/normalize.ts	2	import	source/utils/normalize.ts	0	module
+test/prefix.ts	1	import	-	0	external
+test/prefix.ts	2	import	source/index.ts	0	module
+test/prefix.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/request-body-serialization.ts	1	import	-	0	external
+test/request-body-serialization.ts	2	import	-	0	external
+test/request-body-serialization.ts	3	import	source/index.ts	0	module
+test/request-body-serialization.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/request-construction.ts	1	import	-	0	external
+test/request-construction.ts	2	import	source/index.ts	0	module
+test/request-options.ts	1	import	-	0	external
+test/request-options.ts	2	import	source/index.ts	0	module
+test/request-stream-support-runtimes.ts	1	import	-	0	external
+test/request-stream-support-runtimes.ts	2	import	test/helpers/create-http-test-server.ts	0	module
+test/request-stream-support-runtimes.ts	30	import	source/index.ts	0	module
+test/request-stream-support.ts	1	import	-	0	external
+test/request-stream-support.ts	2	import	test/helpers/create-http-test-server.ts	0	module
+test/request-stream-support.ts	21	import	source/index.ts	0	module
+test/resilience.ts	1	import	-	0	external
+test/resilience.ts	2	import	-	0	external
+test/resilience.ts	3	import	-	0	external
+test/resilience.ts	9	import	source/index.ts	0	module
+test/resilience.ts	10	import	test/helpers/create-http-test-server.ts	0	module
+test/response-consumption.ts	1	import	-	0	external
+test/response-consumption.ts	2	import	source/index.ts	0	module
+test/response-consumption.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/response-handling.ts	1	import	-	0	external
+test/response-handling.ts	7	import	source/index.ts	0	module
+test/response-size.ts	1	import	-	0	external
+test/response-size.ts	2	import	-	0	external
+test/response-size.ts	5	import	source/index.ts	0	module
+test/response-size.ts	6	import	test/helpers/create-http-test-server.ts	0	module
+test/retry-decisions.ts	1	import	-	0	external
+test/retry-decisions.ts	2	import	source/index.ts	0	module
+test/retry-decisions.ts	3	import	source/errors/NonError.ts	0	module
+test/retry-options.ts	1	import	-	0	external
+test/retry-options.ts	2	import	source/index.ts	0	module
+test/retry-options.ts	3	import	test/helpers/create-http-test-server.ts	0	module
+test/retry-timing.ts	1	import	-	0	external
+test/retry-timing.ts	2	import	source/core/retry-timing.ts	0	module
+test/retry.ts	1	import	-	0	external
+test/retry.ts	2	import	-	0	external
+test/retry.ts	3	import	-	0	external
+test/retry.ts	4	import	-	0	external
+test/retry.ts	13	import	source/index.ts	0	module
+test/retry.ts	14	import	source/errors/NonError.ts	0	module
+test/retry.ts	15	import	source/utils/merge.ts	0	module
+test/retry.ts	16	import	test/helpers/create-http-test-server.ts	0	module
+test/retry.ts	17	import	test/helpers/parse-body.ts	0	module
+test/retry.ts	18	import	test/helpers/with-performance.ts	0	module
+test/retry.ts	2821	import	source/index.ts	0	module
+test/retry.ts	3080	import	source/index.ts	0	module
+test/stream.ts	1	import	-	0	external
+test/stream.ts	2	import	source/index.ts	0	module
+test/stream.ts	3	import	test/helpers/create-large-file.ts	0	module
+test/stream.ts	4	import	test/helpers/create-http-test-server.ts	0	module
+test/stream.ts	5	import	test/helpers/parse-body.ts	0	module
+test/type-guards.ts	1	import	-	0	external
+test/type-guards.ts	2	import	-	0	external
+test/type-guards.ts	14	import	source/index.ts	0	module
+test/validation.ts	1	import	-	0	external
+test/validation.ts	2	import	source/index.ts	0	module
+test/with-page.ts	1	import	-	0	external
+test/with-page.ts	2	import	-	0	external
+test/with-page.ts	3	import	test/helpers/with-page.ts	0	module
