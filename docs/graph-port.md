@@ -2037,7 +2037,12 @@ file's directory. On haystack-core-integrations (47d359e; `chroma`,
 references from the integrations' tests to definitions in their `src` go
 from 5,403 to 6,473. scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
-`--yarn-workspaces` from the workspace's manifests. A workspace with neither
+`--yarn-workspaces` from the workspace's manifests; `--yarn-workspaces` only
+for a private root package, since Yarn refuses to list the workspaces of
+any other ("Workspaces can only be enabled in private projects"). An npm
+workspace root that is not private (apollographql/spotify-showcase, 417
+files that used to be `indexer_failed`) is indexed one tsconfig project at a
+time. A workspace with neither
 and no root `tsconfig.json` (JavaScript) is indexed as a project the engine
 writes in a scratch directory: `allowJs`, every file outside
 `node_modules`, recorded in the receipt as `project`. scip-typescript's own

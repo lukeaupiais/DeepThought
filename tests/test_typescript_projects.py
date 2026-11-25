@@ -30,6 +30,18 @@ class ProjectsTest(unittest.TestCase):
             self.assertEqual(
                 indexers.typescript_projects(scratch), ["server", "web/app"]
             )
+            # Yarn lists the workspaces of a private root only; an npm
+            # workspace root that is not private keeps its projects.
+            write(scratch, {"package.json": json.dumps({"workspaces": ["web/*"]})})
+            self.assertEqual(
+                indexers.typescript_projects(scratch), ["server", "web/app"]
+            )
+            write(
+                scratch,
+                {"package.json": json.dumps({"private": True, "workspaces": ["*"]})},
+            )
+            self.assertEqual(indexers.typescript_projects(scratch), [])
+            (Path(scratch) / "package.json").unlink()
             write(scratch, {"pnpm-workspace.yaml": "packages: ['*']\n"})
             self.assertEqual(indexers.typescript_projects(scratch), [])
 

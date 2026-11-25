@@ -202,10 +202,9 @@ def _arguments(spec, root, output, project_name):
     if spec.name == "scip-typescript":
         argv = ["index", "--cwd", str(root), "--output", str(output)]
         argv.append("--no-progress-bar")
-        package = root / "package.json"
         if (root / "pnpm-workspace.yaml").is_file():
             argv.append("--pnpm-workspaces")
-        elif package.is_file() and "workspaces" in _json(package):
+        elif _yarn_workspaces(root):
             argv.append("--yarn-workspaces")
         elif not (root / "tsconfig.json").is_file():
             # JavaScript and projects without a root tsconfig.
@@ -438,16 +437,23 @@ def go_modules(workspace):
     return sorted(found)
 
 
+def _yarn_workspaces(root):
+    """Whether scip-typescript can list the root's workspaces with
+    ``--yarn-workspaces``: Yarn lists them only for a private root package,
+    and refuses otherwise ("Workspaces can only be enabled in private
+    projects"), as an npm workspace root often is. Those are indexed one
+    tsconfig project at a time instead."""
+    package = _json(Path(root) / "package.json")
+    return "workspaces" in package and package.get("private") is True
+
+
 def typescript_projects(workspace):
     """Workspace-relative directories below the root holding a tsconfig.json,
     outside node_modules and hidden directories: each is indexed from its own
     directory, so its compiler options (baseUrl, paths) apply. Empty when the
     root indexes pnpm or yarn workspaces itself."""
     root = Path(workspace).resolve(strict=True)
-    package = root / "package.json"
-    if (root / "pnpm-workspace.yaml").is_file() or (
-        package.is_file() and "workspaces" in _json(package)
-    ):
+    if (root / "pnpm-workspace.yaml").is_file() or _yarn_workspaces(root):
         return []
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
