@@ -327,6 +327,37 @@ def _go_command(arguments, cwd, environ, platform=GO_PLATFORM):
     return result.stdout if result.returncode == 0 else None
 
 
+def go_broken_packages(root, module, directories, environ=None):
+    """The module-relative package directories, of those named, that the go
+    command cannot load (an error in the package or its dependencies); None
+    when the go command is missing or fails."""
+    base = Path(root) if module in (None, ".") else Path(root) / module
+    listed = _go_command(
+        [
+            "list",
+            "-e",
+            "-f",
+            "{{.Dir}}\t{{if or .Error .DepsErrors .Incomplete}}broken{{end}}",
+            *["./" + d for d in directories],
+        ],
+        base,
+        environ,
+    )
+    if listed is None:
+        return None
+    broken = set()
+    for line in listed.splitlines():
+        directory, _, state = line.partition("\t")
+        if state.strip() == "broken":
+            try:
+                broken.add(
+                    Path(directory).resolve().relative_to(base.resolve()).as_posix()
+                )
+            except ValueError:
+                continue
+    return broken
+
+
 def go_platforms(environ=None):
     """Every platform the go toolchain builds for: first-class ports first,
     then the rest, each group sorted; GO_PLATFORM excluded."""
@@ -387,7 +418,8 @@ _GO_IGNORED = {"vendor", "testdata", "node_modules"}
 
 def go_modules(workspace):
     """Workspace-relative directories holding a go.mod (``.`` for the root),
-    outside vendor, testdata and hidden directories."""
+    outside vendor, testdata and hidden directories. Directories whose name
+    starts with ``_`` are searched too."""
     root = Path(workspace).resolve(strict=True)
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -396,7 +428,9 @@ def go_modules(workspace):
             for name in names
             if name not in _SKIP_DIRECTORIES
             and name not in _GO_IGNORED
-            and not name.startswith((".", "_"))
+            # A go.mod below a directory the go command ignores (_examples)
+            # is still a module of its own.
+            and not name.startswith(".")
             and not (Path(directory) / name).is_symlink()
         )
         if "go.mod" in filenames:
@@ -563,6 +597,17 @@ def run_indexer(
         )
         cwd = base
         project = None
+        if files is not None and spec.name == "scip-go":
+            # The packages of the chosen files, named one by one: the go
+            # command's ./... skips directories whose name starts with _.
+            prefix = "" if module in (None, ".") else module + "/"
+            argv += sorted(
+                {
+                    "./" + (Path(f[len(prefix) :]).parent.as_posix())
+                    for f in files
+                    if f.startswith(prefix)
+                }
+            )
         if files is not None and spec.name == "scip-typescript":
             project = _uncovered_project(root, files)
             config = Path(scratch) / "tsconfig.json"
@@ -976,6 +1021,60 @@ def _index_workspace(
             runs.append(second)
             for path in second.documents:
                 passes[path] = (second, {"pass": "outside_tsconfig"})
+    # Packages in directories the go command's ./... skips (_examples/hello)
+    # still compile when named: a scip-go pass of their own names each one
+    # the go command loads without errors (scip-go fails a whole run on one
+    # that does not), so a broken example costs only its own files.
+    ignored_pass = {}
+    for module, run in sorted(go_runs.items()):
+        if run.status != "indexed":
+            continue
+        prefix = "" if module == "." else module + "/"
+        candidates = sorted(
+            path
+            for path, language in sources.items()
+            if language == "go"
+            and go_module_of(path, list(go_runs)) == module
+            and path not in run.documents
+            and any(
+                part.startswith("_") for part in Path(path[len(prefix) :]).parent.parts
+            )
+        )
+        if not candidates:
+            continue
+        broken = go_broken_packages(
+            root,
+            module,
+            sorted({Path(p[len(prefix) :]).parent.as_posix() for p in candidates}),
+            environ,
+        )
+        if broken is None:
+            continue
+        chosen = []
+        for path in candidates:
+            if Path(path[len(prefix) :]).parent.as_posix() in broken:
+                ignored_pass[path] = "does_not_load"
+            else:
+                chosen.append(path)
+        if not chosen:
+            continue
+        name = "scip-go" + ("" if module == "." else "-" + module.replace("/", "__"))
+        extra = run_indexer(
+            INDEXERS["scip-go"],
+            root,
+            directory / f"{name}-ignored-directories.scip",
+            project_name=project_name,
+            timeout=timeout,
+            environ=environ,
+            files=chosen,
+            module=module,
+        )
+        runs.append(extra)
+        for path in chosen:
+            if extra.status != "indexed":
+                ignored_pass[path] = extra.reason
+        for path in extra.documents:
+            passes[path] = (extra, {"pass": "ignored_directory"})
     # Go files that build only on another platform (command_windows.go) get a
     # scip-go pass for the first platform, in the go command's own list, that
     # compiles them.
@@ -990,6 +1089,7 @@ def _index_workspace(
             if language == "go"
             and go_module_of(path, list(go_runs)) == module
             and path not in run.documents
+            and path not in passes
         }
         _, ignored = go_package_files(root, module, GO_PLATFORM, environ)
         constrained |= missing & ignored
@@ -1074,6 +1174,11 @@ def _index_workspace(
                     if second is not None
                     and second.status != "indexed"
                     and language in second.languages
+                    else {}
+                ),
+                **(
+                    {"ignored_directory_pass": ignored_pass[path]}
+                    if path in ignored_pass
                     else {}
                 ),
             }
