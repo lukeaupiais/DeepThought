@@ -297,33 +297,26 @@ def index_scip(args, directory):
     report, cut to the files the run analyzes, and the ingested indexes. A
     missing, failing or wrong-version indexer stops the run; each file without
     an index is named on stderr with the reason."""
-    from fnmatch import fnmatchcase
+    from .indexers import IndexerFailure, index_for_analysis
 
-    from .indexers import LANGUAGE_INDEXERS, failed_files, index_workspace
-    from .indexers import ingest_indexed
+    try:
+        report, indexes = index_for_analysis(
+            args.workspace,
+            directory,
+            repository_id=args.repository_id,
+            languages=args.language,
+            include=args.include,
+            exclude=args.exclude,
+        )
+    except IndexerFailure as failure:
+        _report_coverage(failure.report)
+        raise
+    if report is not None:
+        _report_coverage(report)
+    return report, indexes
 
-    requested = args.language or LANGUAGE_INDEXERS
-    languages = tuple(sorted(set(requested) & set(LANGUAGE_INDEXERS)))
-    if not languages:
-        return None, []
-    report = index_workspace(
-        args.workspace, directory, languages=languages, project_name=None
-    )
 
-    def analyzed(path):
-        return any(
-            fnmatchcase(path, pattern) for pattern in args.include or ("*",)
-        ) and not any(fnmatchcase(path, pattern) for pattern in args.exclude or ())
-
-    report["coverage"] = {
-        path: entry for path, entry in report["coverage"].items() if analyzed(path)
-    }
-    uncovered = {
-        path: entry
-        for path, entry in report["coverage"].items()
-        if entry["status"] != "covered"
-    }
-    report["uncovered"] = len(uncovered)
+def _report_coverage(report):
     for run in report["runs"]:
         if run["status"] != "indexed":
             print(
@@ -331,16 +324,19 @@ def index_scip(args, directory):
                 f"({run['reason']})" + (f": {run['detail']}" if run["detail"] else ""),
                 file=sys.stderr,
             )
-    for path, entry in sorted(uncovered.items()):
-        print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
-    failed = failed_files(report)
-    if failed:
-        raise ValueError(
-            f"{len(failed)} source files have no SCIP index because an indexer "
-            "is missing or failed; install the pinned indexers "
-            "(deepthought indexers lists them)"
-        )
-    return report, ingest_indexed(report, args.repository_id, args.workspace)
+        dependencies = run.get("dependencies") or {}
+        if dependencies.get("failed"):
+            print(
+                f"{run['indexer']}: no wheel installed for "
+                + ", ".join(dependencies["failed"])
+                + "; calls into them bind nowhere",
+                file=sys.stderr,
+            )
+    for path, entry in sorted(report["coverage"].items()):
+        if entry["status"] != "covered":
+            print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+        elif entry.get("warning"):
+            print(f"{path}: {entry['warning']}", file=sys.stderr)
 
 
 async def execute(args):
