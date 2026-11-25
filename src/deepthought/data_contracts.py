@@ -4356,6 +4356,10 @@ class DrizzleUse:
     writes: bool
     line: int
     column: int
+    # Where the table's name is written: the argument, the property of
+    # ``schema.users`` or the query key of ``db.query.users``.
+    ref_line: int = 0
+    ref_column: int = 0
 
 
 @dataclass(frozen=True)
@@ -4578,10 +4582,16 @@ def extract_drizzle(tree, content, file, definitions):
         if receiver is None:
             continue
         if method in DRIZZLE_READS | DRIZZLE_WRITES:
-            ref = reference(args[0] if args else None)
+            argument = args[0] if args else None
+            ref = reference(argument)
             if ref is None:
                 continue
             reads, writes = method in DRIZZLE_READS, method in DRIZZLE_WRITES
+            written = (
+                argument.child_by_field_name("property")
+                if argument.type == "member_expression"
+                else argument
+            )
         elif method in DRIZZLE_QUERY_READS and receiver.type == "member_expression":
             query = receiver.child_by_field_name("object")
             if (
@@ -4590,9 +4600,8 @@ def extract_drizzle(tree, content, file, definitions):
                 or _text(query.child_by_field_name("property"), content) != "query"
             ):
                 continue
-            ref = DrizzleRef(
-                "query", _text(receiver.child_by_field_name("property"), content), None
-            )
+            written = receiver.child_by_field_name("property")
+            ref = DrizzleRef("query", _text(written, content), None)
             reads, writes = True, False
         else:
             continue
@@ -4607,6 +4616,8 @@ def extract_drizzle(tree, content, file, definitions):
                 # The method's own line: a chain starts lines earlier.
                 where.start_point.row + 1,
                 where.start_point.column,
+                written.start_point.row + 1,
+                written.start_point.column,
             )
         )
     return tables, uses, module
