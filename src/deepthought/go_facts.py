@@ -83,6 +83,9 @@ class GoCall:
     texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
     values: tuple[GoValue, ...] = ()
+    # (file, line) of the declaration of each argument's named type, when it
+    # is in the module tree (None otherwise).
+    declarations: tuple[tuple[str, int] | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -529,6 +532,12 @@ def _read(text, directory, members, facts):
                     ),
                     tuple(_type(a.get("type")) for a in arguments),
                     tuple(_value(a) for a in arguments),
+                    tuple(
+                        (relative(a["type"]["file"]), a["type"]["line"])
+                        if (a.get("type") or {}).get("file")
+                        else None
+                        for a in arguments
+                    ),
                 )
             )
         elif kind == "literal":
