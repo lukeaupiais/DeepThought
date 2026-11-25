@@ -2615,8 +2615,206 @@ def _go_proxy():
 GORM_RELEASES = _go_proxy()
 
 
+PRISMA_COLUMNS = {
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
+    "prisma/schema.prisma": """datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id     Int    @id
+  email  String @map("email_address")
+  tenant Int
+  name   String
+  posts  Post[]
+  @@unique([email, tenant])
+  @@map("users")
+}
+
+model Post {
+  id       Int    @id
+  title    String
+  authorId Int    @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+}
+""",
+    "prisma/migrations/0_init/migration.sql": 'CREATE TABLE "Post" '
+    '("id" INTEGER, "title" TEXT, "author_id" INTEGER);\n',
+    "prisma/migrations/migration_lock.toml": 'provider = "postgresql"\n',
+    "src/repo.ts": """import { Prisma, PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
+export async function find(email: string, tenant: number) {
+  return prisma.user.findUnique({ where: { email_tenant: { email, tenant } }, select: { name: true } });
+}
+
+export async function list() {
+  const rows = await prisma.user.findMany({ where: { posts: { some: { title: "x" } } } });
+  return rows.map((r) => r.name);
+}
+
+export async function publish(authorId: number) {
+  await prisma.post.create({ data: { title: "t", author: { connect: { id: authorId } } } });
+}
+
+export async function odd(input: any) {
+  return prisma.user.count({ where: input });
+}
+
+export function named(name: string): Prisma.UserWhereInput {
+  return { name };
+}
+
+export async function seed(names: string[]) {
+  await prisma.user.createMany({ data: names.map((name, id) => ({ id, name, tenant: 1, email: name })) });
+  await prisma.user.update({
+    where: { id: 1 },
+    data: { posts: { create: { id: 2, title: "t" } }, ...(names.length ? { name: "x" } : {}) },
+  });
+  const groups = await prisma.user.groupBy({ by: ["tenant"], _count: true });
+  return groups.map((g) => g.tenant);
+}
+""",
+}
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
+    def prisma_index(self, directory):
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        payload = (
+            "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
+            "$UserPayload#typeLiteral10:scalars.`$Extensions.GetPayloadResult`:"
+            "typeLiteral11:name."
+        )
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        client = "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
+        document = index.documents.add(relative_path="src/repo.ts")
+        lines = PRISMA_COLUMNS["src/repo.ts"].split("\n")
+        for line, text, symbol in (
+            (9, "r.name", payload),
+            (20, "UserWhereInput", client + "UserWhereInput#"),
+            (31, "g.tenant", client + "UserGroupByOutputType#typeLiteral10:tenant."),
+        ):
+            start = lines[line].index(text) + (
+                2 if text.startswith(("r.", "g.")) else 0
+            )
+            end = start + len(text) - (2 if text.startswith(("r.", "g.")) else 0)
+            document.occurrences.add(symbol=symbol, range=[line, start, end])
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
+    def test_prisma_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PRISMA_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r",
+                    languages=["typescript"],
+                    scip_indexes=(self.prisma_index(directory),),
+                )
+            )
+        edges = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[1],
+                r.properties["line"],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("columns_resolved", False),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES", "READS_COLUMN", "WRITES_COLUMN")
+        )
+        key, row = "prisma-column-key", "prisma-scip-column-read"
+        self.assertEqual(
+            edges,
+            [
+                # A compound unique key reads its fields' columns; the select
+                # names every column the rows hold.
+                ("find", "READS", "users", 5, "prisma-client", True),
+                ("find", "READS_COLUMN", "users::column::email_address", 5, key, False),
+                ("find", "READS_COLUMN", "users::column::name", 5, key, False),
+                ("find", "READS_COLUMN", "users::column::tenant", 5, key, False),
+                # Whole rows come back: their readers are the row reads.
+                ("list", "READS", "users", 9, "prisma-client", False),
+                # A relation filter names the related model's fields.
+                ("list", "READS_COLUMN", "post::column::title", 9, key, False),
+                ("list", "READS_COLUMN", "users::column::name", 10, row, False),
+                # What a function declared to return a WhereInput returns.
+                ("named", "READS_COLUMN", "users::column::name", 22, key, False),
+                # The where is not an object literal: unknown columns.
+                ("odd", "READS", "users", 18, "prisma-client", False),
+                # connect sets the foreign key the post holds, found by the
+                # user's id.
+                ("publish", "READS_COLUMN", "users::column::id", 14, key, False),
+                ("publish", "WRITES", "post", 14, "prisma-client", True),
+                ("publish", "WRITES_COLUMN", "post::column::author_id", 14, key, False),
+                ("publish", "WRITES_COLUMN", "post::column::title", 14, key, False),
+                # groupBy returns only its by fields; its rows' fields are
+                # read through the index.
+                ("seed", "READS", "users", 31, "prisma-client", True),
+                ("seed", "READS_COLUMN", "users::column::id", 28, key, False),
+                ("seed", "READS_COLUMN", "users::column::tenant", 31, key, False),
+                ("seed", "READS_COLUMN", "users::column::tenant", 32, row, False),
+                # createMany's data from a map callback; update's nested
+                # create writes the related model, and a conditional spread
+                # is read on both branches.
+                ("seed", "WRITES", "users", 26, "prisma-client", True),
+                ("seed", "WRITES", "users", 27, "prisma-client", True),
+                ("seed", "WRITES_COLUMN", "post::column::id", 29, key, False),
+                ("seed", "WRITES_COLUMN", "post::column::title", 29, key, False),
+                (
+                    "seed",
+                    "WRITES_COLUMN",
+                    "users::column::email_address",
+                    26,
+                    key,
+                    False,
+                ),
+                ("seed", "WRITES_COLUMN", "users::column::id", 26, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::name", 26, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::name", 29, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::tenant", 26, key, False),
+            ],
+        )
+        # users has no migration: its columns are the DMMF's; Post's are its
+        # migration's.
+        declared = sorted(
+            r.target_match["qualified_name"].split("::db-table::")[1]
+            for r in output.relationships
+            if r.type == "HAS_COLUMN"
+            and r.properties["rule_id"] == "data-contracts.prisma-column"
+        )
+        self.assertEqual(
+            declared,
+            [
+                "users::column::email_address",
+                "users::column::id",
+                "users::column::name",
+                "users::column::tenant",
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["prisma_columns"],
+            {
+                "columns_declared": 4,
+                "keys": 16,
+                "typed_inputs": 1,
+                "typed_input_keys": 1,
+                "row_reads": 2,
+            },
+        )
+
     @unittest.skipUnless(
         NODE, "Prisma schemas are read with node, npm and npm's registry"
     )
@@ -2634,7 +2832,8 @@ class ScriptOrmTests(unittest.TestCase):
                 r.properties["rule_id"].split(".", 1)[1],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type not in ("CONTAINS", "HAS_COLUMN", "READS_COLUMN", "WRITES_COLUMN")
+            and "::column::" not in r.target_match["qualified_name"]
         )
         self.assertEqual(
             edges,
