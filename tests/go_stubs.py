@@ -46,6 +46,9 @@ func (c *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, n
 func (c *Channel) Publish(exchange, key string, mandatory, immediate bool, msg Publishing) error {
 \treturn nil
 }
+func (c *Channel) PublishWithDeferredConfirmWithContext(ctx interface{}, exchange, key string, mandatory, immediate bool, msg Publishing) (interface{}, error) {
+\treturn nil, nil
+}
 """,
     },
     "github.com/segmentio/kafka-go": {

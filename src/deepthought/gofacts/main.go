@@ -11,6 +11,9 @@
 //     there (followed through assignments, += and branches; see flow), of a
 //   - join (operands without a value written as Placeholder) or of sqlx's
 //     Rebind.
+//     A package variable initialized to a constant string has that value
+//     when nothing in the package assigns it or takes its address and it is
+//     unexported (or the package is main).
 //     An argument that is a []string literal (or a local assigned one once)
 //     has the value of each element instead; one that is field F of a local
 //     assigned from one call (q, err := ch.QueueDeclare(...); q.Name) names
@@ -274,17 +277,18 @@ func main() {
 			if c == nil || c.pkg == nil {
 				continue
 			}
+			fixed := packageValues(c.files, c.info, c.pkg)
 			for _, file := range c.files {
 				f, _, _ := where(file.Pos())
 				emit(fact{Kind: "file", File: f, Package: name})
-				facts(file, c.info, emit, where, named, c.pkg.Path())
+				facts(file, c.info, emit, where, named, c.pkg.Path(), fixed)
 			}
 		}
 	}
 }
 
 // facts prints the call and TableName facts of one file.
-func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string) {
+func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -306,6 +310,7 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	// Calls anywhere in the file: functions, and func literals in package
 	// variables (a migration table).
 	flows := newFlow(file, info)
+	flows.fixed = fixed
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -526,6 +531,87 @@ type flow struct {
 	escaped map[*types.Var]bool
 	writes  map[*types.Var]int
 	uses    map[*ast.Ident]value
+	fixed   map[*types.Var]string // see packageValues
+}
+
+// packageValues maps each package variable whose initializer is a constant
+// string to that string, when nothing else can change it: no assignment,
+// ++/--, range or address-of (other than as a keyed element of a composite
+// literal) in the package touches it, and it is
+// unexported (or the package is main, which nothing imports).
+func packageValues(files []*ast.File, info *types.Info, pkg *types.Package) map[*types.Var]string {
+	found := map[*types.Var]string{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if len(vs.Values) != len(vs.Names) {
+					continue
+				}
+				for i, id := range vs.Names {
+					v, ok := info.Defs[id].(*types.Var)
+					if !ok || (id.IsExported() && pkg.Name() != "main") {
+						continue
+					}
+					if c := info.Types[vs.Values[i]].Value; c != nil && c.Kind() == constant.String {
+						found[v] = constant.StringVal(c)
+					}
+				}
+			}
+		}
+	}
+	drop := func(e ast.Expr) {
+		if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+			if v, ok := info.Uses[id].(*types.Var); ok {
+				delete(found, v)
+			}
+		}
+	}
+	stored := map[*ast.UnaryExpr]bool{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				// &x as a keyed element, as for locals (see newFlow).
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
+			case *ast.AssignStmt:
+				for _, left := range n.Lhs {
+					drop(left)
+				}
+			case *ast.IncDecStmt:
+				drop(n.X)
+			case *ast.RangeStmt:
+				drop(n.Key)
+				drop(n.Value)
+			case *ast.UnaryExpr:
+				if n.Op == token.AND && !stored[n] {
+					drop(n.X)
+				}
+			}
+			return true
+		})
+	}
+	return found
+}
+
+// packageValue is the value of a package variable packageValues fixes.
+func (f *flow) packageValue(id *ast.Ident) (value, bool) {
+	if v, ok := f.info.Uses[id].(*types.Var); ok {
+		if text, ok := f.fixed[v]; ok {
+			return known(text), true
+		}
+	}
+	return unknown, false
 }
 
 func newFlow(file *ast.File, info *types.Info) *flow {
@@ -672,7 +758,10 @@ func (f *flow) expressions(node ast.Node, st state) {
 func (f *flow) eval(e ast.Expr, st state) value {
 	return valueOf(e, f.info, func(id *ast.Ident) (value, bool) {
 		v := f.local(id)
-		if v == nil || f.escaped[v] {
+		if v == nil {
+			return f.packageValue(id)
+		}
+		if f.escaped[v] {
 			return unknown, false
 		}
 		val, ok := st[v]
@@ -945,6 +1034,9 @@ func (f *flow) forget(st state, list []ast.Stmt) state {
 // bind markers.
 func stringValue(arg ast.Expr, info *types.Info, f *flow) value {
 	return valueOf(arg, info, func(id *ast.Ident) (value, bool) {
+		if f.local(id) == nil {
+			return f.packageValue(id)
+		}
 		val, ok := f.uses[id]
 		return val, ok && val.known
 	}, 0)

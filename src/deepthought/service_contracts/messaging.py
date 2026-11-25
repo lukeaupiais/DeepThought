@@ -613,6 +613,16 @@ def _origin(call, imports, content):
 # destination: that is the libraries' API, not a reading of the code.
 
 _GO_AMQP = ("github.com/streadway/amqp", "github.com/rabbitmq/amqp091-go")
+# Channel methods that publish to (exchange, routing key), after a
+# context.Context in the WithContext forms.
+_GO_AMQP_PUBLISH = frozenset(
+    {
+        "Publish",
+        "PublishWithContext",
+        "PublishWithDeferredConfirm",
+        "PublishWithDeferredConfirmWithContext",
+    }
+)
 _KAFKA_GO = "github.com/segmentio/kafka-go"
 _SARAMA = ("github.com/IBM/sarama", "github.com/Shopify/sarama")
 _CONFLUENT = re.compile(r"github\.com/confluentinc/confluent-kafka-go(?:/v\d+)?/kafka")
@@ -666,7 +676,8 @@ def extract_go(sites, facts):
         if item.text is not None:
             return item.text
         if item.result is not None:
-            # q.Name after q, err := ch.QueueDeclare(name, ...): the name.
+            # q.Name after q, err := ch.QueueDeclare(name, ...): the name;
+            # for "" the broker names the queue, so it is not known.
             line, column, index, field = item.result
             call = at.get((line, column))
             if (
@@ -675,7 +686,7 @@ def extract_go(sites, facts):
                 and call.method == "QueueDeclare"
                 and (index, field) == (0, "Name")
                 and call.values
-                and call.values[0].text is not None
+                and call.values[0].text
             ):
                 return call.values[0].text
         return PLACEHOLDER
@@ -706,8 +717,8 @@ def extract_go(sites, facts):
     for node, call in sited:
         method = call.method
         if call.declared in _GO_AMQP:
-            if method in ("Publish", "PublishWithContext"):
-                offset = 1 if method == "PublishWithContext" else 0
+            if method in _GO_AMQP_PUBLISH:
+                offset = 1 if method.endswith("WithContext") else 0
                 exchange = value(argument(call, offset))
                 key = value(argument(call, offset + 1))
                 sites.add(node, "publish", "amqp", f"{exchange}/{key}", "go-amqp")
