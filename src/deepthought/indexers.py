@@ -431,8 +431,12 @@ def run_indexer(
     files=None,
     module=None,
     platform=None,
+    dependencies_dir=None,
 ):
     """Run one pinned indexer; return an IndexRun, never raise for tool failures.
+
+    ``dependencies_dir`` keeps the project's installed packages for the other
+    runs of one ``index_workspace``, so they are installed once.
 
     ``files`` (scip-typescript only) indexes just those workspace files, as one
     project that extends the workspace's root tsconfig.json: the pass for
@@ -478,7 +482,18 @@ def run_indexer(
         temporary = Path(scratch) / "index.scip"
         # The workspace's own name would put where it was checked out into
         # every symbol, so the default project name is fixed.
-        argv, cwd = _arguments(spec, root, temporary, project_name or "workspace")
+        indexed_root = root
+        if spec.name == "scip-typescript":
+            prepared = _prepared_packages(
+                root, Path(dependencies_dir or scratch), environ, timeout
+            )
+            run.dependencies = {k: v for k, v in prepared.items() if k != "root"}
+            # The packages were installed into a copy of the workspace.
+            indexed_root = Path(prepared["root"])
+            base = indexed_root
+        argv, cwd = _arguments(
+            spec, indexed_root, temporary, project_name or "workspace"
+        )
         cwd = base
         project = None
         if files is not None and spec.name == "scip-typescript":
@@ -488,9 +503,9 @@ def run_indexer(
                 json.dumps(
                     {
                         **project,
-                        "files": [str(root / f) for f in project["files"]],
+                        "files": [str(indexed_root / f) for f in project["files"]],
                         **(
-                            {"extends": str(root / project["extends"])}
+                            {"extends": str(indexed_root / project["extends"])}
                             if "extends" in project
                             else {}
                         ),
@@ -510,7 +525,9 @@ def run_indexer(
             }
         # --infer-tsconfig writes a tsconfig.json into the workspace; the run
         # must leave the workspace as it found it.
-        inferred = root / "tsconfig.json" if "--infer-tsconfig" in argv else None
+        inferred = (
+            indexed_root / "tsconfig.json" if "--infer-tsconfig" in argv else None
+        )
         try:
             result = subprocess.run(
                 [str(executable), *argv],
@@ -542,7 +559,7 @@ def run_indexer(
         # scip-go also indexes test mains it generates in the Go build cache;
         # those paths leave the workspace and name the machine, so drop them.
         outside = [d for d in parsed.documents if not is_relative_file(d.relative_path)]
-        if base != root:
+        if module not in (None, "."):
             for document in parsed.documents:
                 if is_relative_file(document.relative_path):
                     document.relative_path = f"{module}/{document.relative_path}"
@@ -595,14 +612,14 @@ def run_indexer(
                 # Paths are left out so the receipt does not depend on where
                 # the workspace or the scratch directory lives.
                 "arguments": [
-                    "." if a == str(root) else a
+                    "." if a in {str(root), str(indexed_root)} else a
                     for a in argv
                     if not a.startswith(str(Path(scratch)))
                 ],
                 **({"project": project} if project is not None else {}),
                 **({"module": module} if module is not None else {}),
                 **(
-                    {"dependencies": run.dependencies}
+                    {"dependencies": _without_logs(run.dependencies)}
                     if run.dependencies is not None
                     else {}
                 ),
@@ -627,6 +644,30 @@ def run_indexer(
     run.documents = documents
     run.wall_seconds = time.monotonic() - started
     return run
+
+
+def _without_logs(value):
+    """A receipt records what was installed, not the managers' output."""
+    if isinstance(value, dict):
+        return {k: _without_logs(v) for k, v in value.items() if k != "detail"}
+    if isinstance(value, list):
+        return [_without_logs(v) for v in value]
+    return value
+
+
+def _prepared_packages(root, directory, environ, timeout):
+    """The workspace's packages for scip-typescript, installed once per
+    ``directory`` (see ``deepthought.js_dependencies``)."""
+    from .js_dependencies import prepare
+
+    record = directory / "typescript-packages.json"
+    if record.is_file():
+        return json.loads(record.read_text())
+    target = directory / "typescript-packages"
+    target.mkdir(parents=True, exist_ok=True)
+    prepared = prepare(root, target, environ=environ, timeout=timeout)
+    record.write_text(json.dumps(prepared))
+    return prepared
 
 
 def _uncovered_project(root, files):
@@ -762,6 +803,15 @@ def index_workspace(
         raise ValueError("No SCIP indexer for " + ", ".join(sorted(unknown)))
     sources = source_files(root, set(languages))
     present = {language for language in sources.values()}
+    with tempfile.TemporaryDirectory(prefix="deepthought-packages-") as packages:
+        return _index_workspace(
+            root, directory, sources, present, project_name, timeout, environ, packages
+        )
+
+
+def _index_workspace(
+    root, directory, sources, present, project_name, timeout, environ, packages
+):
     runs = []
     modules = go_modules(root) if "go" in present else []
     for spec in INDEXERS.values():
@@ -781,6 +831,7 @@ def index_workspace(
                     timeout=timeout,
                     environ=environ,
                     module=module,
+                    dependencies_dir=packages,
                 )
             )
     by_language = {
@@ -811,6 +862,7 @@ def index_workspace(
                 timeout=timeout,
                 environ=environ,
                 files=missing,
+                dependencies_dir=packages,
             )
             runs.append(second)
             for path in second.documents:

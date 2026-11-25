@@ -2071,6 +2071,23 @@ each covered Python file's coverage entry says
 requirements; the run does not fail, since the indexer ran. With SQLModel
 declared, `session.add(obj)` resolves to SQLAlchemy's `Session#add`.
 
+The TypeScript compiler likewise types a call into a package only when its
+declarations are in `node_modules`. When the workspace declares packages and
+`node_modules` is missing (`deepthought.js_dependencies`), the workspace is
+copied to a scratch directory (without `.git` and `node_modules`) and each
+directory with a lockfile installs there with scripts off: `pnpm install
+--frozen-lockfile --ignore-scripts`, `yarn install --frozen-lockfile
+--ignore-scripts` or `npm ci --ignore-scripts`; a directory inside a pnpm or
+yarn workspace root installs from the root, and a workspace with no lockfile
+runs `npm install --ignore-scripts` at the root. scip-typescript then indexes
+the copy, so the workspace is left as it was and document paths are the
+same. Packages are installed once per `index_workspace`, for both
+scip-typescript passes. The run and receipt record `dependencies`: `status`
+(`none`, `present`, `installed`, `partial`, `failed`), each install's
+directory, manager, command, lockfile digest and outcome, and the installed
+package count; a failed install gives each covered file
+`warning: dependencies_unavailable`.
+
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
