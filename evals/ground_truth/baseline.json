@@ -1487,7 +1487,7 @@
     "messages-confluent-kafka-go-examples": {
       "expected": 13,
       "extra": 0,
-      "found": 6,
+      "found": 13,
       "unresolved_sites": 26,
       "wrong": 0
     },
@@ -1496,7 +1496,7 @@
       "extra": 0,
       "found": 0,
       "unresolved_sites": 2,
-      "wrong": 1
+      "wrong": 0
     },
     "messages-kafka-go-examples": {
       "expected": 0,
@@ -1508,9 +1508,9 @@
     "messages-rabbitmq-tutorials-go": {
       "expected": 8,
       "extra": 0,
-      "found": 3,
+      "found": 8,
       "unresolved_sites": 9,
-      "wrong": 4
+      "wrong": 0
     },
     "messages-sarama-examples": {
       "expected": 2,
