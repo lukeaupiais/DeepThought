@@ -1,0 +1,38 @@
+{
+  "corpus": "go-clean-template-amqp",
+  "repo": "https://github.com/evrone/go-clean-template",
+  "commit": "d6d2f93f82d11962aa97d1520da2b6920e4d4d4d",
+  "license": "MIT",
+  "root": ".",
+  "client": "amqp091-go",
+  "scope": "labelled",
+  "sources": [
+    "manual reading of every broker-client call and literal under root at the pinned commit"
+  ],
+  "notes": [
+    "The RPC exchanges come from the environment (config.go, env tags) and are passed into the rmq_rpc package; the reply goes to the request's ReplyTo.",
+    "integration-test/ passes literal exchange names into the client; client.go's publish is not counted, since a reading through those test callers would be right too."
+  ],
+  "not_counted": [
+    {
+      "file": "pkg/rabbitmq/rmq_rpc/client/client.go",
+      "line": 314
+    }
+  ],
+  "sites": [
+    {
+      "file": "pkg/rabbitmq/rmq_rpc/connection.go",
+      "line": 105,
+      "role": "consume",
+      "broker": "amqp",
+      "unresolved": "a server-named queue bound to an exchange from the environment"
+    },
+    {
+      "file": "pkg/rabbitmq/rmq_rpc/server/server.go",
+      "line": 206,
+      "role": "publish",
+      "broker": "amqp",
+      "unresolved": "exchange is the request's ReplyTo"
+    }
+  ]
+}
