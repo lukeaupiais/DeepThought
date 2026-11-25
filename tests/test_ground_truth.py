@@ -599,6 +599,16 @@ class RequirementTests(unittest.TestCase):
             self.assertTrue(missing[0].startswith("scip-python "), missing)
             self.assertEqual(ground_truth.missing_requirements(manifest, {"rails"}), [])
 
+    def test_only_scip_table_corpora_are_indexed(self):
+        # No indexer runs for a corpus whose rules read no SCIP index, or
+        # without a cache to build the indexes in.
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "ruby"}, "/w", "/cache"), ()
+        )
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "python-orm"}, "/w", None), ()
+        )
+
     def test_missing_indexer_of_a_calls_corpus_is_reported_with_scip(self):
         from unittest import mock
 
