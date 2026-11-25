@@ -897,20 +897,39 @@ app or router made with `dependencies=[...]`). Python's `ast` reads only that
 placement; FastAPI itself is never imported or run. `get_impact` follows
 USES_DEPENDENCY backwards, so a changed dependency reaches its endpoints.
 
+A type alias of `Annotated[T, Depends(f)]` (`SessionDep = Annotated[Session,
+Depends(get_db)]`, at module, class or function level, or a `type`
+statement) injects `f` wherever a parameter is annotated with it. The index
+resolves the annotation to the alias's definition, and the function holding
+the parameter gets the edge, at the place the alias is written, with `alias`
+set to the `file:line` that defines the alias. The alias line itself is not
+a use.
+
 Not read: a dependency given as an instance (`Security(scheme)` with
 `scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
-at run time (`Depends(make_dependency())`, a loop variable); and files no
-scip-python index covers.
+at run time (`Depends(make_dependency())`, a loop variable); an alias of an
+alias, or an alias written inside another annotation
+(`Optional[SessionDep]`); files no scip-python index covers; and files the
+running Python's `ast` cannot parse, such as Python 3.14's
+`except A, B:` read by an older interpreter.
 
-On fastapi 05e6df7 there are 388 uses: 367 `Depends` and 21 `Security`, 44 of
-them on an app or router, and 14 of them `Depends()` calls the parameter's
-type. A text search for `Depends(`/`Security(` with a plain name finds 475
-sites. The 100 not linked are instances (security schemes), dependencies
-built at run time, and examples inside docstrings. A sample of 15 links
-checked against the source was all correct. `tools/check_impact.py` over
-fastapi's `docs_src/dependencies` and `docs_src/security` matches on 96 of 96
-seeds with 124 dependents; without USES_DEPENDENCY in its relations, 37
-seeds mismatch.
+On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
+come through aliases, 21 are on an app or router, and 14 are `Depends()`
+calls of the parameter's type. A text search for `Depends(`/`Security(` with
+a plain name finds 475 sites. The ones not linked are instances (security
+schemes), dependencies built at run time, and examples inside docstrings.
+Samples of 15 direct links and 8 alias links, checked against the source,
+were all correct. On the full-stack-fastapi-template backend (77e550a) 39
+uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
+their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
+injects an instance and is not linked. That template's `app/api/deps.py`
+uses Python 3.14 syntax, so this was measured with its one `except A, B:`
+line parenthesised; under an older interpreter the aliases there are not
+read.
+`tools/check_impact.py` matches on every compared seed: 117 of 117 (136
+dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
+`docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
+output budget not compared) over the whole template backend.
 
 ### Interface implementations
 

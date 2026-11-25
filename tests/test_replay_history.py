@@ -119,7 +119,7 @@ class ReplayHistoryTests(_History):
 class FixtureReplayTests(_History):
     commits = ((FIXTURE_BEFORE, "before"), (FIXTURE_AFTER, "after"))
 
-    def test_scores_impact_with_fixtures_separately(self):
+    def test_scores_impact_injected_separately(self):
         import replay_history
 
         report = replay_history.replay(self.repo, "python", count=5)
@@ -128,8 +128,8 @@ class FixtureReplayTests(_History):
         # Code relations reach the fixture's conftest.py, which the commit
         # did not edit; following USES_FIXTURE also reaches the test.
         self.assertEqual(core["impact"], {"predicted": 1, "hits": 0})
-        self.assertEqual(core["impact_fixtures"], {"predicted": 2, "hits": 1})
-        self.assertEqual(report["impact_fixtures"]["recall"], 0.5)
+        self.assertEqual(core["impact_injection"], {"predicted": 2, "hits": 1})
+        self.assertEqual(report["impact_injection"]["recall"], 0.5)
 
 
 if __name__ == "__main__":

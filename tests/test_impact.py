@@ -220,6 +220,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("b", 1, "resolved", ["USES_DEPENDENCY"]),
                 ("c", 1, "resolved", ["USES_DEPENDENCY"]),
                 ("d", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("f", 1, "resolved", ["USES_DEPENDENCY"]),
             ],
         )
 

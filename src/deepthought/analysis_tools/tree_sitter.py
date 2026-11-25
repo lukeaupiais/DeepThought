@@ -1016,6 +1016,7 @@ class TreeSitterTool(AnalysisTool):
                         "column": use.column,
                         "name": use.name,
                         "injector": use.injector,
+                        **({"alias": use.alias} if use.alias else {}),
                         **_evidence(DEPENDENCY_RULE),
                         **_produced(references.tool(file)),
                     },

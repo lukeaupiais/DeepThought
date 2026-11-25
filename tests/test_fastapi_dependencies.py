@@ -3,6 +3,7 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -55,12 +56,30 @@ import fastapi
 from app import deps
 def d(x=fastapi.Depends(dependency=deps.get_db), y: "Params" = Depends(), z: Optional[Params, Depends()] = None, u=Depends(deps.pick), *, v: Annotated[Params, Depends()], w: Annotated[Params] = Depends()):
     pass
+from app import aliases
+from app.aliases import ParamsDep, Plain
+def f(db: aliases.DbDep, p: ParamsDep, x: Plain, y: int, z: aliases.Deps.Db):
+    pass
+"""
+
+ALIASES = """\
+from typing import Annotated, TypeAlias
+from fastapi import Depends
+from app.deps import Params, get_db
+DbDep = Annotated[int, Depends(get_db)]
+ParamsDep: TypeAlias = Annotated[Params, Depends()]
+Plain = Annotated[int, "meta"]
+async def helper(db: DbDep, /, *, again: DbDep):
+    return (lambda: db)()
+class Deps:
+    Db = Annotated[int, Depends(get_db)]
 """
 
 SOURCES = {
     "app/__init__.py": "",
     "app/deps.py": DEPS,
     "app/main.py": MAIN,
+    "app/aliases.py": ALIASES,
     # No index covers this file; the next one does not parse.
     "app/unindexed.py": "from fastapi import Depends\nfrom app.deps import get_db\n"
     "def e(db=Depends(get_db)):\n    pass\n",
@@ -75,6 +94,10 @@ GET_DB = _APP + "`app.deps`/get_db()."
 PARAMS = _APP + "`app.deps`/Params#"
 AUTH = _APP + "`app.deps`/Auth#"
 PICK = _APP + "`app.deps`/pick()."
+DB_DEP = _APP + "`app.aliases`/DbDep."
+PARAMS_DEP = _APP + "`app.aliases`/ParamsDep."
+PLAIN = _APP + "`app.aliases`/Plain."
+DEPS_DB = _APP + "`app.aliases`/Deps#Db."
 
 # (line, text, nth occurrence of text on the line, symbol, definition)
 OCCURRENCES = {
@@ -122,6 +145,24 @@ OCCURRENCES = {
         (21, "Params", 2, PARAMS, False),
         (21, "Depends", 4, DEPENDS, False),
         (21, "Depends", 5, DEPENDS, False),
+        (25, "DbDep", 0, DB_DEP, False),
+        (25, "ParamsDep", 0, PARAMS_DEP, False),
+        (25, "Plain", 0, PLAIN, False),
+        (25, "Db", 1, DEPS_DB, False),
+    ],
+    "app/aliases.py": [
+        (3, "DbDep", 0, DB_DEP, True),
+        (3, "Depends", 0, DEPENDS, False),
+        (3, "get_db", 0, GET_DB, False),
+        (4, "ParamsDep", 0, PARAMS_DEP, True),
+        (4, "Params", 1, PARAMS, False),
+        (4, "Depends", 0, DEPENDS, False),
+        (5, "Plain", 0, PLAIN, True),
+        (6, "DbDep", 0, DB_DEP, False),
+        (6, "DbDep", 1, DB_DEP, False),
+        (9, "Db", 0, DEPS_DB, True),
+        (9, "Depends", 0, DEPENDS, False),
+        (9, "get_db", 0, GET_DB, False),
     ],
     "app/broken.py": [],
 }
@@ -185,6 +226,7 @@ def edges(output):
             r.properties["rule_id"],
             r.properties["evidence_type"],
             r.properties["producer"],
+            r.properties.get("alias"),
         )
         for r in output.relationships
         if r.type == "USES_DEPENDENCY"
@@ -194,7 +236,12 @@ def edges(output):
 @unittest.skipUnless(PYTHON, "Provision the python grammar")
 class DependencyTests(unittest.TestCase):
     def test_endpoints_routers_and_dependencies_use_what_they_inject(self):
-        rule = ("fastapi.depends", "resolved", "scip-python@0.6.8")
+        found = ("fastapi.depends", "resolved", "scip-python@0.6.8")
+        rule = (*found, None)
+
+        def via(line):
+            return (*found, f"app/aliases.py:{line}")
+
         self.assertEqual(
             edges(analyze(SOURCES, OCCURRENCES)),
             [
@@ -220,9 +267,47 @@ class DependencyTests(unittest.TestCase):
                 # nothing.
                 ("d", "Params", 22, 151, "Params", "Depends", *rule),
                 ("d", "get_db", 22, 40, "get_db", "Depends", *rule),
+                # A parameter annotated with an alias of Annotated[T,
+                # Depends(...)] (in this module or another, at module or
+                # class level) uses what the alias injects; Depends() there
+                # calls T. The alias itself is no use, and an alias without
+                # Depends gives nothing.
+                ("f", "Params", 26, 28, "ParamsDep", "Depends", *via(5)),
+                ("f", "get_db", 26, 18, "DbDep", "Depends", *via(4)),
+                ("f", "get_db", 26, 73, "Db", "Depends", *via(10)),
                 # A router's dependencies=[...] belong to the file.
                 ("file", "get_db", 5, 41, "get_db", "Depends", *rule),
+                # Positional-only and keyword-only parameters of an async
+                # function too.
+                ("helper", "get_db", 7, 21, "DbDep", "Depends", *via(4)),
+                ("helper", "get_db", 7, 41, "DbDep", "Depends", *via(4)),
             ],
+        )
+
+    @unittest.skipUnless(sys.version_info >= (3, 12), "type statements")
+    def test_a_type_statement_alias_injects_too(self):
+        sources = {
+            "app/deps.py": DEPS,
+            "app/main.py": "from typing import Annotated\n"
+            "from fastapi import Depends\n"
+            "from app.deps import get_db\n"
+            "type DbDep = Annotated[int, Depends(get_db)]\n"
+            "def g(db: DbDep):\n"
+            "    pass\n",
+        }
+        db_dep = _APP + "`app.main`/DbDep."
+        occurrences = {
+            "app/deps.py": OCCURRENCES["app/deps.py"],
+            "app/main.py": [
+                (3, "DbDep", 0, db_dep, True),
+                (3, "Depends", 0, DEPENDS, False),
+                (3, "get_db", 0, GET_DB, False),
+                (4, "DbDep", 0, db_dep, False),
+            ],
+        }
+        self.assertEqual(
+            [e[:2] + e[-1:] for e in edges(analyze(sources, occurrences))],
+            [("g", "get_db", "app/main.py:4")],
         )
 
     def test_nothing_is_linked_without_an_index(self):
