@@ -22,7 +22,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
-    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
+    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|REQUESTS|CONSUMES|READS"
     "|REFERENCES_TABLE"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"

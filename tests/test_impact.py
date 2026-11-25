@@ -173,6 +173,29 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(strict["status"], "unsupported_or_unobserved")
         self.assertIn("Absence does not prove", strict["semantics"])
 
+    async def test_tests_depend_on_code_their_fixtures_call(self):
+        repo, snapshot, names = await self.write(
+            TreeSitterTool,
+            {
+                "app.py": "def make():\n    return 1\n",
+                "tests/conftest.py": "import pytest\n\nfrom app import make\n\n"
+                "@pytest.fixture\ndef thing():\n    return make()\n",
+                "tests/test_app.py": "def test_thing(thing):\n    assert thing\n",
+            },
+            "tree-sitter",
+        )
+        impact = await self.service.get_impact(
+            names["make"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("thing", 1, "resolved", ["CALLS"]),
+                ("test_thing", 2, "pattern_matched", ["USES_FIXTURE", "CALLS"]),
+            ],
+        )
+        self.assertEqual(impact["items"][1]["source_roles"], ["test"])
+
     async def test_direct_and_transitive_dependents_with_source_roles(self):
         files = dict(SOURCES)
         files["tests/test_base.py"] = (

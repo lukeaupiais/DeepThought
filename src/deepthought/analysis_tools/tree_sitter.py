@@ -21,6 +21,7 @@ from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
 from ..scip_calls import bind_calls
+from ..pytest_fixtures import fixture_uses
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -61,6 +62,37 @@ NESTS_RULE = register_rule(
         "outer is the innermost declaration whose span encloses it.",
     )
 )
+
+FIXTURE_PARAMETER_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-parameter",
+        "pattern_matched",
+        "A test or fixture parameter names a pytest fixture, found as pytest "
+        "looks it up: the class, the module, then conftest.py in each "
+        "directory up to the root (deepthought.pytest_fixtures).",
+    )
+)
+FIXTURE_MARK_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-usefixtures",
+        "pattern_matched",
+        "@pytest.mark.usefixtures on a test or test class names a pytest "
+        "fixture, found as pytest looks it up.",
+    )
+)
+FIXTURE_AUTOUSE_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-autouse",
+        "pattern_matched",
+        "A pytest fixture declared autouse=True in the test's class, module or "
+        "a conftest.py above it, which pytest runs for every test that sees it.",
+    )
+)
+_FIXTURE_RULES = {
+    "parameter": FIXTURE_PARAMETER_RULE,
+    "usefixtures": FIXTURE_MARK_RULE,
+    "autouse": FIXTURE_AUTOUSE_RULE,
+}
 
 UNLINKED_CALL_RULE = register_rule(
     EvidenceRule(
@@ -905,6 +937,44 @@ class TreeSitterTool(AnalysisTool):
                         {"line": inner.line, **_evidence(NESTS_RULE)},
                     )
                 )
+        # Tests and fixtures depend on the pytest fixtures they request.
+        python_files = {
+            c.file: (self.repo_path / c.file).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for c in result.coverage
+            if c.language == "python"
+        }
+        by_line = {
+            (d.file, d.line): d
+            for d in result.definitions
+            if d.kind in {"Function", "Method", "Class"}
+        }
+        for use in fixture_uses(python_files):
+            consumer = by_line.get(use.consumer)
+            fixture = by_line.get(use.fixture)
+            if consumer is None or fixture is None:
+                continue
+            relationships.append(
+                RelationshipData(
+                    "USES_FIXTURE",
+                    [consumer.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                        "repo_url": repo_url,
+                    },
+                    [fixture.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{fixture.file}::{fixture.symbol}::{fixture.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "name": use.name,
+                        **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
         for resolution in resolutions:
             item = imports[resolution.import_id]
             for link in resolution.links:
