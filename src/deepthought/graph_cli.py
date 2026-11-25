@@ -428,9 +428,13 @@ async def _execute(args, scip_report, scip_indexes):
                 )
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
+                # The indexes this run ingested once serve every tool that
+                # resolves names through them.
                 options = (
                     {"previous": earlier, "scip_indexes": scip_indexes}
                     if name == "tree-sitter"
+                    else {"scip_indexes": scip_indexes}
+                    if name in ("data-contracts", "service-contracts")
                     else {}
                 )
                 try:

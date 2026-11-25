@@ -337,6 +337,25 @@ def python_routers(tree, content):
     return routers, mounts, imports
 
 
+def _fastapi_payloads(function, keywords):
+    """(direction, start, end, None) of what a FastAPI path operation
+    writes for its payloads: each parameter of the handler ``function``
+    (``request``, the parameter's span; which of them is the body is decided
+    where the names resolve, ``python_payloads``) and its response, the
+    decorator's ``response_model`` or else the return annotation."""
+    found = []
+    parameters = function.child_by_field_name("parameters")
+    for parameter in [] if parameters is None else parameters.named_children:
+        if parameter.type in ("typed_parameter", "typed_default_parameter"):
+            found.append(("request", parameter.start_byte, parameter.end_byte, None))
+    model = keywords.get("response_model")
+    if model is None:
+        model = function.child_by_field_name("return_type")
+    if model is not None and model.type != "none":
+        found.append(("response", model.start_byte, model.end_byte, None))
+    return tuple(found)
+
+
 def _python_module_file(file, module, files):
     """The analysed file a dotted ``module`` imported from ``file`` names:
     relative to the file's package for leading dots, else under the nearest
@@ -592,11 +611,18 @@ def extract_python(context):
                         methods = [m.upper() for m in methods]
                 else:
                     continue
+                payloads = (
+                    _fastapi_payloads(definition, keywords)
+                    if framework == "fastapi"
+                    else ()
+                )
                 for prefix in prefixes:
                     path = _python_path(
                         prefix + context.folder.evaluate(path_node), framework
                     )
-                    context.route(call, methods, path, framework, handler)
+                    context.route(
+                        call, methods, path, framework, handler, payloads=payloads
+                    )
         elif node.type == "call":
             function = node.child_by_field_name("function")
             if function.type != "attribute":
