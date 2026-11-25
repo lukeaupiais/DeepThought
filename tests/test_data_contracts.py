@@ -978,7 +978,7 @@ class TypeormScipTests(unittest.TestCase):
                 ("WRITES", "UserService.held", "users", "typeorm-repository"),
             ],
         )
-        self.assertEqual(counts["no_scip_index"], 13)
+        self.assertEqual(counts["no_scip_index"], 14)
         self.assertEqual(orm["typeorm_linked"], 3)
         self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
 
