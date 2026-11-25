@@ -1642,14 +1642,16 @@ _RESOLVER = f"service-contracts@{__version__}"
 def contract_coverage(repo_url, languages, coverage, sites):
     """One EdgeCoverage node per (edge family, protocol, language of the
     repository's source files), in the shape the call and import coverage
-    shares: ``status`` ``linked`` when this tool reads the family in that
-    language and found sites, ``no_sites`` when it read and found none, and
-    ``not_linked`` with reason ``not_supported`` when it has no reader;
-    ``resolver``; ``files`` (``languages``, from ``source_languages``) and
-    ``files_linked`` (every file of a language read); ``sites``, and for
-    REQUESTS how many were ``linked``, ``ambiguous`` and ``unresolved``.
-    ``sites`` maps each (family, protocol) to (file, resolution status or
-    None) per site."""
+    shares. Every contract site rule of this tool is pattern_matched: the
+    engine's own readers find the sites, and a reader counts only the sites
+    it recognises, so a family is never ``linked`` or ``no_sites`` here. It
+    is ``not_linked`` with reason ``parser_rules`` when this tool reads the
+    family in that language (``sites`` may be 0), and with reason
+    ``not_supported`` when it has no reader; ``files_linked`` is 0.
+    ``resolver``; ``files`` (``languages``, from ``source_languages``);
+    ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
+    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
+    resolution status or None) per site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
     for family, protocol in sorted(CONTRACT_READERS):
@@ -1662,12 +1664,7 @@ def contract_coverage(repo_url, languages, coverage, sites):
         for language in sorted(languages):
             read = language in CONTRACT_READERS[(family, protocol)]
             found = counts.get(language, {})
-            if not read:
-                status, reason = "not_linked", "not_supported"
-            elif not found.get("sites"):
-                status, reason = "no_sites", None
-            else:
-                status, reason = "linked", None
+            reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
                     ["EdgeCoverage"],
@@ -1681,11 +1678,11 @@ def contract_coverage(repo_url, languages, coverage, sites):
                         "family": family,
                         "protocol": protocol,
                         "language": language,
-                        "status": status,
-                        **({"reason": reason} if reason else {}),
+                        "status": "not_linked",
+                        "reason": reason,
                         "resolver": [_RESOLVER] if read else [],
                         "files": languages[language],
-                        "files_linked": languages[language] if read else 0,
+                        "files_linked": 0,
                         "sites": found.get("sites", 0),
                         **(
                             {

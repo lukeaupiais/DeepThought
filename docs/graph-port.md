@@ -3315,12 +3315,15 @@ call and import coverage uses too:
   JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
   `engine.source_languages` over the same selection as the analysis; other
   languages get no statement;
-- `status`: `linked` when this tool reads the family in that language and
-  found sites, `no_sites` when it read and found none, and `not_linked` with
-  `reason` `not_supported` when it has no reader;
+- `status`: always `not_linked`. Every contract site rule is
+  `pattern_matched`: the engine's own readers find the sites, and a reader
+  counts only the sites it recognises, so it can neither say every site was
+  decided by a deterministic tool (`linked`) nor that there are none
+  (`no_sites`). The `reason` is `parser_rules` when this tool reads the
+  family in that language, `sites` 0 included, and `not_supported` when it
+  has no reader;
 - `resolver`: `["service-contracts@<version>"]` where a reader ran, else
-  empty; `files_linked`: all of the language's files where a reader ran,
-  else 0;
+  empty; `files_linked`: 0;
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
   found; for `REQUESTS` also how many were `linked`, `ambiguous` and
   `unresolved`.

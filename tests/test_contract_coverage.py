@@ -1,5 +1,7 @@
 """EdgeCoverage nodes of the contract families: one per (edge family,
-protocol, language present), saying whether it is linked in that language."""
+protocol, language present). The contract readers are the engine's own
+rules, so a family read in a language is not_linked for parser_rules,
+never linked or no_sites."""
 
 import asyncio
 import importlib.util
@@ -58,6 +60,7 @@ class ContractCoverageTests(unittest.TestCase):
                 k: requests[k]
                 for k in (
                     "status",
+                    "reason",
                     "files",
                     "files_linked",
                     "sites",
@@ -67,9 +70,10 @@ class ContractCoverageTests(unittest.TestCase):
                 )
             },
             {
-                "status": "linked",
+                "status": "not_linked",
+                "reason": "parser_rules",
                 "files": 1,
-                "files_linked": 1,
+                "files_linked": 0,
                 "sites": 1,
                 "linked": 1,
                 "ambiguous": 0,
@@ -78,18 +82,43 @@ class ContractCoverageTests(unittest.TestCase):
         )
         self.assertEqual(len(requests["resolver"]), 1)
         self.assertTrue(requests["resolver"][0].startswith("service-contracts@"))
-        self.assertNotIn("reason", requests)
         routes = found[("HANDLES", "http", "python")]
-        self.assertEqual((routes["status"], routes["sites"]), ("linked", 2))
+        self.assertEqual(
+            (routes["status"], routes["reason"], routes["sites"]),
+            ("not_linked", "parser_rules", 2),
+        )
         self.assertNotIn("linked", routes)
-        # A reader that ran and found nothing.
+        # A reader that ran and recognised nothing still cannot say there
+        # are no sites.
         grpc = found[("REQUESTS", "grpc", "python")]
-        self.assertEqual((grpc["status"], grpc["sites"]), ("no_sites", 0))
+        self.assertEqual(
+            (grpc["status"], grpc["reason"], grpc["sites"]),
+            ("not_linked", "parser_rules", 0),
+        )
+        self.assertFalse(
+            any(n["status"] in ("linked", "no_sites") for n in found.values())
+        )
         rust = found[("REQUESTS", "http", "rust")]
         self.assertEqual(
             (rust["status"], rust["reason"], rust["resolver"], rust["files_linked"]),
             ("not_linked", "not_supported", [], 0),
         )
+
+    def test_contract_site_rules_are_parser_rules(self):
+        # Coverage reports every read family as parser_rules. A contract
+        # site rule backed by a deterministic tool (evidence ``resolved``)
+        # must come with linked or partial coverage for its files.
+        import deepthought.analysis_tools.service_contracts as contracts
+        from deepthought.analysis_tools.evidence import _RULES
+
+        self.assertTrue(contracts.CONTRACT_READERS)
+        resolved = sorted(
+            rule_id
+            for rule_id, rule in _RULES.items()
+            if rule_id.startswith("service-contracts.")
+            and rule.evidence_type != "pattern_matched"
+        )
+        self.assertEqual(resolved, ["service-contracts.repository-contains-graphql"])
 
 
 if __name__ == "__main__":
