@@ -1,7 +1,6 @@
 """Compose projects, Helm charts and kustomizations rendered by their tools."""
 
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 import unittest.mock
@@ -9,10 +8,7 @@ import unittest.mock
 from deepthought import deploy_facts
 from deepthought.service_contracts.compose import compose_units
 from deepthought.service_contracts.deployed import kubernetes_units
-
-# TEMPORARY: the tools are required; this skip exists only because the
-# offline acceptance sandbox does not provision Go yet (#323, #344).
-needs_go = unittest.skipUnless(shutil.which("go"), "the Go toolchain is not installed")
+from go_ready import needs_go
 
 COMPOSE = {
     "deploy/.env": "REGISTRY=registry.example\n",

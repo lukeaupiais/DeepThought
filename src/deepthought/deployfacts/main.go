@@ -196,7 +196,8 @@ func compose(r request) fact {
 			s = project.DisabledServices[name]
 		}
 		item := service{Name: name, Image: s.Image, Profiles: s.Profiles}
-		if s.Build != nil && s.Build.Context != "" && filepath.IsAbs(s.Build.Context) {
+		// A context holding text no variable sets builds no known directory.
+		if s.Build != nil && s.Build.Context != "" && filepath.IsAbs(s.Build.Context) && !strings.Contains(s.Build.Context, Placeholder) {
 			if context, ok := inside(s.Build.Context); ok {
 				item.Context = &context
 				if s.Build.Dockerfile != "" && !strings.Contains(s.Build.Dockerfile, Placeholder) {
