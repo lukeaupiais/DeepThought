@@ -399,10 +399,15 @@ def extract_schema_changes(file, content: bytes):
     found, unparsed = [], []
     for statement in statements:
         types = {t.token_type for t in statement}
-        if TokenType.TABLE not in types or not types & {
-            TokenType.DROP,
-            TokenType.RENAME,
-        }:
+        # sqlglot tokenizes RENAME as a command: the rest of the statement
+        # (MySQL's RENAME TABLE a TO b) is one string token.
+        if not statement:
+            continue
+        renames = statement[0].token_type == TokenType.RENAME
+        if not renames and (
+            TokenType.TABLE not in types
+            or not types & {TokenType.DROP, TokenType.RENAME}
+        ):
             continue
         start, end = statement[0].start, statement[-1].end + 1
         line = statement[0].line

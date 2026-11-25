@@ -403,6 +403,7 @@ ALTER TABLE a DROP COLUMN b;
 DROP INDEX i;
 ALTER TABLE "posts_new" RENAME TO "Posts";
 ALTER TABLE a RENAME COLUMN x TO y;
+RENAME TABLE m TO n;
 """
         found, unparsed = extract_schema_changes("m.sql", text)
         self.assertEqual(
@@ -419,7 +420,9 @@ ALTER TABLE a RENAME COLUMN x TO y;
             [(r.line, r.table, r.new_name) for r in found[5:]],
             [(7, "posts_new", "posts")],
         )
-        self.assertEqual(unparsed, [])
+        # MySQL's RENAME TABLE has no sqlglot parse: its line is reported,
+        # not read as no change.
+        self.assertEqual(unparsed, [9])
 
     def test_migration_sets(self):
         self.assertEqual(
