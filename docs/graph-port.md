@@ -868,9 +868,8 @@ own listing (`--fixtures-per-test`) imports the project and runs its
 plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
 `getfixturevalue`, fixtures inherited from a test class's base classes,
 and `python_files` or `python_functions` settings in
-configuration are not read, and neither is a file the running Python's
-`ast` cannot parse; each such file is named in the analysis warnings
-(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
+configuration are not read, and neither is a file `ast` cannot parse (see
+"Python versions" below). `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
 
 ### FastAPI dependencies
@@ -886,9 +885,10 @@ indexer that resolved it (`producer`, `receipt`):
 |---|---|
 | `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
 
-Both ends come from the scip-python index, so the rule is `resolved`. The
-call counts only when the index resolves its callee to FastAPI's own
-`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+Both ends come from the scip-python index, so the rule is `resolved`. A
+call written `Depends(...)` or `Security(...)` (or under a name one of them
+is imported `as`) counts only when the index resolves its callee to
+FastAPI's own `fastapi.param_functions` `Depends` or `Security`. The dependency is the
 first argument or `dependency=`. For a `Depends()` with neither, it is what
 FastAPI calls: the parameter's annotation, or the `T` of
 `Annotated[T, Depends()]`. It is linked only when the index resolves that
@@ -911,12 +911,8 @@ Not read: a dependency given as an instance (`Security(scheme)` with
 `scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
 at run time (`Depends(make_dependency())`, a loop variable); an alias of an
 alias, or an alias written inside another annotation
-(`Optional[SessionDep]`); files no scip-python index covers; and files the
-running Python's `ast` cannot parse, such as Python 3.14's
-`except A, B:` read by an older interpreter. Each such file is named in the
-analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
-interpreter version, in the `python_ast_unparsed` metric; the same applies to
-pytest fixtures.
+(`Optional[SessionDep]`); files no scip-python index covers; and files `ast`
+cannot parse (see "Python versions" below).
 
 On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
 come through aliases, 21 are on an app or router, and 14 are `Depends()`
@@ -928,13 +924,39 @@ were all correct. On the full-stack-fastapi-template backend (77e550a) 39
 uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
 their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
 injects an instance and is not linked. That template's `app/api/deps.py`
-uses Python 3.14 syntax, so this was measured with its one `except A, B:`
-line parenthesised; under an older interpreter the aliases there are not
-read.
+uses Python 3.14 syntax (`except A, B:`), which the declared Python 3.14
+reads (see below).
 `tools/check_impact.py` matches on every compared seed: 117 of 117 (136
 dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
+
+### Python versions
+
+The pytest fixture and FastAPI dependency rules read sources with Python's
+`ast`, which parses only the syntax of the interpreter it runs in
+(`deepthought.python_ast_facts`, `deepthought.python_runtime`). So the
+sources are read by the newest Python the repository declares: the first
+entry of each `.python-version` file and each `pyproject.toml`'s
+`requires-python` (virtual environments and `node_modules` are skipped).
+When a declaration admits nothing newer than the running interpreter, the
+running one reads them itself, since newer Pythons parse older syntax.
+Otherwise uv (a pinned dependency of the `python` extra) finds that Python,
+installing a managed CPython when none is present, and the facts are read
+by a script run there that uses only the standard library. The
+`python_interpreter` metric gives the version that read them, the
+declarations, whether it was a managed interpreter, and any errors.
+
+When no declared Python can be obtained, or it fails, the running
+interpreter reads the sources, and each reason is a
+`python_interpreter_unavailable` warning. A file the chosen interpreter
+still cannot parse is named in a `python_ast_unparsed: FILE: ...` warning
+and listed with the interpreter version in the `python_ast_unparsed` metric.
+
+On full-stack-fastapi-template (77e550a, `requires-python = ">=3.14,<4.0"`),
+an analysis running under Python 3.13 reads the backend with a uv-managed
+3.14.6. `app/api/deps.py` parses, and all 39 dependency uses and 147 fixture
+uses are found with no warning.
 
 ### Interface implementations
 

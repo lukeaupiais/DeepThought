@@ -233,6 +233,32 @@ def edges(output):
     )
 
 
+class FactTests(unittest.TestCase):
+    def test_only_calls_that_may_be_depends_or_security_are_kept(self):
+        import ast
+
+        from deepthought.fastapi_dependencies import dependency_facts
+
+        tree = ast.parse(
+            "from fastapi import Depends as Inject, Query as Q\n"
+            "def f(a=Inject(get_db), b=Q(get_db), c=print(get_db)):\n"
+            "    pass\n"
+        )
+        calls = dependency_facts(tree)["calls"]
+        # Only the call under Depends' import name; the index decides the rest.
+        self.assertEqual(
+            calls,
+            [
+                {
+                    "callee": ["Inject", 2, 8],
+                    "written": ["get_db", 2, 15],
+                    "owner": 2,
+                    "alias": None,
+                }
+            ],
+        )
+
+
 @unittest.skipUnless(PYTHON, "Provision the python grammar")
 class DependencyTests(unittest.TestCase):
     def test_endpoints_routers_and_dependencies_use_what_they_inject(self):
