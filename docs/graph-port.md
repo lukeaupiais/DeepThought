@@ -177,8 +177,16 @@ rule. Snapshots written before this change have no such nodes and answer
 callback, dynamic dispatch) are not counted.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
-covers are bound from the index (`deepthought.scip_calls.bind_calls`;
-`TreeSitterTool.analyze(..., scip_indexes=[(ingested index, receipt digest)])`).
+covers are bound from the index (`deepthought.scip_calls.bind_calls`).
+`TreeSitterTool.analyze` runs the pinned indexers itself
+(`deepthought.indexers.index_for_analysis`) into a scratch directory, so every
+caller (the graph import, evaluation, `tools/check_impact.py`,
+`tools/check_determinism.py`) binds through them, and a missing or failing
+indexer raises `IndexerFailure`; the report is kept on `last_scip_report`. A
+caller that already ran them passes
+`scip_indexes=[(ingested index, receipt digest)]` instead. Indexes do not
+depend on where the workspace lives: the default scip-python project name is
+`workspace` and the index's `project_root` is fixed to `file:///workspace`.
 Each call site records where the last name of its callee starts
 (`callee_at`); the SCIP reference there names a symbol, and the symbol's SCIP
 definition is read back to the innermost parsed declaration whose span holds it
@@ -2016,13 +2024,37 @@ producer and version, the indexer executable's digest and the arguments
 without paths. `deepthought.indexers.validate_receipt` rejects an index whose
 bytes or inputs changed. Run settings keep symbols stable: scip-python gets
 `--project-version 0` and the workspace and `src` on `PYTHONPATH` (so a
-src-layout package resolves without being installed), scip-go gets
+src-layout package resolves without being installed), plus the `src` of each
+Python project below the root (a directory with a `pyproject.toml`,
+`setup.cfg`, `Pipfile`, lockfile or requirements file), so a service's tests
+bind to its src-layout package. Two of those `src` directories with a
+top-level module or regular package of the same name are both left off, so
+one module name never names two files; namespace packages (no `__init__`)
+merge across them as Python merges them. A project's own directory is not
+added, since pyright already resolves a flat layout from the importing
+file's directory. On haystack-core-integrations (47d359e; `chroma`,
+`pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
+references from the integrations' tests to definitions in their `src` go
+from 5,403 to 6,473. scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
-`--yarn-workspaces` from the workspace's manifests. A workspace with neither
-and no root `tsconfig.json` is indexed as one project of every TypeScript and
-JavaScript file (with `allowJs`), written to the scratch directory and named
-in the receipt, rather than with `--infer-tsconfig`, which would write a
-`tsconfig.json` into a workspace that may be read-only.
+`--yarn-workspaces` from the workspace's manifests; `--yarn-workspaces` only
+for a private root package, since Yarn refuses to list the workspaces of
+any other ("Workspaces can only be enabled in private projects"). An npm
+workspace root that is not private (apollographql/spotify-showcase, 417
+files that used to be `indexer_failed`) is indexed one tsconfig project at a
+time. `--pnpm-workspaces` runs `pnpm ls`, and pnpm 9.7 and later first
+switch to the release a package.json's `packageManager` names, downloading
+it; hono pins `pnpm@12.6.0`, and where that download failed all 460 of its
+files were `indexer_failed`. scip-typescript and every package install run
+with `npm_config_manage_package_manager_versions=false`, so the pnpm on PATH
+answers. A workspace with neither
+and no root `tsconfig.json` (JavaScript) is indexed as a project the engine
+writes in a scratch directory: `allowJs`, every file outside
+`node_modules`, recorded in the receipt as `project`. scip-typescript's own
+`--infer-tsconfig` is not used: once `node_modules` holds TypeScript
+declarations it infers `{}` instead of `allowJs` and indexes no file, which
+left graphql-js, Ackee, node-express-boilerplate and robot-shop (424 files)
+`indexer_failed`; all are now covered.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.
@@ -2042,7 +2074,9 @@ with a reason:
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
-(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+(outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
+directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
+gets its own run from its
 own directory, written to `scip-go.scip` for the root module and
 `scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
 made workspace-relative and the receipt names the module. A Go file belongs to
@@ -2058,15 +2092,169 @@ compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
 files' documents; coverage says `pass: platform` and the platform. On cobra
 this covers `command_win.go`.
 
+The go command's `./...` skips directories whose name starts with `_`
+(`_examples/hello`) and directories named `testdata`, but their packages
+compile when named. The packages of a
+module's files in such directories are checked with `go list -e`, and those
+it loads without an error get a scip-go pass naming each one, written to
+`scip-go[-<dir>]-ignored-directories.scip`; coverage says `pass:
+ignored_directory`. One that does not load (an import nothing declares) is
+left out of the pass, since scip-go fails a whole run on it, and stays
+`not_in_index` with `ignored_directory_pass: does_not_load`. On chi
+(c64ed7d) the 19 files of `_examples` used to be `not_in_index`; now 12 are
+covered by this pass and 7 by the two `_examples` modules' own runs.
+On grpc-go (9ad6d94), whose `testdata` package 42 files import, the 5 files
+of `testdata/` and `security/advancedtls/testdata/` used to be
+`not_in_index`; now this pass covers all 5. A `go.mod` inside `testdata` is
+still not a module of the workspace (sqlc keeps 2,831 end-to-end fixture
+files under such modules).
+
+A tsconfig.json below the workspace root is a project of its own: scip-typescript
+runs once for the root and once per nested project (`typescript_projects`),
+each from the project's directory so its `baseUrl` and `paths` apply, written
+to `scip-typescript-<dir>.scip` (slashes as `__`) with document paths made
+workspace-relative and the receipt naming the directory as `module`. A file
+belongs to the innermost project above it; the root run drops the documents
+of nested projects. A workspace whose root indexes pnpm or yarn workspaces
+(`--pnpm-workspaces`, `--yarn-workspaces`) leaves its packages to that run.
+On immich v1.106.4, whose only tsconfig is `server/tsconfig.json`, the server
+run covers its 487 files with the server's `baseUrl` imports resolved.
+
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
 pass, written to `scip-typescript-uncovered.scip`: one project of exactly
-those files that extends the root tsconfig.json when there is one, with
+those files that extends the root tsconfig.json (else jsconfig.json) when
+there is one, with
 `allowJs`, `allowImportingTsExtensions` and `noEmit`. Its receipt records that
 project with workspace-relative paths, its coverage entries say
 `pass: outside_tsconfig`, and it keeps only those files' documents, so the two
 indexes never cover the same file. On hono it covers the 75 files the first
 pass leaves out.
+
+A JavaScript project keeps its compiler options in `jsconfig.json`, which
+scip-typescript does not read. When the root has no tsconfig.json, the
+project the engine writes (for the whole workspace, or for the files outside
+every tsconfig) extends the root `jsconfig.json`. preact (1fbc07f) maps
+`preact` to its own sources through the `paths` there; its only tsconfigs are
+in `demo/` and its type tests, so its 246 core files are indexed by the
+outside-tsconfig pass. Without the jsconfig, `import { options } from
+'preact'` in `hooks/src/index.js` was `local 0`; now it binds to `options`
+in preact's `src/index.d.ts`. Across that pass, references to a `local`
+symbol fell from 30,233 to 27,002, and references into the preact package
+rose from 15,543 to 18,205.
+
+scip-python types a call into a library only when the library is importable,
+so before it runs the project's declared dependencies are installed
+(`deepthought.python_dependencies`), read from the workspace root and every
+directory below it (hidden directories, `node_modules` and virtual
+environments aside): `requirements*.txt`,
+`pyproject.toml` `[project]` dependencies and optional dependencies,
+`[dependency-groups]` and Poetry's dependencies, dev-dependencies and groups
+(`^` and `~` constraints converted to PEP 440; path, git and URL entries
+skipped), `setup.cfg` `install_requires` and `extras_require`, and Pipenv's
+`Pipfile`. A directory with a lockfile (`uv.lock`, `poetry.lock`,
+`Pipfile.lock`, chosen in that order) gives its pins (`name==version`, with
+the lock's markers) in place of its `pyproject.toml`, `setup.cfg` and
+`Pipfile` ranges, so the index types against the versions the project runs
+and does not change when a package is released; packages from a path, a VCS
+or a URL are left out. They are installed with
+`pip install --only-binary :all:` into a scratch directory, so no package's
+build or install code runs and the project itself is never installed. The
+indexer's `python` is an empty virtual environment, so the packages of the
+machine running the engine never reach the index. pip reads its usual
+settings (`PIP_INDEX_URL`, `PIP_FIND_LINKS`, `PIP_NO_INDEX`). The run and its
+receipt record `dependencies`: `status` (`none`, `installed`, `partial`,
+`failed`), the interpreter version, the directories that declared
+requirements (`projects`), the lockfiles read (`lockfiles`), the declared requirements, the installed
+`name==version` set, the requirements no wheel satisfied (`failed`) and
+those installed without their dependencies (`without_dependencies`). When any failed,
+each covered Python file's coverage entry says
+`warning: dependencies_unavailable` and is named on stderr, with the missing
+requirements; the run does not fail, since the indexer ran. With SQLModel
+declared, `session.add(obj)` resolves to SQLAlchemy's `Session#add`.
+
+One scip-python run indexes the whole workspace, so a monorepo's services
+share one set of packages: every directory's declarations are installed
+together. When the combined install fails, pip checks each requirement for
+a wheel (`--dry-run`), and the ones that have one are installed together
+again, so they are still resolved as one set. Only when those conflict (two
+services pin different versions) is each installed in turn, and the version
+installed last is the one the index types against. On full-stack-fastapi-template
+(77e550a), whose dependencies live in `backend/pyproject.toml`, the files of
+`backend/app` had no occurrence of a FastAPI, SQLModel or SQLAlchemy symbol
+before; now they have 205, 180 and 92. Its `emails` requirement has no wheel,
+so the run is `partial` and names it. Its root `uv.lock` pins 79 packages:
+the 77 with a wheel are installed at exactly the locked versions, and
+`emails` and its `dkimpy` dependency (sdist only) are named.
+
+A requirement whose own wheel exists but one of whose dependencies has none
+is installed from its wheel alone (`--no-deps`) and named in
+`without_dependencies`; the run is `partial`. Its source is what the indexer
+reads, and nothing runs it. On instana/robot-shop (pinned corpus), `payment`
+declares `instana`, whose wheel needs `fysom`, which has no wheel. Before,
+`instana` was named as failed and `import instana` bound to nothing; now
+instana 3.21.0 is installed and the import binds to it. `uwsgi` and
+`opentracing` ship only sources, so they are still named in `failed`.
+
+The TypeScript compiler likewise types a call into a package only when its
+declarations are in `node_modules`. When the workspace declares packages and
+`node_modules` is missing (`deepthought.js_dependencies`), the workspace is
+copied to a scratch directory (without `.git` and `node_modules`) and each
+directory with a lockfile installs exactly what it pins, with scripts off:
+`pnpm install --frozen-lockfile --ignore-scripts` (`pnpm-lock.yaml`), `bun
+install --frozen-lockfile --ignore-scripts` (`bun.lock`, `bun.lockb`), `yarn
+install --frozen-lockfile --ignore-scripts` (a Yarn 1 `yarn.lock`) or `npm ci
+--ignore-scripts` (`npm-shrinkwrap.json`, `package-lock.json`). A `yarn.lock`
+with `__metadata` is Yarn 2 or later: the project's own release runs (the
+`yarnPath` of `.yarnrc.yml`, else the `packageManager` version through
+corepack, which reads `COREPACK_NPM_REGISTRY`) as `yarn install --immutable
+--mode=skip-build`, with `YARN_ENABLE_SCRIPTS=false` and the `node-modules`
+linker, since the compiler cannot read Plug'n'Play. A directory inside a
+directory with a lockfile, or inside a workspace root (`workspaces` in its
+package.json, or `pnpm-workspace.yaml`), installs from there; any other
+directory whose package.json declares packages installs where it is, so a
+repository of separate packages with no lockfile (grpc-node's `packages/*`)
+gets each package's dependencies. Every install also runs with
+`npm_config_script_shell` set to `true`: npm 10.9 runs a `file:`
+dependency's `prepare` script even with `--ignore-scripts`, and a shell
+that does nothing keeps it from running. On grpc-node (ca7f83f) the
+`grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
+tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
+files `indexer_failed`; now every file is covered. A directory without a
+lockfile runs `npm install --ignore-scripts --no-package-lock`. A lockfile
+counts only beside a package.json, so a stray one (Apollo's
+fullstack-tutorial has a root `package-lock.json` and no root package.json)
+neither installs nor keeps the packages below it from installing. A
+directory with several lockfiles tries them in the order above until one
+installs: a stale `yarn.lock` fails its frozen install, and the directory's
+`package-lock.json` is tried next (nestjs-realworld-example-app). The
+install record names the lockfile used and the `failed_attempts` before it.
+`npm ci` is first run with `--replace-registry-host=always`, so every
+pinned tarball comes from the configured registry and is still checked
+against the lockfile's integrity hash; if that fails, it runs again with the
+hosts the lockfile names, for packages only a private host serves.
+nestjs-realworld-example-app (c1c2cc4) pins 194 tarballs to a third-party
+mirror (`npm.styque.de`) the test environment cannot reach; npm retried it until the install timed out
+after 15 minutes, and all 35 files were covered with
+`dependencies_unavailable`. Now its 660 packages install in seconds and the
+warning is gone.
+A tsconfig may extend a package (ky's extends `@sindresorhus/tsconfig`), which
+exists only once installed: without the install, scip-typescript stops with
+`TS6053` and every file is `indexer_failed`; with it, all 98 of ky's files
+are covered. scip-typescript then indexes
+the copy, so the workspace is left as it was and document paths are the
+same. Packages are installed once per `index_workspace`, for both
+scip-typescript passes. The run and receipt record `dependencies`: `status`
+(`none`, `present`, `installed`, `partial`, `failed`), each install's
+directory, manager, command, lockfile digest and outcome, and the installed
+package count; a failed install gives each covered file
+`warning: dependencies_unavailable`.
+
+On full-stack-fastapi-template (77e550a), whose only JavaScript lockfile is
+a root `bun.lock`, the install used to be an unlocked `npm install`: 103 of
+386 packages landed at other versions than the lock's. bun now installs all
+391 registry packages at the locked versions. A Yarn 4 project used to fail
+its install (Yarn 1 refuses a project meant for corepack); it now installs.
 
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
