@@ -1553,7 +1553,17 @@ class DataContractTool(AnalysisTool):
                 entity_tables.setdefault(mapping.entity_name, set()).add(
                     mapped.get(mapping.entity)
                 )
-        sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
+        sql_counts = {
+            "statements": 0,
+            "not_fixed": 0,
+            "unknown_entity": 0,
+            # Statements by reader: sqlglot, or the token reader for SQL with
+            # text the code does not fix and JPQL (tokens) or SQL sqlglot
+            # rejects in every dialect (tokens_not_parsed).
+            "sqlglot": 0,
+            "tokens": 0,
+            "tokens_not_parsed": 0,
+        }
         # Go: the type checker's facts. The tree-sitter rules read SQL calls
         # only in files it did not check and at calls it could not type, and
         # TableName literals in files importing a SQL package everywhere.
@@ -1619,6 +1629,7 @@ class DataContractTool(AnalysisTool):
             if item.statement is None:
                 sql_counts["not_fixed"] += 1
                 continue
+            sql_counts[item.statement.reader] += 1
             for kind, names in (
                 ("READS", item.statement.reads),
                 ("WRITES", item.statement.writes),
@@ -2822,6 +2833,7 @@ class DataContractTool(AnalysisTool):
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
                     "ddl_statements": len(ddl),
+                    "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),

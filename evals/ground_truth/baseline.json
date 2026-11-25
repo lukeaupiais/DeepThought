@@ -1054,14 +1054,14 @@
       "unjudged": 48
     },
     "imports": {
-      "confirmed": 1003,
+      "confirmed": 1128,
       "contradicted": 0,
-      "expected": 1007,
-      "not_indexed": 321,
+      "expected": 1203,
+      "not_indexed": 32,
       "precision": 1.0,
-      "recall": 0.996,
+      "recall": 0.9377,
       "unresolved_expected": 1,
-      "unresolved_unjudged": 59
+      "unresolved_external": 223
     },
     "missed": 704,
     "missed_by_engine_outcome": {
@@ -1224,13 +1224,13 @@
       "unjudged": 0
     },
     "imports": {
-      "confirmed": 98,
+      "confirmed": 186,
       "contradicted": 0,
-      "expected": 98,
-      "not_indexed": 211,
+      "expected": 190,
+      "not_indexed": 3,
       "precision": 1.0,
-      "recall": 1.0,
-      "unresolved_external": 1
+      "recall": 0.9789,
+      "unresolved_external": 121
     },
     "inherits": {
       "confirmed": 5,
@@ -1248,6 +1248,43 @@
     "recall": 1.0,
     "unjudged": 1,
     "unresolved_unjudged": 11392
+  },
+  "messages": {
+    "messages-confluent-kafka-go-examples": {
+      "expected": 13,
+      "extra": 0,
+      "found": 6,
+      "unresolved_sites": 26,
+      "wrong": 0
+    },
+    "messages-go-clean-template-amqp": {
+      "expected": 0,
+      "extra": 0,
+      "found": 0,
+      "unresolved_sites": 2,
+      "wrong": 1
+    },
+    "messages-kafka-go-examples": {
+      "expected": 0,
+      "extra": 0,
+      "found": 0,
+      "unresolved_sites": 4,
+      "wrong": 0
+    },
+    "messages-rabbitmq-tutorials-go": {
+      "expected": 8,
+      "extra": 0,
+      "found": 3,
+      "unresolved_sites": 9,
+      "wrong": 4
+    },
+    "messages-sarama-examples": {
+      "expected": 2,
+      "extra": 0,
+      "found": 2,
+      "unresolved_sites": 8,
+      "wrong": 0
+    }
   },
   "preact": {
     "ambiguous_no_candidates": 38,
@@ -1299,15 +1336,15 @@
       "unjudged": 475
     },
     "imports": {
-      "ambiguous_unjudged": 5,
-      "confirmed": 435,
+      "ambiguous_expected": 5,
+      "confirmed": 487,
       "contradicted": 0,
-      "expected": 442,
-      "linked_unjudged": 3,
-      "not_indexed": 114,
+      "expected": 516,
+      "not_indexed": 26,
       "precision": 1.0,
-      "recall": 0.9842,
-      "unresolved_unjudged": 101
+      "recall": 0.9438,
+      "unresolved_expected": 9,
+      "unresolved_external": 131
     },
     "missed": 42,
     "missed_by_engine_outcome": {
