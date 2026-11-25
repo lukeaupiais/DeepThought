@@ -724,6 +724,10 @@ of Django give identical facts.
 
 ## JavaScript
 
+TypeScript sources are `.ts`, `.tsx`, `.mts` and `.cts` files, declaration
+files (`.d.ts`, `.d.mts`, `.d.cts`) included: the extensions the TypeScript
+compiler reads as TypeScript.
+
 JavaScript and JSX sources (`.js`, `.jsx`, `.mjs`, `.cjs`) are analyzed when
 `javascript` is selected (`--language javascript`, or `languages=` in Python)
 and the `javascript` extra is installed. The language is opt-in, so analyses

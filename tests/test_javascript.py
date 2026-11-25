@@ -102,6 +102,32 @@ class JavaScriptDeclarationTests(unittest.TestCase):
         )
         self.assertIn("tree-sitter-javascript", dict(result.analyzer_versions))
 
+    @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
+    def test_typescript_module_extensions_are_typescript(self):
+        result = analyze(
+            {
+                "m.mts": "export function esm(): void {}\n",
+                "c.cts": "export function common(): number { return 1; }\n",
+                "t.d.mts": "export declare function declared(): void;\n",
+                "g.cts": "const n = <number>(1 as unknown);\nexport { n };\n",
+            },
+            languages=("typescript",),
+        )
+        self.assertEqual(
+            sorted(
+                (d.file, d.symbol) for d in result.definitions if d.kind == "Function"
+            ),
+            [("c.cts", "common"), ("m.mts", "esm"), ("t.d.mts", "declared")],
+        )
+        # Not JSX: a type assertion in angle brackets parses.
+        self.assertEqual(
+            {(c.file, c.language, c.status) for c in result.coverage},
+            {
+                (name, "typescript", "analyzed")
+                for name in ("m.mts", "c.cts", "t.d.mts", "g.cts")
+            },
+        )
+
     def test_javascript_is_analyzed_only_when_selected(self):
         files = {"main.py": "def f():\n    pass\n", "app.js": "function g() {}\n"}
         default = analyze(files, languages=None)

@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
