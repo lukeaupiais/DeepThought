@@ -47,9 +47,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: false
       - name: Provision build and acceptance tools
         run: |
@@ -70,6 +73,12 @@ jobs:
           python -m venv "$RUNNER_TEMP/deepthought-core"
           "$RUNNER_TEMP/deepthought-full/bin/python" -m pip install "$wheel[languages,scip]"
           "$RUNNER_TEMP/deepthought-core/bin/python" -m pip install --no-index --no-deps "$wheel"
+      - name: Install the pinned SCIP indexers and pyright
+        run: |
+          npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Install the pinned Go callgraph into the full installation
         run: |
           # Offline acceptance clears the environment and keeps only the venv on PATH.
@@ -120,7 +129,7 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: false
       - name: Install the pinned SCIP indexers, pyright and callgraph
         run: |
@@ -128,6 +137,7 @@ jobs:
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
           GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/tools/cmd/callgraph@v0.31.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Check the indexers are found
         run: python -m deepthought indexers
       - name: Wait for the dedicated test database
@@ -150,7 +160,7 @@ jobs:
 
   ground-truth:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -168,13 +178,14 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: false
       - name: Install the pinned SCIP indexers and pyright
         run: |
           npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Check the indexers are found
         run: python -m deepthought indexers
       - name: Score the pinned ground-truth corpus against its baseline
