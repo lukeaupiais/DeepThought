@@ -454,7 +454,8 @@ Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
 
-The two GraphQL corpora are labelled by graphql-core, not by hand
+The two GraphQL corpora are labelled by graphql-js, not by hand or by the
+graphql-core parser the engine uses
 (`tools/graphql_client_oracle.py`, see the fixtures README). A prediction is a
 REQUESTS edge to a GraphqlField, placed at the request line and at the
 field's declaration. The fullstack tutorial's `start/` client, whose own
@@ -730,6 +731,111 @@ a sample (`"scope": "labelled"`), so other engine lines are not counted as
 extra. A write labels its target as WRITES and every other table it names as
 READS. The engine was developed against both apps, so they are regression
 gates, not held-out checks.
+
+### Python ORM tables
+
+Manifest `tables` entries with `"language": "python-orm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in Python, per
+line, against labels read by hand. full-stack-fastapi-template is labelled in
+full, so engine lines outside the labels count as extra. The labels cover:
+
+- every line under `backend/` that names a `table=True` SQLModel class in
+  `select()`, `select_from()`, `delete()` or `Session.get()`;
+- every line that passes an instance of one to `Session.add()`, `delete()` or
+  `refresh()`;
+- the SQL strings that the Alembic migrations pass to `op.execute`, leaving
+  out CREATE statements.
+
+SQLModel names the tables `user` and `item` after the classes. A statement is
+labelled on the line that names the model. The CI job has no scip-python, so
+the gate scores the engine's name-based path.
+
+### TypeORM tables
+
+Manifest `tables` entries with `"language": "typeorm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in TypeScript, per
+line, against labels read by hand. immich (v1.106.4, `server/`) is a NestJS app
+that injects TypeORM repositories with `@InjectRepository`, passes them by
+position into its access classes, and reaches TypeORM through each
+repository's `manager` and an injected `DataSource`. Its labels cover every
+TypeORM call in `server/src/repositories/*.repository.ts` except
+`database.repository.ts`, which touches only system catalogs, extensions and
+tables named at run time. The labels are a sample (`"scope": "labelled"`).
+The rules for labelling are:
+
+- A `Repository<E>` or `EntityManager` method that reads or writes is labelled
+  on the line of its method name. The table is E's `@Entity` table, or the table
+  of the entity class the manager method takes. The access is READS for reads
+  and WRITES for writes. `save`, `upsert` and `softRemove` are WRITES only.
+- A query builder is labelled on its `createQueryBuilder` line with its root
+  table only. That is the repository's entity, the entity argument, or the
+  table its `from`/`into` names. The access is WRITES for an update, delete or
+  insert, and READS otherwise. A builder used only as a subquery or CTE is
+  READS. Joined relations are not labelled.
+- A raw query whose SQL is a literal at the call is labelled with that SQL's
+  tables.
+- The app's own `save`/`create` wrappers are not accesses themselves.
+  `Repository.create` touches no table, so it is not labelled.
+
+The gate scores the engine as `DataContractTool` runs it, with no
+scip-typescript index and no installed `node_modules`.
+
+### Drizzle tables
+
+Manifest `tables` entries with `"language": "drizzle"` are scored like the
+TypeORM ones. A `root` names the package to analyze, and label paths are
+relative to that package. The lobe-chat entry analyzes `packages/database`.
+Its tables are declared with `pgTable` in about 120 files under
+`src/schemas` and reach the models through the schemas index. Its labels
+cover every Drizzle access in six model files:
+
+- `src/models/apiKey.ts`
+- `aiProvider.ts`
+- `asyncTask.ts`
+- `chunk.ts`
+- `session.ts`
+- `thread.ts`
+
+The labels are a sample. An access is labelled on the line where the table is
+passed:
+
+- `select().from(t)` and the join methods read `t`, and so does a select
+  used as a subquery;
+- `insert(t)`, `update(t)` and `delete(t)` only write `t`;
+- `db.query.t.findFirst()` and `findMany()` read `t`, on the line that names
+  `t`.
+
+Column references and `sql` fragments that name no other table are not
+accesses.
+
+### SQL statements
+
+The manifest entry `sql-statements-sqlc-endtoend` scores the engine's SQL
+reader (`deepthought.data_contracts.statement_tables`) statement by statement,
+with no workspace to fetch. Its labels come from the database engines' own
+parsers, not from the reader under test. `tools/sql_statement_truth.py
+SQLC_TESTDATA` reads sqlc's end-to-end cases (`internal/endtoend/testdata` at
+sqlc 3ad8b20), which pair a schema with named queries for one engine:
+
+- PostgreSQL queries are parsed by libpg_query (through pglast). Every
+  RangeVar is a table, and the relation of INSERT, UPDATE, DELETE and MERGE
+  and the relations of TRUNCATE are written. A name the statement's WITH
+  clause defines and a `FOR UPDATE OF` name are not tables. DDL and utility
+  statements are not labelled.
+- SQLite queries are prepared, with `EXPLAIN`, against an in-memory database
+  built from the case's schema, under an authorizer that SQLite calls for
+  each table it reads or writes. A query that names a view is skipped, since
+  SQLite reports the view's base tables.
+
+sqlc's macros (`sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `@name`, `sqlc.embed`)
+are rewritten to plain parameters first. Names are compared unquoted, in lower
+case, without their schema; system catalogs are left out, and a written table
+is not also listed as read. Cases sqlc expects to fail are skipped, as are
+queries the engine's parser rejects. A statement is *found* when the reader
+gives exactly the labelled reads and writes, *missed* when it gives none, and
+*wrong* otherwise. SQLite's planner drops a LEFT JOIN table no column uses,
+so its authorizer never reports it; for SQLite a read the labels do not name
+is not judged. pglast is needed only to relabel, not to score.
 
 ### Knex query-builder tables
 
@@ -1088,7 +1194,8 @@ value, so a call row it does not report on a line its precision report
 marks as holding Any is `untyped` and not judged. A method that overrides a
 base method is skipped, because its uses resolve to the base and its rename
 breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
-method that overrides nothing. Each edit gets a new modification time,
+method that overrides nothing. `type: ignore` comments under the targets
+are blanked first, since one would hide the error a rename adds. Each edit gets a new modification time,
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,

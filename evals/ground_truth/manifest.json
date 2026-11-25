@@ -612,6 +612,43 @@
       "language": "go-sql",
       "labels": "tables/miniflux-storage.json",
       "oracle": "hand-read sample of 30 storage call sites"
+    },
+    {
+      "name": "tables-fastapi-template-sqlmodel",
+      "url": "https://github.com/fastapi/full-stack-fastapi-template",
+      "commit": "77e550a73bb49dd2967622c5ed11bf7a49603c93",
+      "license": "MIT",
+      "language": "python-orm",
+      "labels": "tables/fastapi-template-sqlmodel.json",
+      "oracle": "hand-read: every SQLModel table access under backend/"
+    },
+    {
+      "name": "tables-immich-typeorm",
+      "url": "https://github.com/immich-app/immich",
+      "commit": "8c2195c8205156f6e3168cc52fa34db334568ea9",
+      "license": "AGPL-3.0",
+      "language": "typeorm",
+      "labels": "tables/immich-typeorm.json",
+      "oracle": "hand-read: every TypeORM table access in server/src/repositories (a sample)"
+    },
+    {
+      "name": "tables-lobe-chat-drizzle",
+      "url": "https://github.com/lobehub/lobe-chat",
+      "commit": "39bd969d6fc32d48035cf3aadb7d91f55108d172",
+      "license": "LobeHub Community License",
+      "language": "drizzle",
+      "root": "packages/database",
+      "labels": "tables/lobe-chat-drizzle.json",
+      "oracle": "hand-read: every Drizzle table access in six model files of packages/database (a sample)"
+    },
+    {
+      "name": "sql-statements-sqlc-endtoend",
+      "url": "https://github.com/sqlc-dev/sqlc",
+      "commit": "3ad8b20fb02b5bea81591b673da0758b8685d951",
+      "license": "MIT",
+      "language": "sql-statements",
+      "labels": "sql/sqlc-endtoend.json",
+      "oracle": "libpg_query (pglast 8.9) for PostgreSQL, SQLite's authorizer for SQLite: tools/sql_statement_truth.py over internal/endtoend/testdata"
     }
   ]
 }
