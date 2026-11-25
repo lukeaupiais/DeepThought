@@ -6861,6 +6861,29 @@ class DjangoColumnTests(unittest.TestCase):
                 "blog_tag::column::label",
             ],
         )
+        # The class whose field is the column holds it; an abstract base's
+        # field is each inheriting table's column. Implicit ids have no field.
+        self.assertEqual(
+            sorted(
+                (
+                    r.source_match["qualified_name"].split("::")[-2],
+                    r.target_match["qualified_name"].split("::db-table::")[-1],
+                    r.properties["field"],
+                )
+                for r in output.relationships
+                if r.type == "MAPS_COLUMN"
+            ),
+            [
+                ("Author", "blog_author::column::full_name", "name"),
+                ("Comment", "blog_comment::column::body", "body"),
+                ("Comment", "blog_comment::column::post_id", "post"),
+                ("Post", "blog_post::column::author_id", "author"),
+                ("Post", "blog_post::column::title", "title"),
+                ("Stamped", "blog_author::column::created", "created"),
+                ("Stamped", "blog_post::column::created", "created"),
+                ("Tag", "blog_tag::column::label", "label"),
+            ],
+        )
         author, post = "blog_author::column::", "blog_post::column::"
         comment = "blog_comment::column::"
         key, access = "django-column-key", "django-scip-column-access"

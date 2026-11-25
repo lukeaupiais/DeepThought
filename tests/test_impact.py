@@ -1011,6 +1011,104 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(impact["unresolved_users_truncated"])
 
+    async def test_column_impact_reaches_the_payloads_holding_it(self):
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        snapshot = "s-" + uuid4().hex
+
+        def node(labels, name, **extra):
+            return NodeData(
+                labels,
+                {
+                    "qualified_name": f"{repo}::{name}",
+                    "repo_url": repo,
+                    "name": name,
+                    **extra,
+                },
+            )
+
+        def edge(kind, source, target, **extra):
+            return RelationshipData(
+                kind,
+                source.labels,
+                {
+                    "qualified_name": source.properties["qualified_name"],
+                    "repo_url": repo,
+                },
+                target.labels,
+                {
+                    "qualified_name": target.properties["qualified_name"],
+                    "repo_url": repo,
+                },
+                {**FIXTURE_EVIDENCE, **extra},
+            )
+
+        column = node(["DbColumn", "Contract"], "item.title")
+        other = node(["DbColumn", "Contract"], "item.id")
+        # ItemBase declares title; Item is the table, ItemPublic the
+        # response, Page a response that holds only the id.
+        base = node(["Class", "Symbol"], "ItemBase", file_path="models.py")
+        table = node(["Class", "Symbol"], "Item", file_path="models.py")
+        public = node(["Class", "Symbol"], "ItemPublic", file_path="models.py")
+        page = node(["Class", "Symbol"], "Page", file_path="models.py")
+        route = node(["HttpRoute", "Contract"], "GET /items/{id}")
+        listing = node(["HttpRoute", "Contract"], "GET /items")
+        handler = node(["Function", "Symbol"], "read_item", file_path="api.py")
+        client = node(["Function", "Symbol"], "readItem", file_path="sdk.ts")
+        page_client = node(["Function", "Symbol"], "readItems", file_path="sdk.ts")
+        view = node(["Function", "Symbol"], "ItemView", file_path="view.tsx")
+        # Uses the payload type, but not as what a route carries.
+        helper = node(["Function", "Symbol"], "to_public", file_path="api.py")
+        nodes = [column, other, base, table, public, page, route, listing]
+        nodes += [handler, client, page_client, view, helper]
+        edges = [
+            edge("MAPS_COLUMN", base, column, field="title"),
+            edge("MAPS_COLUMN", table, other, field="id"),
+            edge("INHERITS_FROM", table, base),
+            edge("INHERITS_FROM", public, base),
+            edge("MAPS_COLUMN", page, other, field="id"),
+            edge("CARRIES", route, public, direction="response"),
+            edge("CARRIES", listing, page, direction="response"),
+            edge("HANDLES", handler, route),
+            edge("REQUESTS", client, route),
+            edge("REQUESTS", page_client, listing),
+            edge("CALLS", view, client),
+            edge("CALLS", helper, public),
+        ]
+        meta = ToolExecutionMetadata(
+            "fixture",
+            "1",
+            0,
+            custom_metrics={"snapshot_id": snapshot, "analysis_status": "succeeded"},
+        )
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_tool_output("fixture", StandardizedOutput(nodes, edges, meta), repo)
+        self.assertTrue(written.success, written.errors)
+        impact = await self.service.get_contract_impact(
+            column.properties["qualified_name"], repo, snapshot_id=snapshot
+        )
+        # The route carrying a type that holds title must change, and so
+        # must its clients; their callers re-test. The handler provides the
+        # route rather than depending on it. The listing, its clients and
+        # the payload type's other users are not affected.
+        self.assertEqual(
+            [
+                (
+                    i["element"]["name"],
+                    i["depth"],
+                    i["action"],
+                    [e["type"] for e in i["edges"]],
+                )
+                for i in impact["items"]
+            ],
+            [
+                ("GET /items/{id}", 1, "must_change", ["CARRIES"]),
+                ("readItem", 2, "must_change", ["REQUESTS", "CARRIES"]),
+                ("ItemView", 3, "retest", ["CALLS", "REQUESTS", "CARRIES"]),
+            ],
+        )
+
     @staticmethod
     def rows_edges(response):
         return [item["edges"] for item in response["items"]]

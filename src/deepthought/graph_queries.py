@@ -26,6 +26,9 @@ _IMPACT_BACKWARD = (
     "|REFERENCES_TABLE|CARRIES|READS_COLUMN"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
+# From a type to a column it holds: its field (MAPS_COLUMN), or the field of
+# a class it extends.
+_HOLDS_COLUMN = "-[:INHERITS_FROM*0..5]->(:Symbol)-[:MAPS_COLUMN]->"
 # What provides a contract: handles a route, publishes to a destination,
 # writes, maps or declares a table or column.
 _PROVIDES = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN|MAPS_TO|DECLARES"
@@ -1053,7 +1056,10 @@ class GraphQueryService:
         columns. Code that reads or writes the column's table where the
         statement's columns did not all resolve, and ORM classes mapped to
         the table, are listed under ``unresolved_users`` (absent when there
-        are none): whether they use the column is not known.
+        are none): whether they use the column is not known. A route or
+        message destination that CARRIES a type holding the column (its
+        field, or a field of a class it extends: MAPS_COLUMN) must change,
+        and so must its clients.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -1115,7 +1121,14 @@ class GraphQueryService:
             "qualified_name:$subject}) "
             "OPTIONAL MATCH (provider)-[:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
-            "WITH root, collect(DISTINCT provider) AS parts ",
+            "WITH root, collect(DISTINCT provider) AS parts "
+            # A column's payload types: the carried types whose field is
+            # the column, declared by them or by a class they extend.
+            "OPTIONAL MATCH (payload:Symbol)" + _HOLDS_COLUMN + "(root) "
+            "WHERE payload.repo_url=$repo_url AND payload.snapshot_id=$snapshot_id "
+            "AND EXISTS { ()-[:CARRIES]->(payload) } "
+            "WITH root, parts, collect(DISTINCT payload) AS payloads "
+            "WITH root, parts + payloads AS parts ",
             _IMPACT_BACKWARD,
             qualified_name,
             repo_url,
@@ -1270,6 +1283,11 @@ class GraphQueryService:
                 # forwards over WRITES_COLUMN) are neither dependents nor
                 # a way to their readers.
                 "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
+                # A payload type that holds the changed column is changed
+                # only as what routes and messages carry: its other users
+                # do not depend on the column.
+                "AND (type(last(relationships(path))) = 'CARRIES' OR NOT "
+                "EXISTS { (target)" + _HOLDS_COLUMN + "(root) }) "
                 "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
                 "WITH root, messages, known, dependent, target, path, CASE "
@@ -1280,6 +1298,11 @@ class GraphQueryService:
                 # those messages: it builds or reads them.
                 "all(n IN nodes(path)[1..] WHERE n = root OR "
                 "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) } OR "
+                # A route or message carrying a payload type that holds the
+                # changed column carries the column.
+                "EXISTS { (n)-[:CARRIES*0..1]->(:Symbol)"
+                + _HOLDS_COLUMN
+                + "(root) } OR "
                 "any(m IN messages WHERE (n)-[:SIGNATURE_USES]->(m))) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "

@@ -28,6 +28,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -158,6 +159,13 @@ func compose(r request) fact {
 			// variable nothing sets written as Placeholder, not "".
 			replace := func(text string, mapping template.Mapping, cfg *template.Config) (string, error) {
 				value, ok, err := template.DefaultReplacementAppliedFunc(text, mapping, cfg)
+				var required *template.MissingRequiredError
+				if errors.As(err, &required) {
+					// ${NAME?message} or ${NAME:?message}: the run that
+					// deploys it must set NAME; the checkout does not.
+					missing[required.Variable] = true
+					return Placeholder, nil
+				}
 				if err != nil || ok {
 					return value, err
 				}

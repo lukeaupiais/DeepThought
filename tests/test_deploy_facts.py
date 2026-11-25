@@ -20,6 +20,8 @@ COMPOSE = {
         "    environment:\n"
         "      DB_URL: postgres://db/${DB_NAME:-orders}\n"
         "      SECRET: ${SECRET}\n"
+        # Required where it is deployed; the checkout does not set it.
+        "      HOST: api.${DOMAIN?Variable not set}\n"
         "    volumes:\n"
         "      - ${PWD}/config:/config\n"
         "      - data:/data\n"
@@ -147,14 +149,19 @@ class DeployFactsTests(unittest.TestCase):
             project.files,
             ("deploy/docker-compose.yml", "deploy/docker-compose.override.yml"),
         )
-        self.assertEqual(project.missing, ("APPDATA", "SECRET", "TAG"))
+        self.assertEqual(project.missing, ("APPDATA", "DOMAIN", "SECRET", "TAG"))
         services = {s.name: s for s in project.services}
         orders = services["orders"]
         self.assertEqual(orders.context, "orders")
         self.assertEqual(orders.image, "registry.example/orders:\x00")
         self.assertEqual(
             dict(orders.environment),
-            {"DB_URL": "postgres://db/orders", "SECRET": "\x00", "DEBUG": "true"},
+            {
+                "DB_URL": "postgres://db/orders",
+                "SECRET": "\x00",
+                "HOST": "api.\x00",
+                "DEBUG": "true",
+            },
         )
         self.assertEqual(
             orders.volumes[:2], (("deploy/config", "/config"), (None, "/data"))
