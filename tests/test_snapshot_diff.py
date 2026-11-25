@@ -180,8 +180,8 @@ class SnapshotDiffNeo4jTests(unittest.IsolatedAsyncioTestCase):
             for category in ("edges.added", "edges.removed")
         }
         # A call that moved line is a removed edge and an added edge.
-        self.assertEqual(calls["edges.removed"], [(6, "name_matched")])
-        self.assertEqual(calls["edges.added"], [(8, "name_matched")])
+        self.assertEqual(calls["edges.removed"], [(6, "resolved")])
+        self.assertEqual(calls["edges.added"], [(8, "resolved")])
 
     async def test_diff_is_deterministic_symmetric_and_empty_on_itself(self):
         first = await self.diff()
