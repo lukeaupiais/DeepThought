@@ -2403,20 +2403,32 @@ a constant another module exports (`deepthought.service_contracts.web`,
   that extends the enclosing class declares NAME again, or inside a
   `function` or a static member (where `this` is something else). A
   subclass in another file is not seen.
-- **Constants across modules.** A module exports `export const NAME = value`
-  (folded in its own module), `export { a as b }` of a name bound once there,
-  and what it re-exports with `export { a } from` and `export * from` (a name
-  two `export *` give differently is not exported, as in ECMAScript). An
-  import by name takes the exported value when the module specifier resolves
-  to an analysed file: a relative path, or a `compilerOptions.paths` alias of
-  the nearest `tsconfig.json` (as for data contracts). `let`/`var` exports,
-  default exports and namespace imports are not read.
-- **Build-time globals.** A name no scope binds or imports
-  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives it
-  in `angular.json` (the project's `build` target, options and every
+- **Constants across modules.** The TypeScript compiler resolves them
+  (`deepthought.ts_facts`, `src/deepthought/tsfacts/main.js`). The engine
+  builds one program per `tsconfig.json`/`jsconfig.json` (the compiler parses
+  `extends`, `paths`, `baseUrl`, `include` and `exclude`) and one inferred
+  program (`allowJs`) for the other files, and asks the checker what each
+  name or member access refers to, through imports, re-exports, aliases,
+  namespace imports and path aliases. Its value is the constant of a string
+  enum member, the initializer of a `const` (a string, a template or a `+`
+  join, each part followed the same way), a property of an object literal
+  that initializes a `const` (`as const` or not), or the single string
+  literal type the checker gives it. A name two `export *` give is
+  ambiguous (the compiler's TS2308) and has no value. `let` and `var` take
+  none. The folders of JavaScript/TypeScript files take the compiler's
+  value before anything else. Node.js and the compiler are required:
+  `typescript` (pinned, `ts_facts.TYPESCRIPT_VERSION`) is installed with npm
+  into the cache directory on first use, or read from
+  `DEEPTHOUGHT_TYPESCRIPT`, and without them the analysis raises
+  `TypeScriptMissing`. Imports used to find `axios.create` instances are
+  resolved by the compiler too. No lib or `@types` package is loaded, and
+  nothing is emitted or type-checked in full.
+- **Build-time globals.** An ambient `declare const NAME` without a value
+  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives
+  it in `angular.json` (the project's `build` target, options and every
   configuration), for files under the project's `sourceRoot` (else `root`).
   Only a string literal is read; a name defined differently in two
-  configurations is unknown text. `declare const` gives no value.
+  configurations is unknown text. A name a file imports is not a global.
 
 On jhipster/jhipster-sample-app (commit `6b000b5`) and
 jhipster-sample-app-websocket (`410a632`), whose URLs are
