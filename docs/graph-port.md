@@ -3523,11 +3523,18 @@ call and import coverage uses too:
   and the files holding them: a route or request path, GraphQL field or
   message destination that is not a literal, a gRPC handler without its
   declaration, a GraphQL operation that does not parse, a Go file the type
-  checker could not check (counted for both messaging families). With
+  checker could not check (counted for both messaging families). An unread
+  site is one where no route, request, field or endpoint could be formed at
+  all; a request whose URL is not literal is still formed, with the unread
+  part as a placeholder, and when it matches no route it is counted in
+  `unresolved`, not `unread`. With
   `sites` and the `REQUESTS` resolution counts they say how much of what
-  the readers recognised is in the graph. Unread sites of specs, generator
-  configs and gateway configs have no source language and are only in the
-  run's `unread` metric. A call no reader recognises (a client the readers
+  the readers recognised is in the graph. Unread sites of specs and
+  generator configs have no source language and are only in the run's
+  `unread` metric. So are those of gateway configs (nginx `location` blocks,
+  Spring Cloud Gateway, YARP, Ocelot): a gateway route is not an edge of its
+  own but a hop a `REQUESTS` link is resolved through, so a gateway route
+  that is not read shows up as `unresolved` requests behind it. A call no reader recognises (a client the readers
   do not know, C# gRPC calls through `using static`) is in no count, so
   `unread: 0` is not a proof that every site is in the graph.
 
