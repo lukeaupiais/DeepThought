@@ -138,6 +138,24 @@ root, self-imports and modules outside the analyzed files are reported instead:
 each File node lists its `unresolved_imports` and `ambiguous_imports`
 specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
 
+JavaScript and TypeScript imports in a file a SCIP index covers take their
+target from the index instead (`deepthought.scip_imports.bind_imports`):
+scip-typescript records the specifier of each `import`, `export ... from`,
+`require()` and `import()` as a reference to the module symbol of the file
+the TypeScript compiler resolved it to, so `paths`, extensions, index files
+and package `exports` are the compiler's, not the rules above. The edge has
+rule `scip.import-module` (`resolved`) with the indexer as `producer` and the
+index digest as `receipt`. Only a module reference inside the statement whose
+source text is the quoted specifier counts. Of several, the one module
+symbol defined by its own file wins, which drops `declare module './m'`
+augmentations elsewhere. A covered import the index does not link keeps no
+parser edge: `scip_no_occurrence` (the index records nothing at the
+specifier, which scip-typescript does for a side-effect `import './m'`),
+`scip_external` (a package module the index does not define),
+`scip_target_not_analyzed`, or ambiguous `multiple_module_references`
+(several module symbols, or one symbol that files of two indexes define).
+Files no index covers, and other languages, keep the rules above.
+
 An IMPORTS edge says which file a statement imports, not where an imported name
 is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as

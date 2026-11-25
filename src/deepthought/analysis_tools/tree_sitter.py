@@ -19,7 +19,7 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
-from .. import scip_calls
+from .. import scip_calls, scip_imports
 from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -289,6 +289,16 @@ IMPORT_RULES = {
         ),
     )
 }
+IMPORT_RULES[scip_imports.SCIP_IMPORT_MODULE] = register_rule(
+    EvidenceRule(
+        scip_imports.SCIP_IMPORT_MODULE,
+        "resolved",
+        "A JavaScript or TypeScript import in a file a SCIP index covers "
+        "links to the file whose module symbol the index records at the "
+        "import's specifier: the module the TypeScript compiler resolved "
+        "it to.",
+    )
+)
 
 
 def _declaration_sources(root, result):
@@ -744,11 +754,17 @@ class TreeSitterTool(AnalysisTool):
         imports = {item.id: item for item in result.imports}
         # Configuration facts (tsconfig paths, package.json entries) steer
         # resolution; they are not imports of their file.
-        resolutions = tuple(
-            r
-            for r in import_rules.resolve_imports(result)
-            if r.reason != import_rules.RESOLUTION_CONFIGURATION
+        import_binding = scip_imports.bind_imports(
+            result,
+            scip_indexes,
+            self.repo_path,
+            tuple(
+                r
+                for r in import_rules.resolve_imports(result)
+                if r.reason != import_rules.RESOLUTION_CONFIGURATION
+            ),
         )
+        resolutions = import_binding.resolutions
         undisclosed = {}
         for resolution in resolutions:
             if resolution.status != "linked":
@@ -891,6 +907,7 @@ class TreeSitterTool(AnalysisTool):
                             "import_kind": item.kind,
                             "names": list(item.names),
                             "line": item.line,
+                            **_produced(import_binding.producers.get(item.id)),
                             **_evidence(IMPORT_RULES[link.rule_id]),
                         },
                     )
