@@ -9,13 +9,19 @@ import unittest
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
 
+from go_stubs import go_mod, go_stub_files, needs_go
+
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_go"
 )
 
 KAFKA_GO = """package orders
 
-import "github.com/segmentio/kafka-go"
+import (
+\t"context"
+
+\t"github.com/segmentio/kafka-go"
+)
 
 const topic = "orders"
 
@@ -24,7 +30,7 @@ func writer() *kafka.Writer {
 }
 
 func audit(w *kafka.Writer) {
-\tw.WriteMessages(ctx, kafka.Message{Topic: "audit"}, kafka.Message{Value: nil})
+\tw.WriteMessages(context.TODO(), kafka.Message{Topic: "audit"}, kafka.Message{Value: nil})
 }
 """
 
@@ -33,7 +39,7 @@ KAFKA_GO_READER = """package billing
 import kgo "github.com/segmentio/kafka-go"
 
 func readers() {
-\tkgo.NewReader(kgo.ReaderConfig{Brokers: b, Topic: "orders", GroupID: "billing"})
+\tkgo.NewReader(kgo.ReaderConfig{Brokers: nil, Topic: "orders", GroupID: "billing"})
 \tkgo.NewReader(kgo.ReaderConfig{GroupID: "g", GroupTopics: []string{"audit", "refunds"}})
 }
 """
@@ -41,6 +47,7 @@ func readers() {
 SARAMA = """package shipping
 
 import (
+\t"context"
 \t"flag"
 
 \t"github.com/IBM/sarama"
@@ -54,7 +61,7 @@ func run(p sarama.SyncProducer, c sarama.Consumer, g sarama.ConsumerGroup) {
 \tp.SendMessage(&sarama.ProducerMessage{Topic: "shipped"})
 \tp.SendMessage(&sarama.ProducerMessage{Topic: topic})
 \tc.ConsumePartition("orders", 0, sarama.OffsetNewest)
-\tg.Consume(ctx, []string{"refunds"}, handler)
+\tg.Consume(context.TODO(), []string{"refunds"}, nil)
 }
 """
 
@@ -67,11 +74,25 @@ func run(p *kafka.Producer, c *kafka.Consumer) {
 \tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &name}}, nil)
 \tc.SubscribeTopics([]string{"shipped", "^audit-.*"}, nil)
 \tc.Subscribe("orders", nil)
+\tretry := "retries"
+\tgo func() {
+\t\tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &retry}}, nil)
+\t}()
+\tagain := "first"
+\tagain = "second"
+\tgo func() {
+\t\tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &again}}, nil)
+\t}()
 }
 """
 
 # No Kafka import: the same names mean nothing.
 PLAIN = """package plain
+
+type consumer interface {
+\tConsumePartition(topic string, partition, offset int) (int, error)
+\tSubscribe(topic string, cb interface{}) error
+}
 
 func run(c consumer) {
 \tc.ConsumePartition("orders", 0, 0)
@@ -80,13 +101,14 @@ func run(c consumer) {
 """
 
 FILES = {
-    "orders/go.mod": "module orders\n",
+    **go_stub_files(),
+    "orders/go.mod": go_mod("orders", "github.com/segmentio/kafka-go"),
     "orders/kafka.go": KAFKA_GO,
-    "billing/go.mod": "module billing\n",
+    "billing/go.mod": go_mod("billing", "github.com/segmentio/kafka-go"),
     "billing/reader.go": KAFKA_GO_READER,
-    "shipping/go.mod": "module shipping\n",
+    "shipping/go.mod": go_mod("shipping", "github.com/IBM/sarama"),
     "shipping/main.go": SARAMA,
-    "notify/go.mod": "module notify\n",
+    "notify/go.mod": go_mod("notify", "github.com/confluentinc/confluent-kafka-go/v2"),
     "notify/main.go": CONFLUENT,
     "plain/go.mod": "module plain\n",
     "plain/main.go": PLAIN,
@@ -94,6 +116,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_go
 class GoKafkaTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -125,25 +148,36 @@ class GoKafkaTests(unittest.TestCase):
             [
                 ("audit", "CONSUMES", "kafka-go", "billing/reader.go", 7),
                 # The Message literal, not the Writer, names the topic.
-                ("audit", "PUBLISHES", "kafka-go", "orders/kafka.go", 12),
+                ("audit", "PUBLISHES", "kafka-go", "orders/kafka.go", 16),
                 ("notices", "PUBLISHES", "confluent-kafka-go", "notify/main.go", 7),
                 ("orders", "CONSUMES", "confluent-kafka-go", "notify/main.go", 9),
                 ("orders", "CONSUMES", "kafka-go", "billing/reader.go", 6),
-                ("orders", "CONSUMES", "sarama", "shipping/main.go", 16),
-                ("orders", "PUBLISHES", "kafka-go", "orders/kafka.go", 8),
+                ("orders", "CONSUMES", "sarama", "shipping/main.go", 17),
+                ("orders", "PUBLISHES", "kafka-go", "orders/kafka.go", 12),
                 ("refunds", "CONSUMES", "kafka-go", "billing/reader.go", 7),
-                ("refunds", "CONSUMES", "sarama", "shipping/main.go", 17),
+                ("refunds", "CONSUMES", "sarama", "shipping/main.go", 18),
+                # A func literal reads a variable written only once.
+                ("retries", "PUBLISHES", "confluent-kafka-go", "notify/main.go", 12),
                 ("shipped", "CONSUMES", "confluent-kafka-go", "notify/main.go", 8),
-                ("shipped", "PUBLISHES", "sarama", "shipping/main.go", 14),
+                ("shipped", "PUBLISHES", "sarama", "shipping/main.go", 15),
             ],
         )
 
     def test_unread(self):
         self.assertEqual(
             self.output.metadata.custom_metrics["unread"],
-            # "^audit-.*", and the flag-set package variable.
-            {"consume:topic_pattern": 1, "publish:empty_topic": 1},
+            # "^audit-.*", the flag-set package variable, and a variable a
+            # func literal reads after a second write.
+            {"consume:topic_pattern": 1, "publish:destination_not_literal": 2},
         )
+
+    def test_module_files_are_not_written(self):
+        # The go command records into copies of go.mod and go.sum.
+        root = Path(self.directory.name)
+        for name, text in FILES.items():
+            if name.endswith("go.mod"):
+                self.assertEqual((root / name).read_text(encoding="utf-8"), text)
+        self.assertEqual(list(root.rglob("go.sum")), [])
 
     def test_rules(self):
         for rule_id in (
