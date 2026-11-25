@@ -2015,14 +2015,42 @@ with a reason:
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
 | `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
-| `not_in_index` | The indexer ran but has no document for the file, e.g. a file outside every tsconfig |
+| `not_in_index` | The indexer ran but has no document for the file |
 
-It exits 3 when any file is uncovered (`--allow-uncovered` exits 0), so a
-missing or failing indexer is never read as a file without references. On the
+TypeScript and JavaScript files outside every tsconfig.json of the workspace
+(Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
+pass, written to `scip-typescript-uncovered.scip`: one project of exactly
+those files that extends the root tsconfig.json when there is one, with
+`allowJs`, `allowImportingTsExtensions` and `noEmit`. Its receipt records that
+project with workspace-relative paths, its coverage entries say
+`pass: outside_tsconfig`, and it keeps only those files' documents, so the two
+indexes never cover the same file. On hono it covers the 75 files the first
+pass leaves out.
+
+The indexers are required engine dependencies and there is no opt-out. It
+exits 3 when a file is uncovered because an indexer is missing, failed, timed
+out, is another version or saw its inputs change, so a missing or failing
+indexer is never read as a file without references. A file no compiler can
+index (`no_go_module`, `not_in_index`) is named on stderr
+with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
 (external targets the earlier environment left unresolved).
+
+`deepthought-graph index` always indexes, whichever tools the run selects. It
+first runs the pinned indexers for the run's Python, TypeScript, JavaScript
+and Go files, into a temporary directory or `--scip-output-dir DIR` to keep
+them. The tree-sitter tool binds call sites in covered files through those
+indexes (see Calls), and the `scip` tool reads them unless `--scip-index`
+names stored indexes instead. Each analyzed file without an index is named on
+stderr with its reason. When an indexer is missing or failed, the run stops
+before importing anything; only files no compiler can index keep the parser's
+call rules. The import report carries a
+`scip` object: each indexer run, the covered file count and the uncovered
+files with their reasons. `--include` and `--exclude` limit which files must
+be covered; a run whose languages have no indexer (`--language rust`) indexes
+nothing.
 
 The `scip` AnalysisTool reads these indexes, one per indexer, into one
 snapshot (`deepthought-graph index WORKSPACE --tool scip --scip-index
@@ -2906,21 +2934,21 @@ field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
 
-Schemas and operations are parsed by graphql-core (`graphql-core`, the
-`graphql` extra, also in `languages`), the reference GraphQL parser for
-Python: root fields are the fields of the parsed object type definitions
-and extensions, and of the parsed operations' first selection level, with
-the lines and columns of their names. Template substitutions (`${...}`)
-are blanked before parsing. A source graphql-core does not parse, and
-every source when it is not installed, is read by the fallback reader, a
-tokenizer that skips strings, comments, arguments and directives; it gets
-no new features. On the 220 `.graphql`/`.gql` files of the validation
-repositories and corpora (the gqlgen repository, Prisma examples, the
-Apollo and howtographql corpora and others) both readers give the same
-fields, lines and unread facts; one deliberately invalid gqlgen test
-schema is left to the fallback.
+Schemas and operations are parsed by graphql-core (`graphql-core`, a
+required dependency), the reference GraphQL parser for Python, and by
+nothing else: root fields are the fields of the parsed object type
+definitions and extensions, and of the parsed operations' first selection
+level, with the lines and columns of their names. Template substitutions
+(`${...}`) are blanked before parsing. Without graphql-core the tool raises
+`GraphqlCoreMissing` instead of reading GraphQL another way; a source
+graphql-core rejects is unread. On the 32 GraphQL validation repositories
+removing the tokenizer fallback changes no link; one deliberately invalid
+gqlgen test schema is now counted as `graphql:schema_not_parsed`.
 
 Counted as unread:
+- `graphql:schema_not_parsed` and `graphql:operation_not_parsed`: a schema
+  file or an operation document (a `.graphql` file or a `gql` template)
+  that graphql-core does not parse;
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
 - `graphql:field_not_literal`: a resolver name that is not literal;
@@ -3309,21 +3337,24 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   kinds and the lines of the rpc names come from the descriptor. protoc
   needs the files a proto imports, under include roots the repository does
   not name: an import `a/b.proto` is matched against the repository's
-  `.proto` paths, and what is left in front of it is a root. A file that
+  `.proto` paths, and what is left in front of it is a root; the roots the
+  imported files' own imports need are added too, since protoc opens
+  them as well (Envoy and xDS protos vendored in grpc-java import across
+  five roots). A file that
   another file imports takes that importer's root as its own, else its
   directory; the well-known types come from `grpcio-tools`. Files under the
   same root compile in one run, split in halves when it fails, so a broken
-  file costs only itself. A file protoc does not compile (an import the
-  repository does not hold, such as an unvendored
-  `google/api/annotations.proto`, or a syntax error), and every file when
-  `grpcio-tools` is not installed, is read by the fallback reader: `rpc`
-  statements of top-level `service` blocks, comments removed and strings
-  kept. It gets no new features. The `proto_readers` metric counts the files
-  each reader read. On 639 `.proto` files across the validation
-  repositories, protoc compiled 615 and gave the same rpcs, lines and
-  streaming kinds as the fallback reader on every one; the rest import
-  protos the repositories do not vendor or are deliberately broken test
-  inputs.
+  file costs only itself. protoc is the only reader of `.proto` files:
+  `grpcio-tools` and `protobuf` are required, and without them the
+  analysis fails with `ProtocMissing` instead of reading nothing. A file
+  protoc does not compile (an import the repository and the include
+  directories do not hold, or a syntax error) declares nothing and is
+  counted as `grpc_proto:not_compiled`. The `proto_readers` metric counts
+  compiled and rejected files. On the 441 `.proto` files of the 26 gRPC
+  validation repositories, protoc compiles 437: three are proto-loader and
+  reflection test inputs, and Prisma's gRPC example names an rpc and a
+  message `Post`, which protoc rejects (protobuf.js loads it at run time),
+  so that example's 14 server links are no longer drawn.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
