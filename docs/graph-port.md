@@ -2062,6 +2062,17 @@ compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
 files' documents; coverage says `pass: platform` and the platform. On cobra
 this covers `command_win.go`.
 
+A tsconfig.json below the workspace root is a project of its own: scip-typescript
+runs once for the root and once per nested project (`typescript_projects`),
+each from the project's directory so its `baseUrl` and `paths` apply, written
+to `scip-typescript-<dir>.scip` (slashes as `__`) with document paths made
+workspace-relative and the receipt naming the directory as `module`. A file
+belongs to the innermost project above it; the root run drops the documents
+of nested projects. A workspace whose root indexes pnpm or yarn workspaces
+(`--pnpm-workspaces`, `--yarn-workspaces`) leaves its packages to that run.
+On immich v1.106.4, whose only tsconfig is `server/tsconfig.json`, the server
+run covers its 487 files with the server's `baseUrl` imports resolved.
+
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
 pass, written to `scip-typescript-uncovered.scip`: one project of exactly
