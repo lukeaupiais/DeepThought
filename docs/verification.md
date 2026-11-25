@@ -1319,7 +1319,10 @@ are blanked first, since one would hide the error a rename adds. Each edit gets 
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
-36 give 145, all confirmed, and 2 are `untyped`.
+36 give 145, all confirmed, and 2 are `untyped`. On rich, whose call truth is
+scip-python's, 27 give 119: 116 are confirmed, and the other 3 are in
+`rich/_win32_console.py`, which mypy treats as unreachable off Windows and does
+not check.
 
 gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
