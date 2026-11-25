@@ -292,8 +292,9 @@ calls inside a callback take the test case as their caller; `get_impact` and
 `get_call_sites` then name the test case. The test case's own call (and a
 modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
 with a substitution or with an escape other than a quote or backslash, a call
-whose result is used, and a call through another object (`runner.it(...)`)
-declare nothing. This is a parser rule: listing a runner's tests would load
+whose result is used other than as an array element (`await
+Promise.all([it("a", fa), it("b", fb)])` declares both), and a call through
+another object (`runner.it(...)`) declare nothing. This is a parser rule: listing a runner's tests would load
 the project's test configuration, which runs its code. Python test functions
 and Go `TestX` functions are declarations already; Go `t.Run` closures stay
 inside their test function.
