@@ -754,6 +754,17 @@ TYPEORM_SCIP = {
     "export class UserRepo extends Repository<User> {\n"
     "  mine() { return this.findBy({}); }\n"
     "}\n",
+    "src/builder.ts": "import { Repository, DataSource } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class Builders {\n"
+    "  constructor(private repo: Repository<User>, private ds: DataSource) {}\n"
+    "  rows() { return this.repo.createQueryBuilder('u').where('1').getMany(); }\n"
+    "  purge() { return this.ds.createQueryBuilder().delete().from(User).execute(); }\n"
+    "  links() { return this.ds.createQueryBuilder().insert().into('user_links').execute(); }\n"
+    "  cte(q: any) { return this.ds.createQueryBuilder().addCommonTableExpression(q, '_u').from('_u', 'x').getRawMany(); }\n"
+    "  raw() { return this.repo.query('DELETE FROM sessions'); }\n"
+    "  rel(u: User) { return this.repo.createQueryBuilder().relation('tags').of(u).add(1); }\n"
+    "}\n",
 }
 
 
@@ -962,7 +973,67 @@ class TypeormScipTests(unittest.TestCase):
         app = "scip-typescript npm app 1 src/"
         user = app + "`user.entity.ts`/User#"
         service = app + "`user.service.ts`/UserService#"
+        builders = app + "`builder.ts`/Builders#"
+        source_builder = (
+            typeorm + "data-source/`DataSource.d.ts`/DataSource#createQueryBuilder()."
+        )
+
+        def qb(method):
+            return (
+                typeorm
+                + "query-builder/`SelectQueryBuilder.d.ts`/SelectQueryBuilder#"
+                + method
+                + "()."
+            )
+
         documents = {
+            "src/builder.ts": [
+                (1, "User", user, False, 0),
+                (3, "repo", builders + "repo.", True, 0),
+                (3, "Repository", repository, False, 0),
+                (3, "User", user, False, 0),
+                (3, "ds", builders + "ds.", True, 0),
+                (4, "repo", builders + "repo.", False, 0),
+                (
+                    4,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (4, "where", qb("where"), False, 0),
+                (4, "getMany", qb("getMany"), False, 0),
+                (5, "ds", builders + "ds.", False, 0),
+                (5, "createQueryBuilder", source_builder, False, 0),
+                (5, "delete", qb("delete"), False, 0),
+                (5, "from", qb("from"), False, 0),
+                (5, "User", user, False, 0),
+                (6, "ds", builders + "ds.", False, 0),
+                (6, "createQueryBuilder", source_builder, False, 0),
+                (6, "insert", qb("insert"), False, 0),
+                (6, "into", qb("into"), False, 0),
+                (7, "ds", builders + "ds.", False, 0),
+                (7, "createQueryBuilder", source_builder, False, 0),
+                (
+                    7,
+                    "addCommonTableExpression",
+                    qb("addCommonTableExpression"),
+                    False,
+                    0,
+                ),
+                (7, "from", qb("from"), False, 0),
+                (8, "repo", builders + "repo.", False, 0),
+                (8, "query", repository + "query().", False, 0),
+                (9, "repo", builders + "repo.", False, 0),
+                (
+                    9,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (9, "relation", qb("relation"), False, 0),
+            ],
             "src/user.entity.ts": [(2, "User", user, True, 0)],
             "src/user.service.ts": [
                 (2, "User", user, False, 0),
@@ -1024,14 +1095,23 @@ class TypeormScipTests(unittest.TestCase):
     def test_calls_resolved_through_a_scip_index(self):
         edges, counts, orm = self.analyze(True)
         # Each call is read where its method is written; create() touches
-        # no table and other()'s find is not TypeORM's.
+        # no table and other()'s find is not TypeORM's. A query builder
+        # reads or writes its root table: the repository's entity, or what
+        # its from/into names (a literal too), never a CTE's name; the
+        # builders' own delete and insert are not repository calls.
+        # A relation builder writes the related side, not its root: no edge.
+        # Raw SQL given to TypeORM's query is read as SQL.
         self.assertEqual(
             edges,
             [
+                ("READS", "Builders.rows", "users", "typeorm-scip"),
                 ("READS", "UserRepo.mine", "users", "typeorm-scip"),
                 ("READS", "UserService.count", "users", "typeorm-scip"),
                 ("READS", "UserService.list", "users", "typeorm-scip"),
                 ("READS", "UserService.managed", "users", "typeorm-scip"),
+                ("WRITES", "Builders.links", "user_links", "typeorm-scip"),
+                ("WRITES", "Builders.purge", "users", "typeorm-scip"),
+                ("WRITES", "Builders.raw", "sessions", "typeorm-sql"),
                 ("WRITES", "UserService.add", "users", "typeorm-scip"),
                 ("WRITES", "UserService.held", "users", "typeorm-scip"),
             ],
@@ -1039,11 +1119,13 @@ class TypeormScipTests(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "linked": 6,
+                "linked": 9,
                 "no_scip_index": 0,
-                "not_typeorm": 1,
-                "entity_unknown": 0,
+                "not_typeorm": 3,
+                "entity_unknown": 1,
                 "not_an_entity": 0,
+                "builders": 3,
+                "relation_builders": 1,
             },
         )
         # The decorator and getRepository name rule gives way in the file.
@@ -1075,7 +1157,7 @@ class TypeormScipTests(unittest.TestCase):
                 ("WRITES", "UserService.held", "users", "typeorm-repository"),
             ],
         )
-        self.assertEqual(counts["no_scip_index"], 7)
+        self.assertEqual(counts["no_scip_index"], 14)
         self.assertEqual(orm["typeorm_linked"], 3)
         self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
 
