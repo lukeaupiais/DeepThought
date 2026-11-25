@@ -64,6 +64,10 @@ class Definition:
     # JavaScript and TypeScript declarations their module exports as
     # ``default``: True. None elsewhere.
     default_export: bool | None = None
+    # SCIP local variables an index from scip-python documents with one
+    # inferred type: that type's qualified name (``app.models.User``), as
+    # the indexer writes it. None elsewhere.
+    value_type: str | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
