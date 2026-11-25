@@ -430,6 +430,51 @@ tool's own output that never reads Neo4j. Every compared seed matched exactly
 dependents). 7 and 12 seeds with more than 100 dependents or 64 KB of output
 were truncated and not compared.
 
+### What an edit breaks
+
+`deepthought check-edit WORKSPACE DIFF` (`edit_check.check_edit`) answers
+what a proposed edit breaks from the language's own type checker, not from
+the graph. Missing in both the original and the port until now. The unified
+diff is applied with `git apply` to a scratch copy, and the checker of each
+edited language runs on an unedited copy and on the edited one:
+
+- Go: `go test -count=1 -run ^$ -exec true -vet=off -gcflags=-e ./...` in
+  each module that holds an edited file and each workspace module whose
+  go.mod requires one of them. Packages and their tests compile; no test
+  binary runs.
+- TypeScript and JavaScript: `tsc --noEmit` of the nearest tsconfig.json of
+  each edited file (a solution file's references instead) and of every
+  project that references one of those, through a wrapper config beside the
+  project that extends it. The compiler is the project's installed
+  typescript, else its locked or declared release installed into the cache
+  with `npm install --ignore-scripts` (`DEEPTHOUGHT_TYPESCRIPT` overrides).
+  A `compilerOptions.types` entry that is not installed would stop tsc
+  before it checks any file, so it is left out and named in the check's
+  `notes`.
+- Python: `pyright --outputjson` of the nearest project (pyrightconfig.json,
+  pyproject.toml, setup.cfg or setup.py), else the workspace
+  (`DEEPTHOUGHT_PYRIGHT`, else `pyright` on PATH, else pyright 1.1.409
+  installed into the cache).
+
+A diagnostic only the edited copy has is a **break**, reported at its line in
+the unedited source with the innermost declaration that holds it (Tree-sitter,
+the same names as graph Symbols) or `(top level of file)`, so it can be
+joined to the graph by file and line. Diagnostics on lines the edit wrote are
+`edit_diagnostics`: mistakes in the edit, not code it breaks. Existing errors
+(missing dependencies, a broken file elsewhere) appear on both sides and
+cancel. A check that cannot run is `unavailable` or `failed` with its reason,
+and the report is then not `complete`; files in other languages are listed in
+`unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
+run, 2 invalid input or a diff that does not apply.
+
+Measured against the graph's CALLS on the A/B development corpora: adding a
+parameter to chi's `URLParam` breaks 47 call lines, the same 47 the graph
+links. Adding one to hono's `getPath` breaks the 62 linked call lines plus
+one the graph cannot hold as a call (the function assigned as a default
+value in `Hono`'s constructor, now of the wrong type). The compiler side
+covers value uses and type errors; the graph side covers callers past the
+first break, other languages and other services.
+
 ## Components
 
 The original service detector added weighted points for a Dockerfile (30), a
