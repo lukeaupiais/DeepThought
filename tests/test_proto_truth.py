@@ -39,6 +39,23 @@ service Catalog {
 
 @unittest.skipUnless(GO and PROTOC, "go and grpcio-tools")
 class ProtoTruthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The oracle's parser (github.com/emicklei/proto) comes from the
+        # module cache or the network; the offline acceptance sandbox has
+        # neither, and the graph-port job, which has both, runs this test.
+        try:
+            fetched = subprocess.run(
+                [GO, "mod", "download"],
+                cwd=proto_truth.ORACLE_DIR,
+                capture_output=True,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            fetched = None
+        if fetched is None or fetched.returncode != 0:
+            raise unittest.SkipTest("the oracle's Go module cannot be fetched")
+
     def test_engine_agrees_with_the_oracle(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
