@@ -13,14 +13,19 @@ service, a package of a monorepo), the ``requirements*.txt`` files;
 ``pyproject.toml`` ``[project]`` dependencies and optional dependencies,
 ``[dependency-groups]``, and Poetry's dependencies, dev-dependencies and
 groups (``^`` and ``~`` constraints converted to PEP 440); and ``setup.cfg``
-``install_requires`` and ``extras_require``. Hidden directories,
+``install_requires`` and ``extras_require``; and Pipenv's ``Pipfile``. A
+directory with a lockfile (``uv.lock``, ``poetry.lock``, ``Pipfile.lock``)
+gives its pins instead of those ranges, so the versions are the ones the
+project runs and do not move when a package is released. Hidden directories,
 ``node_modules`` and virtual environments are not read. One scip-python run
 indexes the workspace, so it gets one set of packages: every directory's
-declarations, installed together. The project itself is never installed. pip reads its usual configuration (``PIP_INDEX_URL``,
+declarations, installed together. The project itself is never installed. pip reads its
+usual configuration (``PIP_INDEX_URL``,
 ``PIP_FIND_LINKS``, ``PIP_NO_INDEX``), so an offline mirror works unchanged.
 """
 
 import configparser
+import json
 import os
 import re
 import subprocess
@@ -47,7 +52,8 @@ _SKIP = {"node_modules", "site-packages", "__pycache__"}
 def project_directories(root):
     """Workspace-relative directories that declare Python dependencies, in a
     fixed order: the root (``.``) and every directory below it with a
-    ``requirements*.txt``, ``pyproject.toml`` or ``setup.cfg``."""
+    ``requirements*.txt``, ``pyproject.toml``, ``setup.cfg``, ``Pipfile`` or
+    lockfile."""
     root = Path(root)
     found = []
     for directory, names, filenames in os.walk(root):
@@ -60,7 +66,7 @@ def project_directories(root):
             and not (Path(directory) / n / "pyvenv.cfg").is_file()
         )
         if any(
-            f in {"pyproject.toml", "setup.cfg"}
+            f in {"pyproject.toml", "setup.cfg", "Pipfile", *LOCKFILES}
             or (f.startswith("requirements") and f.endswith(".txt"))
             for f in filenames
         ):
@@ -68,17 +74,135 @@ def project_directories(root):
     return found
 
 
+# Lockfiles, in the order one is chosen when a directory has several.
+LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
+
+
+def lockfiles(root):
+    """The workspace-relative lockfile each directory's pins come from."""
+    root = Path(root)
+    found = []
+    for relative in project_directories(root):
+        name = next((n for n in LOCKFILES if (root / relative / n).is_file()), None)
+        if name is not None:
+            found.append(name if relative == "." else f"{relative}/{name}")
+    return found
+
+
 def declared(root):
-    """The requirement strings the workspace declares, in a fixed order."""
+    """The requirement strings the workspace declares, in a fixed order.
+
+    A directory with a lockfile contributes its pins (``name==version``) in
+    place of its ``pyproject.toml``, ``setup.cfg`` and ``Pipfile`` ranges, so
+    the index types against the versions the project runs."""
     root = Path(root)
     found = []
     for relative in project_directories(root):
         directory = root / relative
         for name in requirement_files(directory):
             found += _requirement_lines(directory / name, root)
+        pins = _locked(directory)
+        if pins is not None:
+            found += pins
+            continue
         found += _pyproject(directory / "pyproject.toml")
         found += _setup_cfg(directory / "setup.cfg")
+        found += _pipfile(directory / "Pipfile")
     return sorted(set(found))
+
+
+def _toml(path):
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10
+        return None
+    try:
+        return tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return None
+
+
+def _locked(directory):
+    """The pins of the directory's first lockfile; None when it has none.
+
+    Packages from a path, a VCS or a URL have no wheel index and are left
+    out, as is the project itself."""
+    for name in LOCKFILES:
+        path = directory / name
+        if not path.is_file():
+            continue
+        if name == "Pipfile.lock":
+            try:
+                document = json.loads(path.read_text())
+            except (OSError, ValueError):
+                return []
+            pins = []
+            for section in ("default", "develop"):
+                for package, entry in (document.get(section) or {}).items():
+                    if not isinstance(entry, dict) or not isinstance(
+                        entry.get("version"), str
+                    ):
+                        continue
+                    if any(k in entry for k in ("path", "file", "git", "editable")):
+                        continue
+                    markers = entry.get("markers")
+                    pins.append(
+                        package
+                        + entry["version"]
+                        + (f" ; {markers}" if isinstance(markers, str) else "")
+                    )
+            return [p for p in pins if _REQUIREMENT.match(p)]
+        document = _toml(path)
+        if document is None:
+            return []
+        pins = []
+        for package in document.get("package", []):
+            if not isinstance(package, dict):
+                continue
+            package_name, version = package.get("name"), package.get("version")
+            source = package.get("source")
+            if not isinstance(package_name, str) or not isinstance(version, str):
+                continue
+            if name == "uv.lock":
+                # registry: an index; editable, virtual, path, git: no wheel.
+                if not (isinstance(source, dict) and "registry" in source):
+                    continue
+            elif isinstance(source, dict) and source.get("type") != "legacy":
+                # Poetry: no source is PyPI, legacy a private index.
+                continue
+            markers = package.get("markers")
+            pins.append(
+                f"{package_name}=={version}"
+                + (f" ; {markers}" if isinstance(markers, str) else "")
+            )
+        return [p for p in pins if _REQUIREMENT.match(p)]
+    return None
+
+
+def _pipfile(path):
+    """Pipenv's packages and dev-packages; their versions are PEP 440."""
+    if not path.is_file():
+        return []
+    document = _toml(path)
+    if document is None:
+        return []
+    found = []
+    for section in ("packages", "dev-packages"):
+        for name, constraint in (document.get(section) or {}).items():
+            extras = []
+            if isinstance(constraint, dict):
+                if any(k in constraint for k in ("path", "file", "git", "editable")):
+                    continue
+                extras = constraint.get("extras", [])
+                constraint = constraint.get("version", "*")
+            if not isinstance(constraint, str):
+                continue
+            found.append(
+                name
+                + (f"[{','.join(extras)}]" if extras else "")
+                + ("" if constraint.strip() in {"", "*"} else constraint.strip())
+            )
+    return [r for r in found if _REQUIREMENT.match(r)]
 
 
 def _requirement_lines(path, root, seen=None):
@@ -193,9 +317,10 @@ def _setup_cfg(path):
 def install(root, scratch, *, environ=None, timeout=600):
     """Install the declared dependencies under ``scratch``.
 
-    Returns ``{"status", "python", "projects", "requirements", "packages",
-    "failed", "detail", "bin", "site"}``; ``projects`` names the directories
-    the requirements were read from. ``status`` is ``none`` (nothing declared),
+    Returns ``{"status", "python", "projects", "lockfiles", "requirements",
+    "packages", "failed", "detail", "bin", "site"}``; ``projects`` names the
+    directories the requirements were read from, ``lockfiles`` those pinned
+    by a lockfile. ``status`` is ``none`` (nothing declared),
     ``installed``, ``partial`` (some requirements have no installable wheel)
     or ``failed`` (none could be installed, or pip is unavailable). ``bin``
     holds the empty interpreter scip-python runs, ``site`` the packages.
@@ -214,6 +339,7 @@ def install(root, scratch, *, environ=None, timeout=600):
     requirements = declared(root)
     outcome = {
         "projects": project_directories(root),
+        "lockfiles": lockfiles(root),
         "status": "none",
         "python": "{}.{}.{}".format(*sys.version_info[:3]),
         "requirements": requirements,
@@ -265,9 +391,20 @@ def install(root, scratch, *, environ=None, timeout=600):
             "pip timed out" if result is None else (result.stderr or "")[-2000:]
         )
         for requirement in requirements:
-            alone = install_all([requirement])
+            alone = pip("install", "--dry-run", "--only-binary", ":all:", requirement)
             if alone is None or alone.returncode:
                 outcome["failed"].append(requirement)
+        # The rest are installed together, so pip resolves them as one set
+        # and a lockfile's pins stay the versions installed.
+        rest = [r for r in requirements if r not in outcome["failed"]]
+        together = install_all(rest) if rest else None
+        if rest and (together is None or together.returncode):
+            # They conflict (two services pin different versions): each is
+            # installed in turn, and the one installed last wins.
+            for requirement in rest:
+                alone = install_all([requirement])
+                if alone is None or alone.returncode:
+                    outcome["failed"].append(requirement)
     listed = pip("list", "--path", str(site), "--format", "freeze")
     if listed is not None and not listed.returncode:
         outcome["packages"] = sorted(
