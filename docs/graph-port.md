@@ -2116,6 +2116,17 @@ writes in a scratch directory: `allowJs`, every file outside
 declarations it infers `{}` instead of `allowJs` and indexes no file, which
 left graphql-js, Ackee, node-express-boilerplate and robot-shop (424 files)
 `indexer_failed`; all are now covered.
+A configuration the compiler cannot read (`error TS5083`) that an `extends`
+names inside the workspace, outside `node_modules`, and that does not exist
+is written as an empty `{}` in the scratch copy and the run repeated; the
+receipt lists each under `dependencies.placeholder_configs`. A SvelteKit
+project's `tsconfig.json` extends `.svelte-kit/tsconfig.json`, which only
+`svelte-kit sync` writes, by running the repository's own `svelte.config.js`;
+the engine runs no repository code, as with install scripts. On immich
+(8c2195c) all 117 web files were `indexer_failed` and stopped the run; they
+now index, without the options the generated file adds (SvelteKit's `$lib`
+alias stays unresolved). A workspace indexed in place (no packages to
+install) is never written to, and such a run still fails.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.
@@ -3555,47 +3566,55 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### Contract coverage
 
 The contracts a repository's query returns are only those its readers
-found, so the graph also says which readers ran. For each contract family
-and each language of the repository's source files there is one
-`ContractCoverage` node (`qualified_name`
-`<repo>::contract-coverage::<family>::<language>`) with:
+found, so the graph also says which readers ran. For each contract edge
+family and protocol, and each language of the repository's source files,
+there is one `EdgeCoverage` node (`qualified_name`
+`<repo>::edge-coverage::<family>::<protocol>::<language>`), in the shape the
+call and import coverage uses too:
 
-- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
-  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+- `family` and `protocol`: `HANDLES` or `REQUESTS` with `http`, `grpc` or
+  `graphql`, and `PUBLISHES` or `CONSUMES` with `messaging`;
 - `language` and `files`, the number of the repository's files in it, for
   every language the engine recognises by suffix (C, C++, C#, Go, Java,
   JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
   `engine.source_languages` over the same selection as the analysis; other
   languages get no statement;
-- `status`: `read` when this tool has a reader for the family in that
-  language, else `not_read` with `reason` `no_reader`;
+- `status`: always `not_linked`. Every contract site rule is
+  `pattern_matched`: the engine's own readers find the sites, and a reader
+  counts only the sites it recognises, so it can neither say every site was
+  decided by a deterministic tool (`linked`) nor that there are none
+  (`no_sites`). The `reason` is `parser_rules` when this tool reads the
+  family in that language, `sites` 0 included, and `not_supported` when it
+  has no reader;
+- `resolver`: `["service-contracts@<version>"]` where a reader ran, else
+  empty; `files_linked`: 0;
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
-  found in that language; for `http_requests` and `grpc_calls` also
-  `linked`, how many of them were linked.
+  found; for `REQUESTS` also how many were `linked`, `ambiguous` and
+  `unresolved`.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
 
 | Family | Languages read |
 | --- | --- |
-| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
-| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
-| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
-| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `http` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `HANDLES`/`REQUESTS` `grpc` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `graphql` | JavaScript, TypeScript |
+| `PUBLISHES`/`CONSUMES` `messaging` | Java, Python, Go, JavaScript, TypeScript |
 
 A contract query can return the coverage of the languages present next to
 what it found:
 
 ```cypher
-MATCH (c:ContractCoverage {family: 'grpc_calls'})
+MATCH (c:EdgeCoverage {family: 'REQUESTS', protocol: 'grpc'})
 RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
 ```
 
-`read` with no sites means the reader ran and found nothing it recognises,
-not that the language has no such calls. In online-boutique, the C# cart
-service's tests call `new CartServiceClient(channel)` where the client type
-comes from `using static Hipstershop.CartService;`, which the C# stub
-reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+`no_sites` means the reader ran and found nothing it recognises, not that
+the language has no such calls. In online-boutique, the C# cart service's
+tests call `new CartServiceClient(channel)` where the client type comes from
+`using static Hipstershop.CartService;`, which the C# stub reader does not
+follow, so `REQUESTS grpc csharp` is `no_sites`.
 
 ### OpenAPI Go clients (oapi-codegen)
 
