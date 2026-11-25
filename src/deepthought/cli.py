@@ -193,6 +193,8 @@ def main(argv=None) -> int:
             for path, entry in sorted(report["coverage"].items()):
                 if entry["status"] != "covered":
                     print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+                elif entry.get("warning"):
+                    print(f"{path}: {entry['warning']}", file=sys.stderr)
             # A missing or failing indexer is an error; a file no compiler can
             # index (no go.mod, built on no platform) is reported, not fatal.
             return 3 if failed_files(report) else 0
