@@ -888,7 +888,8 @@ indexer that resolved it (`producer`, `receipt`):
 Both ends come from the scip-python index, so the rule is `resolved`. A
 call written `Depends(...)` or `Security(...)` (or under a name one of them
 is imported `as`) counts only when the index resolves its callee to
-FastAPI's own `fastapi.param_functions` `Depends` or `Security`. The dependency is the
+FastAPI's own `fastapi.param_functions` `Depends` or `Security`, or to the
+`fastapi.params` classes of those names. The dependency is the
 first argument or `dependency=`. For a `Depends()` with neither, it is what
 FastAPI calls: the parameter's annotation, or the `T` of
 `Annotated[T, Depends()]`. It is linked only when the index resolves that
@@ -947,7 +948,8 @@ by a script run there that uses only the standard library. The
 `python_interpreter` metric gives the version that read them, the
 declarations, whether it was a managed interpreter, and any errors.
 
-When no declared Python can be obtained, or it fails, the running
+When no declared Python can be obtained (uv missing included), or it fails,
+the running
 interpreter reads the sources, and each reason is a
 `python_interpreter_unavailable` warning. A file the chosen interpreter
 still cannot parse is named in a `python_ast_unparsed: FILE: ...` warning
