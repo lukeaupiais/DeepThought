@@ -36,7 +36,7 @@ FAKE = textwrap.dedent(
         # A pass over chosen files: its project names them, absolute.
         with open(argv[-1]) as config:
             project = json.load(config)
-        documents = [os.path.relpath(f) for f in project["files"]] + documents
+        documents = [os.path.relpath(f) for f in project.get("files", [])] + documents
     # Only files under the directory it runs in, as a real indexer.
     documents = [path for path in documents if os.path.isfile(path)]
     # As scip-go: a file for another platform builds only there.
