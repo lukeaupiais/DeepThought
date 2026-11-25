@@ -8,7 +8,7 @@
   "JavaScript (Apollo Server)"
  ],
  "sources": [
-  "graphql-core parse of every gql/graphql template literal and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
+  "graphql-js parse of every gql/graphql template literal (found by the TypeScript compiler) and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
   "manual reading of final/client/src/index.tsx (ApolloClient uri http://localhost:4000/graphql), final/server/src/index.js and the start/ packages at the pinned commit"
  ],
  "services": [
