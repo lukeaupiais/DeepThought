@@ -29,7 +29,9 @@ _RELEASE = r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*"
 # pnpm and bun key entries typeorm@<release>; yarn writes the release on
 # the line after the typeorm@<range> key.
 _LOCKED = (
-    re.compile(rf"(?:^|[\s\"'/])typeorm@({_RELEASE})(?=[\s\"'(:,])", re.M),
+    # pnpm 6-8 keys start with "/" (/typeorm@0.3.20); a scoped package
+    # whose name ends in typeorm (@nestjs/typeorm@10.0.2) is not typeorm.
+    re.compile(rf"(?:^|[\s\"'])/?typeorm@({_RELEASE})(?=[\s\"'(:,])", re.M),
     re.compile(rf"^\"?typeorm@[^\n]*:\n\s+version:? \"?({_RELEASE})", re.M),
 )
 
