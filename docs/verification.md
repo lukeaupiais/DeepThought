@@ -132,6 +132,21 @@ python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle
 Truth derived from the same SCIP index that binds the calls checks the
 binding, not the indexer; independent oracles judge the indexer.
 
+In production, TreeSitterTool binds call sites from the indexes its own
+pinned indexers write. `check --scip` scores that path too: for each calls
+corpus in a language with a SCIP indexer (Python, TypeScript, JavaScript,
+Go), it builds the corpus's indexes with `index_workspace`, as `deepthought
+index-scip` does, binds the calls with `bind_calls` and scores them, and
+their impact, under the corpus's `scip` baseline. Indexes are cached under
+`--cache`, keyed by corpus commit and indexer versions, and checked against
+their receipts when reused. A missing indexer is a missing requirement, and a
+file an indexer fails on stops the check, since either would read as a
+regression. Without `--scip` the SCIP baseline is left as it was.
+
+```sh
+python tools/ground_truth.py check --scip --corpus hono   # needs scip-typescript
+```
+
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
 expected count. An improvement is accepted by updating the baseline in the
@@ -574,6 +589,44 @@ kind in all three: Go 4/4, Java 4/4, Node 10/10, streaming 4/4 each. Online
 Boutique's servers are 15 of 20: the 5 misses are the C# cartservice, whose
 servers are not read (C# is not a contract language yet).
 
+### .proto files
+
+The engine reads .proto files only with protoc. `tools/proto_truth.py REPO
+...` checks that reader against github.com/emicklei/proto
+(`tools/proto_oracle`, built with `go build`), a Go parser that shares no
+code with protoc. For every .proto file that git tracks, both list each rpc
+as (file, `package.Service`, method, line of the rpc, streaming kind), and
+each `google.api.http` binding as (file, `package.Service`, method, verb,
+path), including `additional_bindings` and the `(google.api.http).post = ...`
+form.
+
+A misread is either of these, and the tool exits 1 on any:
+
+- an rpc or binding the engine lists that the oracle does not;
+- one the engine misses in a file protoc compiled.
+
+The oracle parses each file on its own, so it also reads files that protoc
+cannot compile. Their rpcs are counted separately, and protoc's verdict
+stands: an import outside the repository, or a file protoc rejects.
+
+| Repository | .proto files | Compiled | rpcs agree | HTTP bindings agree | rpcs in uncompiled files |
+|---|---|---|---|---|---|
+| grpc-node route guide corpus | 43 | 38 | 113 / 113 | 0 / 0 | 7 |
+| grpc-java route guide corpus | 199 | 199 | 104 / 104 | 1 / 1 | 0 |
+| grpc-go route guide corpus | 13 | 13 | 18 / 18 | 0 / 0 | 0 |
+| online-boutique | 8 | 8 | 66 / 66 | 0 / 0 | 0 |
+| eShop (gRPC) | 2 | 2 | 6 / 6 | 0 / 0 | 0 |
+| simplebank | 12 | 12 | 4 / 4 | 4 / 4 | 0 |
+| grpc-gateway 5dbb59a | 38 | 38 | 121 / 121 | 149 / 149 | 0 |
+| kratos 56cfd65 | 16 | 16 | 2 / 2 | 1 / 1 | 0 |
+| envoy d4c3cc2 | 913 | 119 | 44 / 44 | 37 / 37 | 88 |
+
+There are no misreads. The uncompiled grpc-node files import `vendor.proto`
+through an include path that only their tests set, or use the reserved
+`uninterpreted_option`, which protoc rejects. 794 of envoy's files import
+protos that Bazel fetches (udpa, xds, validate, opentelemetry), which are
+not in the repository.
+
 ### Routes and GraphQL fields
 
 The contract corpora score links between services, so a route the engine
@@ -912,6 +965,47 @@ schema qualifier is dropped (`app.users` names `users`), since tables join
 across readers by name, and a database's own catalog (`information_schema.*`,
 `pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
+### Go message destinations
+
+The manifest's `messages` entries label every Kafka and AMQP site in five
+Go repositories. The labels were written by hand from the pinned source,
+without the engine's type-checker facts, and cover each client the engine
+reads:
+
+| Corpus | Client | Root | Sites |
+|---|---|---|---|
+| rabbitmq-tutorials | amqp091-go | `go` | 17 |
+| go-clean-template | amqp091-go | `.` | 2 |
+| kafka-go | kafka-go | `examples` | 4 |
+| sarama | sarama | `examples` | 10 |
+| confluent-kafka-go | confluent-kafka-go | `examples` | 48 |
+
+A label is one call or literal, and says one of three things:
+
+- `destinations`: the destinations it names. Kafka destinations are the
+  topic. An AMQP publish is `exchange/routing-key`. An AMQP consume is
+  `/queue` on the default exchange, plus `exchange/key` for each binding
+  of that queue.
+- `unresolved`: no reading of the source can name it. Examples are a
+  flag, the environment, the command line, a request's `ReplyTo`, or a
+  queue the server names (`QueueDeclare("", ...)`).
+- `none`: the line sends and receives nothing, such as a `TopicPartition`
+  passed to `CommitOffsets` or to an admin call.
+
+`also_at` lists the other lines a site may be reported on, where a call
+and its literal start on different lines.
+
+`check` reports four numbers:
+
+- *found*: labelled destinations the engine reports;
+- *wrong*: endpoints naming another destination, or any endpoint at an
+  `unresolved` or `none` site;
+- *extra*: endpoints at lines the labels do not list (paths under
+  `not_counted` excepted);
+- *unresolved_sites*: how many labels say the destination cannot be known.
+
+The gate fails when *found* drops or *wrong* or *extra* rises.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
@@ -1099,6 +1193,9 @@ scip-python gives a span only to the first `@overload` of a function, so its
 other `def`s (implementation included) are folded into that node with spans
 found by indentation; and scip-typescript records `const f = () => ...` as a
 variable, so a variable whose initializer is a function counts as a callable.
+A class field holding an arrow function (`fetch = async (...) => { ... }`)
+gets no enclosing range from scip-typescript at all; its span is read from
+the source, from the field's `=` to the end of the arrow's body.
 
 `check` runs the same reverse search over the engine's linked CALLS edges at
 the pin. An engine dependent the oracle also reaches is *confirmed*; one it

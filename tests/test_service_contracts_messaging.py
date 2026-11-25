@@ -13,6 +13,8 @@ from deepthought.storage.graph.write_coordinator import (
     _combine,
 )
 
+from go_stubs import go_mod, go_stub_files, needs_go
+
 READY = importlib.util.find_spec("tree_sitter") and all(
     importlib.util.find_spec(f"tree_sitter_{name}") for name in ("python", "go", "java")
 )
@@ -191,9 +193,20 @@ package main
 
 import amqp "github.com/rabbitmq/amqp091-go"
 
+var replies = "replies"
+
 func audit(ch *amqp.Channel) {
 	ch.QueueBind("audit", "booking.created", "audit", false, nil)
 	ch.Consume("audit", "", true, false, false, false, nil)
+	ch.Consume(replies, "", true, false, false, false, nil)
+	// The broker names a queue declared with "".
+	q, _ := ch.QueueDeclare("", false, false, true, false, nil)
+	// Its bindings are the ones made through the same declaration.
+	ch.QueueBind(q.Name, "", "logs", false, nil)
+	ch.Consume(q.Name, "", true, false, false, false, nil)
+	other, _ := ch.QueueDeclare("", false, false, true, false, nil)
+	ch.Consume(other.Name, "", true, false, false, false, nil)
+	ch.PublishWithDeferredConfirmWithContext(nil, "audit", "audit.done", false, false, amqp.Publishing{})
 }
 """
 
@@ -206,6 +219,7 @@ def _write(root, files):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_go
 class MessagingContractTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -235,7 +249,10 @@ class MessagingContractTests(unittest.TestCase):
                 ),
                 f"order/{java}/order/config/Legacy.java": LEGACY,
                 f"legacy/{java}/order/config/Legacy.java": LEGACY,
+                **go_stub_files(),
+                "dispatch/go.mod": go_mod("dispatch", "github.com/streadway/amqp"),
                 "dispatch/main.go": DISPATCH,
+                "audit/go.mod": go_mod("audit", "github.com/rabbitmq/amqp091-go"),
                 "audit/main.go": AUDIT,
             },
         )
@@ -281,8 +298,13 @@ class MessagingContractTests(unittest.TestCase):
                 ),
                 ("main.go", "consume", "amqp", "/audit", "go-amqp"),
                 ("main.go", "consume", "amqp", "/orders", "go-amqp"),
+                # A package variable nothing reassigns.
+                ("main.go", "consume", "amqp", "/replies", "go-amqp"),
                 ("main.go", "consume", "amqp", "audit/booking.created", "go-amqp"),
+                # Bound through the declaration of a queue the broker names.
+                ("main.go", "consume", "amqp", "logs/", "go-amqp"),
                 ("main.go", "consume", "amqp", "robot-shop/orders", "go-amqp"),
+                ("main.go", "publish", "amqp", "audit/audit.done", "go-amqp"),
                 ("main.go", "publish", "amqp", "audit/dispatch.done", "go-amqp"),
                 ("publisher.py", "consume", "kafka", "order-shipped", "kafka-python"),
                 ("publisher.py", "publish", "amqp", "robot-shop/orders", "pika"),
@@ -295,6 +317,9 @@ class MessagingContractTests(unittest.TestCase):
                 ("OrderService.java", "publish", "destination_not_literal"),
                 ("OrderService.java", "publish", "destination_not_literal"),
                 ("Send.java", "publish", "template_exchange"),
+                # q.Name of the queues the broker names.
+                ("main.go", "consume", "destination_not_literal"),
+                ("main.go", "consume", "destination_not_literal"),
                 ("main.go", "consume", "key_pattern"),
                 ("publisher.py", "consume", "destination_not_literal"),
             ],
@@ -327,7 +352,7 @@ class MessagingContractTests(unittest.TestCase):
                 rule = get_rule(relationship.properties["rule_id"])
                 self.assertEqual(rule.evidence_type, "pattern_matched")
         metrics = self.output.metadata.custom_metrics
-        self.assertEqual(metrics["message_endpoints"], 15)
+        self.assertEqual(metrics["message_endpoints"], 18)
         self.assertEqual(metrics["unread"]["consume:key_pattern"], 1)
 
     def test_graph_joins_tree_sitter_declarations(self):
