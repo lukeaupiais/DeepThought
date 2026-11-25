@@ -23,7 +23,7 @@ from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
     extract_ddl,
-    extract_foreign_key_drops,
+    extract_schema_changes,
     extract_foreign_keys,
     migration_set,
     mongoose_majors,
@@ -401,10 +401,13 @@ ALTER TABLE m DROP FOREIGN KEY m_ibfk_1;
 DROP TABLE IF EXISTS "Share", tags CASCADE;
 ALTER TABLE a DROP COLUMN b;
 DROP INDEX i;
+ALTER TABLE "posts_new" RENAME TO "Posts";
+ALTER TABLE a RENAME COLUMN x TO y;
+RENAME TABLE m TO n;
 """
-        found, unparsed = extract_foreign_key_drops("m.sql", text)
+        found, unparsed = extract_schema_changes("m.sql", text)
         self.assertEqual(
-            [(d.line, d.table, d.constraint) for d in found],
+            [(d.line, d.table, getattr(d, "constraint", d)) for d in found[:5]],
             [
                 (1, "signature", "signature_fieldid_fkey"),
                 (2, "accounts", "accounts_owner_fkey"),
@@ -413,7 +416,13 @@ DROP INDEX i;
                 (4, "tags", None),
             ],
         )
-        self.assertEqual(unparsed, [])
+        self.assertEqual(
+            [(r.line, r.table, r.new_name) for r in found[5:]],
+            [(7, "posts_new", "posts")],
+        )
+        # MySQL's RENAME TABLE has no sqlglot parse: its line is reported,
+        # not read as no change.
+        self.assertEqual(unparsed, [9])
 
     def test_migration_sets(self):
         self.assertEqual(
@@ -475,6 +484,60 @@ DROP INDEX i;
                 metrics["sql_rollback_files"],
             ),
             (1, 3, 1, 1),
+        )
+
+    def test_migrations_replay_dropped_and_renamed_tables(self):
+        files = {
+            "package.json": '{"name": "app"}',
+            "db/migrations/0001_init.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE tags (id int);\n"
+            "CREATE TABLE posts (id int, author_id int REFERENCES users (id));\n",
+            "db/migrations/0002_swap.sql": "CREATE TABLE posts_new (id int,\n"
+            "  author_id int REFERENCES users (id) ON DELETE CASCADE);\n"
+            "DROP TABLE posts;\n"
+            'ALTER TABLE "posts_new" RENAME TO "posts";\n'
+            "DROP TABLE tags;\n",
+            "db/migrations/0002_swap.down.sql": "CREATE TABLE tags (id int);\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        declared = sorted(
+            (
+                r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                r.source_match["qualified_name"].split("::")[-2],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.type == "DECLARES"
+        )
+        self.assertEqual(
+            declared,
+            [
+                ("posts", "db/migrations/0002_swap.sql", 4),
+                ("users", "db/migrations/0001_init.sql", 1),
+            ],
+        )
+        keys = [
+            (
+                r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                r.properties.get("on_delete"),
+            )
+            for r in output.relationships
+            if r.type == "REFERENCES_TABLE"
+        ]
+        self.assertEqual(keys, [("posts", "users", "CASCADE")])
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            (
+                metrics["ddl_statements"],
+                metrics["ddl_tables_dropped"],
+                metrics["ddl_tables_renamed"],
+            ),
+            (5, 2, 1),
         )
 
     def test_default_physical_names(self):
