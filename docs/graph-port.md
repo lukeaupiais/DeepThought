@@ -3302,6 +3302,7 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### Contract coverage
 
 The contracts a repository's query returns are only those its readers
+<<<<<<< HEAD
 found, so the graph also says which readers ran. For each contract edge
 family and protocol, and each language of the repository's source files,
 there is one `EdgeCoverage` node (`qualified_name`
@@ -3310,11 +3311,21 @@ call and import coverage uses too:
 
 - `family` and `protocol`: `HANDLES` or `REQUESTS` with `http`, `grpc` or
   `graphql`, and `PUBLISHES` or `CONSUMES` with `messaging`;
+=======
+found, so the graph also says which readers ran. For each contract family
+and each language of the repository's source files there is one
+`ContractCoverage` node (`qualified_name`
+`<repo>::contract-coverage::<family>::<language>`) with:
+
+- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
+  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+>>>>>>> origin/main
 - `language` and `files`, the number of the repository's files in it, for
   every language the engine recognises by suffix (C, C++, C#, Go, Java,
   JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
   `engine.source_languages` over the same selection as the analysis; other
   languages get no statement;
+<<<<<<< HEAD
 - `status`: `linked` when this tool reads the family in that language and
   found sites, `no_sites` when it read and found none, and `not_linked` with
   `reason` `not_supported` when it has no reader;
@@ -3324,21 +3335,36 @@ call and import coverage uses too:
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
   found; for `REQUESTS` also how many were `linked`, `ambiguous` and
   `unresolved`.
+=======
+- `status`: `read` when this tool has a reader for the family in that
+  language, else `not_read` with `reason` `no_reader`;
+- `sites`: the routes, handlers, calls, resolvers, operations or endpoints
+  found in that language; for `http_requests` and `grpc_calls` also
+  `linked`, how many of them were linked.
+>>>>>>> origin/main
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
 
 | Family | Languages read |
 | --- | --- |
+<<<<<<< HEAD
 | `HANDLES`/`REQUESTS` `http` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
 | `HANDLES`/`REQUESTS` `grpc` | Go, Python, Java, C#, JavaScript, TypeScript |
 | `HANDLES`/`REQUESTS` `graphql` | JavaScript, TypeScript |
 | `PUBLISHES`/`CONSUMES` `messaging` | Java, Python, Go, JavaScript, TypeScript |
+=======
+| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
+| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+>>>>>>> origin/main
 
 A contract query can return the coverage of the languages present next to
 what it found:
 
 ```cypher
+<<<<<<< HEAD
 MATCH (c:EdgeCoverage {family: 'REQUESTS', protocol: 'grpc'})
 RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
 ```
@@ -3348,6 +3374,17 @@ the language has no such calls. In online-boutique, the C# cart service's
 tests call `new CartServiceClient(channel)` where the client type comes from
 `using static Hipstershop.CartService;`, which the C# stub reader does not
 follow, so `REQUESTS grpc csharp` is `no_sites`.
+=======
+MATCH (c:ContractCoverage {family: 'grpc_calls'})
+RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
+```
+
+`read` with no sites means the reader ran and found nothing it recognises,
+not that the language has no such calls. In online-boutique, the C# cart
+service's tests call `new CartServiceClient(channel)` where the client type
+comes from `using static Hipstershop.CartService;`, which the C# stub
+reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+>>>>>>> origin/main
 
 ### OpenAPI Go clients (oapi-codegen)
 
@@ -4271,7 +4308,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-mapper-xml` | pattern_matched | a `<select>`, `<insert>`, `<update>` or `<delete>` of a MyBatis mapper XML file (root `<mapper namespace>`), with every dynamic branch (`<if>`, `<choose>`, `<foreach>`, `<where>`, `<set>`, `<trim>`) kept, `<sql>` fragments of the same mapper included and `<selectKey>` left out; `#{}` is a bind marker and `${}` text the code does not fix; the edge starts at the mapper interface method that the namespace and id name, else at the XML file |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-annotation` | pattern_matched | a mapper method's `@Select`, `@Insert`, `@Update` or `@Delete` (`org.apache.ibatis.annotations`), array strings joined with spaces and a `<script>` value read as mapper XML |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local whose value is followed through the function's statements (`=`, `:=`, `+=`, `if`/`switch`/`select` branches; each path's text kept), `+` joins (other operands unfixed) or sqlx's `Rebind`; one of its texts starts with a reading or writing verb, and the call links the tables of every such text |

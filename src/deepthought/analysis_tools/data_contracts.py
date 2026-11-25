@@ -22,6 +22,7 @@ import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from ..gorm_naming import table_names as gorm_table_names
 from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
@@ -36,7 +37,6 @@ from ..data_contracts import (
     GORM_MODULES,
     GoTableName,
     extract_gorm,
-    gorm_table_name,
     django_app,
     django_historical_model,
     extract_django,
@@ -650,10 +650,13 @@ GORM_DEFAULT_RULE = register_rule(
         "name_matched",
         "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
         "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
-        "without a TableName method, and this table is GORM's default name: "
-        "NamingStrategy's snake case of the type name, pluralized by "
-        "jinzhu/inflection 1.0.0 (UserModel is user_models). A repository "
-        "that configures a NamingStrategy gets no default names.",
+        "without a TableName method, and this table is GORM's default name "
+        "as GORM's own schema.NamingStrategy{}.TableName computes it, built "
+        "at the gorm.io/gorm and jinzhu/inflection versions the model's "
+        "module selects (UserModel is user_models). A repository that "
+        "configures a NamingStrategy gets no default names; a module whose "
+        "GORM cannot be built gets none either, with a gorm_naming_unread "
+        "warning.",
     )
 )
 GORM_CALL_RULE = register_rule(
@@ -1929,27 +1932,46 @@ class DataContractTool(AnalysisTool):
                 {"line": item.line, "column": item.column},
             )
         # A configured NamingStrategy changes every default name.
-        gorm_defaults = 0
+        gorm_defaults, pending = 0, {}
         for model in sorted(
             [] if gorm_naming else gorm_models,
             key=lambda m: (m.file, m.line, m.column),
         ):
             key = (model.file.rpartition("/")[0], model.type_name)
-            if key in gorm_targets:
+            if key in gorm_targets or key in pending:
                 continue
             declared = owner(model.file, model.type_name)
-            if declared is None:
+            if declared is not None:
+                pending[key] = (declared, model.type_name)
+        # GORM's own NamingStrategy at the version each module selects.
+        by_module = {}
+        for key, (declared, type_name) in pending.items():
+            module = facts.module_of(declared.file)
+            by_module.setdefault(module, []).append((key, declared, type_name))
+        gorm_naming_unread = {}
+        for module, models in sorted(by_module.items(), key=lambda m: m[0] or ""):
+            if module is None:
+                gorm_naming_unread["."] = (
+                    f"{len(models)} models outside every Go module"
+                )
                 continue
-            gorm_defaults += 1
-            target = table(declared.file, gorm_table_name(model.type_name))
-            gorm_targets[key] = target
-            link(
-                "MAPS_TO",
-                symbol(declared.id),
-                target,
-                GORM_DEFAULT_RULE,
-                {"line": declared.line, "column": declared.column},
+            names, reason = gorm_table_names(
+                root, module, [type_name for _, _, type_name in models]
             )
+            if reason is not None:
+                gorm_naming_unread[module or "."] = reason
+                continue
+            for key, declared, type_name in models:
+                gorm_defaults += 1
+                target = table(declared.file, table_key(names[type_name]))
+                gorm_targets[key] = target
+                link(
+                    "MAPS_TO",
+                    symbol(declared.id),
+                    target,
+                    GORM_DEFAULT_RULE,
+                    {"line": declared.line, "column": declared.column},
+                )
         modules = sorted(
             (
                 (c.name, c.manifest.rpartition("/")[0])
@@ -3061,6 +3083,7 @@ class DataContractTool(AnalysisTool):
             "partial"
             if unreadable
             or kysely_unindexed
+            or gorm_naming_unread
             or typeorm_naming_unread
             or django_unindexed
             or prisma_read.unread
@@ -3068,6 +3091,11 @@ class DataContractTool(AnalysisTool):
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"gorm_naming_unread: {module}: {reason}, so its models without a "
+            "TableName method get no table"
+            for module, reason in sorted(gorm_naming_unread.items())
+        ]
         warnings += [
             f"typeorm_naming_unread: {path}: {reason}, so its @Entity classes "
             "without a name get no table"
@@ -3169,6 +3197,7 @@ class DataContractTool(AnalysisTool):
                     },
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,
+                    "gorm_naming_unread": len(gorm_naming_unread),
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
                     "foreign_keys": {
