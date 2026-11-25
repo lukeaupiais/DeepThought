@@ -1352,6 +1352,12 @@ func structs(file *ast.File, info *types.Info, emit func(fact), where func(token
 				return
 			}
 			field.Types = append(field.Types, namedType{Package: obj.Pkg().Path(), Name: obj.Name(), File: f, Line: line})
+			// A named slice, map, array, pointer or channel (type Labels
+			// []Label) holds what its underlying type holds; a struct's
+			// fields are printed with the struct itself.
+			if _, ok := u.Underlying().(*types.Struct); !ok {
+				holds(u.Underlying(), field, seen, depth+1)
+			}
 		}
 	}
 	for _, decl := range file.Decls {
@@ -1379,7 +1385,8 @@ func structs(file *ast.File, info *types.Info, emit func(fact), where func(token
 				if !v.Exported() && !v.Embedded() {
 					continue
 				}
-				if name, _, _ := strings.Cut(reflect.StructTag(st.Tag(i)).Get("json"), ","); name == "-" {
+				// json:"-" omits the field; json:"-," names it "-".
+				if reflect.StructTag(st.Tag(i)).Get("json") == "-" {
 					continue
 				}
 				_, line, _ := where(v.Pos())

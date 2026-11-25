@@ -87,6 +87,18 @@ type Secret struct {
 type Page struct {
 \tData  []Item `json:"data"`
 \tCount int    `json:"count"`
+\tNotes Notes  `json:"notes"`
+\tDash  *Dashed `json:"-,"`
+}
+
+type Notes map[string]Note
+
+type Note struct {
+\tText string
+}
+
+type Dashed struct {
+\tX string
 }
 """
 
@@ -118,6 +130,8 @@ class GoFieldTypeTests(unittest.TestCase):
         # through; json:"-" and unexported fields are not written; the
         # library's time.Time is not followed; Team.Lead leads back to
         # Owner, already carried, which ends the cycle; any is unresolved.
+        # A named map (Notes) holds what its values hold; json:"-," names
+        # a field "-", which is written.
         with tempfile.TemporaryDirectory() as directory:
             found, added, unresolved = carried(
                 directory,
@@ -132,7 +146,10 @@ class GoFieldTypeTests(unittest.TestCase):
             [f[:5] for f in found],
             [
                 ("Audit", "response", ("Page.Data", "Item.Audit"), "Item.Audit", rule),
+                ("Dashed", "response", ("Page.Dash",), "Page.Dash", rule),
                 ("Item", "response", ("Page.Data",), "Page.Data", rule),
+                ("Note", "response", ("Page.Notes",), "Page.Notes", rule),
+                ("Notes", "response", ("Page.Notes",), "Page.Notes", rule),
                 ("Owner", "response", ("Page.Data", "Item.Owner"), "Item.Owner", rule),
                 (
                     "Page",
@@ -151,8 +168,8 @@ class GoFieldTypeTests(unittest.TestCase):
                 ),
             ],
         )
-        self.assertEqual(found[1][5], 38)  # the line of Page.Data
-        self.assertEqual((added, unresolved), (5, 1))
+        self.assertEqual(found[2][5], 38)  # Item: the line of Page.Data
+        self.assertEqual((added, unresolved), (8, 1))
 
 
 TS_FILES = {

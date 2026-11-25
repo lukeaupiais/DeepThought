@@ -3372,7 +3372,7 @@ tool:
 
 | Edge | Rule | Evidence | Fires on |
 |---|---|---|---|
-| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments and inline structs; `gofacts` prints each package-level struct's fields from go/types |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments, inline structs and named non-struct types (`type Labels []Label` carries `Labels` and `Label`); `json:"-,"` names a field "-", which is written; `gofacts` prints each package-level struct's fields from go/types |
 | HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.ts-field-type` | resolved | a property or constructor parameter property (not static) of a carried class, interface or object type alias, written with a type naming this declaration, read as handler types are; or a class or interface it extends or implements |
 | HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.python-field-type` | resolved | an attribute a carried class annotates in its body (not a `ClassVar`) whose annotation names this class, through the scip-python index as for handler annotations; or a class of the repository it derives from |
 
