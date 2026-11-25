@@ -241,8 +241,40 @@ def _arguments(spec, root, output, project_name):
 
 
 def python_source_roots(root):
-    """Workspace-relative import roots: the workspace, and ``src`` if present."""
-    return ["."] + (["src"] if (Path(root) / "src").is_dir() else [])
+    """Workspace-relative import roots: the workspace, then the ``src``
+    directory of the workspace and of each Python project below it (a
+    directory with a ``pyproject.toml``, ``setup.cfg`` or requirements file),
+    where a src layout keeps its packages.
+
+    A project's own directory is not added: pyright already resolves a flat
+    layout's imports from the importing file's directory, and two services'
+    ``app`` packages on one path would bind to whichever came first."""
+    from .python_dependencies import project_directories
+
+    root = Path(root)
+    sources = []
+    for project in [".", *project_directories(root)]:
+        source = "src" if project == "." else f"{project}/src"
+        if source not in sources and (root / source).is_dir():
+            sources.append(source)
+    # Two src directories with a top-level module of the same name would put
+    # one module name on two files; neither is added, so neither is guessed.
+    names = {s: _top_level_modules(root / s) for s in sources}
+    clashing = {s for s in sources for t in sources if s != t and names[s] & names[t]}
+    return ["."] + [s for s in sources if s not in clashing]
+
+
+def _top_level_modules(directory):
+    """Top-level modules and regular packages; a namespace package (no
+    ``__init__``) is left out, since its portions merge across the path."""
+    found = set()
+    for entry in directory.iterdir():
+        if entry.is_dir() and not entry.name.startswith("."):
+            if (entry / "__init__.py").is_file() or (entry / "__init__.pyi").is_file():
+                found.add(entry.name)
+        elif entry.suffix in {".py", ".pyi"}:
+            found.add(entry.stem)
+    return found
 
 
 def _environment(spec, root, environ, platform=None, dependencies=None):
