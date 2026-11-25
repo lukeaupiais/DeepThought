@@ -24,6 +24,12 @@ type OrderPlaced struct {
 type Shipped struct {
 \tOrder string `json:"order"`
 }
+
+type Event interface {
+\tName() string
+}
+
+func (OrderPlaced) Name() string { return "placed" }
 """
 
 PRODUCER = """package producer
@@ -58,6 +64,11 @@ func notice(p *kafka.Producer, e events.OrderPlaced) {
 \tp.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &name}, Value: payload}, nil)
 }
 
+func anyEvent(p sarama.SyncProducer, e events.Event) {
+\tbody, _ := json.Marshal(e)
+\tp.SendMessage(&sarama.ProducerMessage{Topic: "events", Value: sarama.ByteEncoder(body)})
+}
+
 func raw(p sarama.SyncProducer) {
 \tbody, _ := json.Marshal(map[string]string{"a": "b"})
 \tp.SendMessage(&sarama.ProducerMessage{Topic: "raw", Value: sarama.ByteEncoder(body)})
@@ -69,7 +80,9 @@ func raw(p sarama.SyncProducer) {
 @needs_go
 class GoKafkaPayloadTypeTests(unittest.TestCase):
     def test_messages_carry_the_types_they_marshal(self):
-        # A map is no type of the repository, so "raw" carries nothing.
+        # A map is no type of the repository, so "raw" carries nothing. An
+        # interface value is encoded as its dynamic type, which is not
+        # known: "events" carries nothing and is counted as unresolved.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             files = {
@@ -98,6 +111,7 @@ class GoKafkaPayloadTypeTests(unittest.TestCase):
             for r in output.relationships
             if r.type == "CARRIES"
         )
+        self.assertEqual(output.metadata.custom_metrics["payload_types_unresolved"], 1)
         rule = "service-contracts.go-kafka-message-value-type"
         self.assertEqual(
             found,

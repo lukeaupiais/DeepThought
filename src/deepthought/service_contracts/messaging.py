@@ -750,7 +750,8 @@ def extract_go(sites, facts):
     def marshalled(item):
         """The type a message value serializes: b after b, err :=
         json.Marshal(v) (through conversions), as go/types gives v's named
-        type and its declaration; () when not known."""
+        type and its declaration; () when not known, and a None type for a
+        value whose static type is an interface (counted as unresolved)."""
         if item is None or item.result is None:
             return ()
         line, column, index, field = item.result
@@ -760,7 +761,13 @@ def extract_go(sites, facts):
             or call.declared != "encoding/json"
             or call.method not in ("Marshal", "MarshalIndent")
             or (index, field) != (0, "")
-            or not call.types
+        ):
+            return ()
+        if call.interfaces and call.interfaces[0]:
+            # json encodes the value's dynamic type, which is not known.
+            return (("request", None),)
+        if (
+            not call.types
             or call.types[0] is None
             or not call.declarations
             or call.declarations[0] is None

@@ -74,6 +74,9 @@ type argument struct {
 	Strings [][]string   `json:"strings,omitempty"`
 	Result  *resultField `json:"result,omitempty"`
 	Type    *namedType   `json:"type,omitempty"`
+	// The argument's static type is an interface: what it holds at run
+	// time is not known.
+	Interface bool `json:"interface,omitempty"`
 }
 
 type element struct {
@@ -407,10 +410,16 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if pkg := function.Pkg(); pkg != nil && pkg.Path() == "encoding/json" &&
 				(function.Name() == "Marshal" || function.Name() == "MarshalIndent") {
 				f, line, column := where(call.Pos())
+				// encoding/json serializes the dynamic type of an interface
+				// value, which the static type does not give.
+				value := argument{Type: named(info.TypeOf(call.Args[0]))}
+				if t := info.TypeOf(call.Args[0]); t != nil && types.IsInterface(t) {
+					value = argument{Interface: true}
+				}
 				emit(fact{
 					Kind: "call", File: f, Line: line, Column: column,
 					Method: function.Name(), Declared: "encoding/json",
-					Arguments: []argument{{Type: named(info.TypeOf(call.Args[0]))}},
+					Arguments: []argument{value},
 				})
 				return true
 			}

@@ -3387,8 +3387,8 @@ class ServiceContractTool(AnalysisTool):
                         else MESSAGE_PAYLOAD_RULES
                     ),
                 )
-            for direction, (type_file, type_name, type_line) in endpoint.types:
-                found = declaration(type_file, type_name, type_line)
+            for direction, sent in endpoint.types:
+                found = None if sent is None else declaration(*sent)
                 if found is None:
                     payload_unresolved += 1
                     continue
