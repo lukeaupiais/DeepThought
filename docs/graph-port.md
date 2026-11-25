@@ -2057,7 +2057,9 @@ with a reason:
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
-(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+(outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
+directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
+gets its own run from its
 own directory, written to `scip-go.scip` for the root module and
 `scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
 made workspace-relative and the receipt names the module. A Go file belongs to
@@ -2072,6 +2074,17 @@ platform in `go tool dist list` (first-class ports first) whose `go list`
 compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
 files' documents; coverage says `pass: platform` and the platform. On cobra
 this covers `command_win.go`.
+
+The go command's `./...` skips directories whose name starts with `_`
+(`_examples/hello`), but their packages compile when named. The packages of a
+module's files in such directories are checked with `go list -e`, and those
+it loads without an error get a scip-go pass naming each one, written to
+`scip-go[-<dir>]-ignored-directories.scip`; coverage says `pass:
+ignored_directory`. One that does not load (an import nothing declares) is
+left out of the pass, since scip-go fails a whole run on it, and stays
+`not_in_index` with `ignored_directory_pass: does_not_load`. On chi
+(c64ed7d) the 19 files of `_examples` used to be `not_in_index`; now 12 are
+covered by this pass and 7 by the two `_examples` modules' own runs.
 
 A tsconfig.json below the workspace root is a project of its own: scip-typescript
 runs once for the root and once per nested project (`typescript_projects`),
