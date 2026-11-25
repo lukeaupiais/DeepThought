@@ -259,29 +259,17 @@ def _index_scip(scenario, workspace, directory, repository):
     receipt of each run and the ingested indexes. A scenario file left
     without an index by a missing, failing or wrong-version indexer stops
     the preparation."""
-    from deepthought.indexers import (
-        LANGUAGE_INDEXERS,
-        failed_files,
-        index_workspace,
-        ingest_indexed,
-    )
+    from deepthought.indexers import required_indexes
 
-    languages = tuple(sorted(set(scenario["languages"]) & set(LANGUAGE_INDEXERS)))
-    if not languages:
+    report, indexes = required_indexes(
+        workspace,
+        directory,
+        scenario["languages"],
+        repository,
+        selected=scenario["source"]["files"],
+    )
+    if report is None:
         return None, []
-    report = index_workspace(workspace, directory, languages=languages)
-    report["coverage"] = {
-        path: entry
-        for path, entry in report["coverage"].items()
-        if path in scenario["source"]["files"]
-    }
-    failed = failed_files(report)
-    if failed:
-        raise ValueError(
-            f"{len(failed)} scenario files have no SCIP index because an "
-            "indexer is missing or failed: "
-            + ", ".join(f"{path} ({reason})" for path, reason in sorted(failed.items()))
-        )
     receipts = {
         "runs": [
             {
@@ -298,7 +286,7 @@ def _index_scip(scenario, workspace, directory, repository):
             if entry["status"] != "covered"
         ),
     }
-    return receipts, ingest_indexed(report, repository)
+    return receipts, indexes
 
 
 def prepare(scenario, workspace, *, registry=None, tool_access=None):
