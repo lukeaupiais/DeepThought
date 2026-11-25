@@ -28,7 +28,7 @@ from ..data_contracts import (
     resolve_script_alias,
     resolve_script_module,
 )
-from ..engine import analyze_repository
+from ..engine import analyze_repository, source_languages
 from .. import go_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
@@ -1618,10 +1618,71 @@ def _go_modules(root, sources):
     return found
 
 
+# The languages each contract family has a reader for in this tool. A
+# language of the repository outside a family's set is stated as not read,
+# so that the sites found for a family are not taken as all of them.
+_WEB_LANGUAGES = frozenset(
+    {"python", "javascript", "typescript", "go", "java", "csharp", "php"}
+)
+CONTRACT_READERS = {
+    "http_routes": _WEB_LANGUAGES,
+    "http_requests": _WEB_LANGUAGES,
+    "grpc_handlers": frozenset(grpc_contracts.SERVER_LANGUAGES),
+    "grpc_calls": frozenset(grpc_contracts.CALL_LANGUAGES),
+    "graphql_resolvers": frozenset({"javascript", "typescript"}),
+    "graphql_requests": frozenset({"javascript", "typescript"}),
+    "message_endpoints": frozenset(
+        {"java", "python", "go", "javascript", "typescript"}
+    ),
+}
+
+
+def contract_coverage(repo_url, languages, coverage, sites):
+    """One ContractCoverage node per (contract family, language of the
+    repository's source files): whether this tool reads that family in that
+    language (status ``read``, or ``not_read`` with reason ``no_reader``),
+    how many files of the language there are (``languages``, from
+    ``source_languages``), and how many sites it found (and, for client
+    calls, linked). ``sites`` maps each family to (file, linked or None) per
+    site."""
+    language_of = {item.file: item.language for item in coverage}
+    nodes = []
+    for family in sorted(CONTRACT_READERS):
+        found, linked = {}, {}
+        for file, link in sites.get(family, ()):
+            language = language_of.get(file)
+            found[language] = found.get(language, 0) + 1
+            if link:
+                linked[language] = linked.get(language, 0) + 1
+        clients = family in ("http_requests", "grpc_calls")
+        for language in sorted(languages):
+            read = language in CONTRACT_READERS[family]
+            nodes.append(
+                NodeData(
+                    ["ContractCoverage"],
+                    {
+                        "qualified_name": (
+                            f"{repo_url}::contract-coverage::{family}::{language}"
+                        ),
+                        "repo_url": repo_url,
+                        "name": f"{family} {language}",
+                        "family": family,
+                        "language": language,
+                        "status": "read" if read else "not_read",
+                        **({} if read else {"reason": "no_reader"}),
+                        "files": languages[language],
+                        "sites": found.get(language, 0),
+                        **({"linked": linked.get(language, 0)} if clients else {}),
+                    },
+                )
+            )
+    return nodes
+
+
 def _go_messaging_facts(root, sources):
-    """{file: (calls, literals, reason)} from the Go type checker for the Go
-    sources that import a broker client; reason is why a file was not, or
-    only partly, checked. go_facts downloads each module's dependencies
+    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
+    type checker for the Go sources that import a broker client; reason is
+    why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
         c.file
@@ -1629,7 +1690,7 @@ def _go_messaging_facts(root, sources):
         if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
     ]
     if not files:
-        return {}
+        return {}, {}
     facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
     calls, literals = defaultdict(list), defaultdict(list)
     for call in facts.calls:
@@ -1645,7 +1706,7 @@ def _go_messaging_facts(root, sources):
         else:
             reason = None
         found[file] = (calls[file], literals[file], reason)
-    return found
+    return found, go_facts.gopath_report(facts)
 
 
 def _go_router_mounts(root, sources):
@@ -2067,7 +2128,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
-        go_messaging = _go_messaging_facts(root, sources)
+        go_messaging, go_gopath = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2082,8 +2143,8 @@ class ServiceContractTool(AnalysisTool):
         axios_exported = {}
 
         def axios_imported(file):
-            """{local name: base URL} of the axios instances ``file``
-            imports from repository modules."""
+            """{local name: base URL} of the axios instances and
+            openapi-fetch clients ``file`` imports from repository modules."""
             if scripts is None or file not in scripts.sources:
                 return None
             tree, content, _ = scripts.sources[file]
@@ -2098,7 +2159,7 @@ class ServiceContractTool(AnalysisTool):
                     t, c, language = scripts.sources[target]
                     axios_exported[target] = (
                         axios_exports(t, c, language, scripts.externals(target))
-                        if b"axios" in c
+                        if b"axios" in c or b"openapi-fetch" in c
                         else {}
                     )
                 return axios_exported[target]
@@ -3051,10 +3112,33 @@ class ServiceContractTool(AnalysisTool):
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
+        linked_requests = {r.request_id for r in resolutions if r.route_id}
+        coverage_nodes = contract_coverage(
+            repo_url,
+            source_languages(
+                self.repo_path,
+                ("*",) if file_patterns is None else tuple(file_patterns),
+                () if skip_patterns is None else tuple(skip_patterns),
+            ),
+            result.coverage,
+            {
+                "http_routes": [(r.file, None) for r in routes],
+                "http_requests": [(q.file, q.id in linked_requests) for q in requests],
+                "grpc_handlers": [(h.file, None) for h in grpc.handlers],
+                "grpc_calls": [
+                    (grpc_calls[r.call_id].file, r.status == "linked")
+                    for r in grpc.resolutions
+                ],
+                "graphql_resolvers": [(r.file, None) for r in graphql_resolvers],
+                "graphql_requests": [(r.file, None) for r in graphql_requests],
+                "message_endpoints": [(e.file, None) for e in endpoints],
+            },
+        )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
             + sorted(symbols.values(), key=lambda n: n.properties["qualified_name"])
             + nodes
+            + coverage_nodes
         )
         artifact = result.to_dict()
         diagnostics = artifact["diagnostics"]
@@ -3084,6 +3168,7 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
+                **({"go_gopath_packages": go_gopath} if go_gopath else {}),
                 "test_source_files": test_files,
                 "graphql_fields": len(graphql_fields),
                 "graphql_requests": len(graphql_requests),

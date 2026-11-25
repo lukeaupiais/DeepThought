@@ -5,7 +5,8 @@ DeployToolsMissing); this skip exists only because the offline acceptance
 sandbox has neither Go nor the renderers' pinned modules provisioned yet: Go
 may be on its PATH, but with no network the first build cannot fetch the
 modules. A build error once the modules are present still fails the tests.
-Remove it when #323/#344 land.
+Remove it when #323/#344 land. Tests of the Go type checker, which builds
+from the standard library alone, use ``go_stubs.needs_go`` instead.
 """
 
 import functools
@@ -26,6 +27,6 @@ def _unavailable():
     return None
 
 
-def needs_go(item):
+def needs_deploy_tools(item):
     reason = _unavailable()
     return unittest.skip(reason)(item) if reason else item

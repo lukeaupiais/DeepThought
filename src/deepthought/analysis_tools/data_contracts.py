@@ -10,28 +10,37 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
-from collections import Counter
+from collections import Counter, defaultdict
+from dataclasses import replace
 import importlib.util
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from ..gorm_naming import table_names as gorm_table_names
+from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
+    drizzle_foreign_keys,
+    extract_foreign_key_drops,
+    extract_foreign_keys,
+    is_rollback_migration,
+    migration_set,
+    replay_foreign_keys,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
     GORM_MODULES,
     GoTableName,
     extract_gorm,
-    gorm_table_name,
     django_app,
     django_historical_model,
     extract_django,
@@ -94,6 +103,7 @@ from ..calls import name_bindings
 from ..engine import analyze_repository
 from ..prisma_schema import SchemaRead, read_schemas
 from ..scip_calls import ScipReferences
+from .. import deploy_facts
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser, parse_source
@@ -126,6 +136,41 @@ DDL_RULE = register_rule(
         "persistent database, else the one database that the Compose "
         "services building the file's deepest build context name in "
         "connection URLs, else the nearest package.",
+    )
+)
+SQL_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-foreign-key",
+        "resolved",
+        "A SQL file's CREATE TABLE or ALTER TABLE statement, parsed by "
+        "sqlglot, declares a foreign key of this table (a column's "
+        "REFERENCES constraint or a FOREIGN KEY constraint) to the referenced "
+        "table. Tables are told apart as data-contracts.sql-create-table "
+        "tells them apart.",
+    )
+)
+DRIZZLE_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-foreign-key",
+        "resolved",
+        "drizzle-kit's snapshot of the schema after the last migration of a "
+        "migrations folder (the last entry of meta/_journal.json) holds a "
+        "foreign key of this table to the referenced table. The folder's "
+        "SQL migrations are not read for keys, so a key a later migration "
+        "drops, or one added inside a DO block, follows the snapshot. When "
+        "that snapshot cannot be read, the migrations are read as any SQL "
+        "file (data-contracts.sql-foreign-key) and a drizzle_snapshot_unread "
+        "warning says so.",
+    )
+)
+PRISMA_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-foreign-key",
+        "resolved",
+        "Prisma's own schema engine reads a relation field with fields and "
+        "references (@relation(fields: [...], references: [...])) on this "
+        "table's model: the model's table holds a foreign key to the related "
+        "model's table. Implicit many-to-many join tables are not read.",
     )
 )
 TABLE_RULE = register_rule(
@@ -609,10 +654,13 @@ GORM_DEFAULT_RULE = register_rule(
         "name_matched",
         "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
         "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
-        "without a TableName method, and this table is GORM's default name: "
-        "NamingStrategy's snake case of the type name, pluralized by "
-        "jinzhu/inflection 1.0.0 (UserModel is user_models). A repository "
-        "that configures a NamingStrategy gets no default names.",
+        "without a TableName method, and this table is GORM's default name "
+        "as GORM's own schema.NamingStrategy{}.TableName computes it, built "
+        "at the gorm.io/gorm and jinzhu/inflection versions the model's "
+        "module selects (UserModel is user_models). A repository that "
+        "configures a NamingStrategy gets no default names; a module whose "
+        "GORM cannot be built gets none either, with a gorm_naming_unread "
+        "warning.",
     )
 )
 GORM_CALL_RULE = register_rule(
@@ -673,8 +721,12 @@ TYPEORM_DEFAULT_RULE = register_rule(
         "data-contracts.typeorm-default-table-name",
         "name_matched",
         "The class is decorated with TypeORM's @Entity without a name; the "
-        "table is its DefaultNamingStrategy name, the snake case of the "
-        "class name. A custom naming strategy is not read.",
+        "table is the name TypeORM's own DefaultNamingStrategy.tableName "
+        "gives the class, run at the typeorm release the project pins "
+        "(installed, locked, else the newest release of the declared "
+        "range). A custom naming strategy is not read. An entity whose "
+        "release cannot be found or installed gets no table, with a "
+        "typeorm_naming_unread warning.",
     )
 )
 TYPEORM_CHILD_RULE = register_rule(
@@ -1048,20 +1100,17 @@ class DataContractTool(AnalysisTool):
         # Compose build contexts, and the databases each one's services name
         # in connection URLs.
         contexts, compose_keys = set(), {}
-        for manifest in sorted(
-            {c.manifest for c in scan.components if c.kind == "compose_service"}
+        contexts.update(
+            c.context
+            for c in scan.components
+            if c.kind == "compose_service" and c.context is not None
+        )
+        selected = {c.manifest for c in scan.components if c.kind == "compose_service"}
+        projects = deploy_facts.collect(root, skipped=SKIPPED_DIRECTORIES).compose
+        for context, key in compose_databases(
+            p for p in projects if p.file in selected
         ):
-            contexts.update(
-                c.context
-                for c in scan.components
-                if c.manifest == manifest and c.context is not None
-            )
-            try:
-                found = compose_databases(manifest, (root / manifest).read_bytes())
-            except OSError:
-                continue
-            for context, key in found or ():
-                compose_keys.setdefault(context, set()).add(key)
+            compose_keys.setdefault(context, set()).add(key)
 
         def compose_database(path):
             """The one database that the services of the deepest Compose build
@@ -1114,6 +1163,7 @@ class DataContractTool(AnalysisTool):
                 digests[path] = sha256(content).hexdigest()
                 doctrine_mapped.extend(found)
         prisma_texts = {}
+        foreign_keys, foreign_keys_unparsed = [], []
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1124,6 +1174,42 @@ class DataContractTool(AnalysisTool):
         # Prisma's own schema engine, the build the project's Prisma pins.
         prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
         prisma.extend(prisma_read.models)
+        drizzle_folders, drizzle_keys, drizzle_unread = {}, [], []
+        foreign_keys_superseded = {"prisma": 0}
+
+        def prisma_migrations(path):
+            """Whether a SQL file is a migration of a Prisma schema the engine
+            read: <dir>/migrations/<name>/migration.sql beside the
+            migration_lock.toml Prisma Migrate writes, with a read schema
+            in <dir>. Prisma's schema is the current state, so its keys
+            stand for these migrations, including the ones later dropped."""
+            parts = path.split("/")
+            if len(parts) < 3 or parts[-3] != "migrations":
+                return False
+            base = "/".join(parts[:-3])
+            if not (root / base / "migrations" / "migration_lock.toml").is_file():
+                return False
+            prefix = f"{base}/" if base else ""
+            return any(f.startswith(prefix) for f in prisma_read.engines)
+
+        migration_sets = defaultdict(list)
+        foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
+        rollbacks = []
+
+        def read_keys(path, content, folder=None):
+            """Queue a SQL file's foreign keys and drops for the replay of
+            its migration set (``folder`` when given); a rollback (down)
+            migration is left out."""
+            if is_rollback_migration(path):
+                rollbacks.append(path)
+                return
+            keys, unparsed = extract_foreign_keys(path, content)
+            drops, drops_unparsed = extract_foreign_key_drops(path, content)
+            migration_sets[folder or migration_set(path)].append((path, keys, drops))
+            foreign_keys_unparsed.extend(
+                (path, line) for line in sorted({*unparsed, *drops_unparsed})
+            )
+
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1132,6 +1218,31 @@ class DataContractTool(AnalysisTool):
                 unreadable.append(path)
             else:
                 ddl.extend(found)
+                folder = posixpath.dirname(path)
+                if (root / folder / "meta" / "_journal.json").is_file():
+                    # drizzle-kit's own record of the schema after the last
+                    # migration gives the keys (below), not each migration.
+                    drizzle_folders.setdefault(folder, []).append((path, content))
+                    continue
+                if prisma_migrations(path):
+                    foreign_keys_superseded["prisma"] += 1
+                    continue
+                read_keys(path, content)
+        for folder, migrations in sorted(drizzle_folders.items()):
+            snapshot, keys = drizzle_foreign_keys(root, folder)
+            if snapshot is not None:
+                drizzle_keys.extend(keys)
+                continue
+            # Without the last snapshot the state is unknown: each migration
+            # is replayed as any migration set is, and the warning says so.
+            drizzle_unread.append(keys)
+            for path, content in migrations:
+                read_keys(path, content, folder)
+        for _, files in sorted(migration_sets.items()):
+            keys, dropped, unmatched = replay_foreign_keys(files)
+            foreign_keys.extend(keys)
+            foreign_keys_dropped += dropped
+            foreign_key_drops_unmatched.extend(unmatched)
         sources, changed, partial_scripts = [], [], []
         for coverage in result.coverage:
             if (
@@ -1311,6 +1422,37 @@ class DataContractTool(AnalysisTool):
                 DDL_RULE,
                 {"line": item.line, **({"schema": item.schema} if item.schema else {})},
             )
+
+        def foreign_key(file, line, owner, referenced, columns, to, on_delete, rule):
+            link(
+                "REFERENCES_TABLE",
+                (["DbTable", "Contract"], table(file, table_key(owner))),
+                table(file, table_key(referenced)),
+                rule,
+                {
+                    "file_path": file,
+                    "line": line,
+                    "columns": list(columns),
+                    "referenced_columns": list(to),
+                    **({"on_delete": on_delete} if on_delete else {}),
+                },
+            )
+
+        for keys, rule in (
+            (foreign_keys, SQL_FOREIGN_KEY_RULE),
+            (drizzle_keys, DRIZZLE_FOREIGN_KEY_RULE),
+        ):
+            for key in sorted(set(keys), key=lambda k: (k.file, k.line, k.table)):
+                foreign_key(
+                    key.file,
+                    key.line,
+                    key.table,
+                    key.references,
+                    key.columns,
+                    key.referenced_columns,
+                    key.on_delete,
+                    rule,
+                )
         mapped = {}
         for mapping in mappings:
             if len(entities.get(mapping.entity, ())) != 1:
@@ -1813,27 +1955,46 @@ class DataContractTool(AnalysisTool):
                 {"line": item.line, "column": item.column},
             )
         # A configured NamingStrategy changes every default name.
-        gorm_defaults = 0
+        gorm_defaults, pending = 0, {}
         for model in sorted(
             [] if gorm_naming else gorm_models,
             key=lambda m: (m.file, m.line, m.column),
         ):
             key = (model.file.rpartition("/")[0], model.type_name)
-            if key in gorm_targets:
+            if key in gorm_targets or key in pending:
                 continue
             declared = owner(model.file, model.type_name)
-            if declared is None:
+            if declared is not None:
+                pending[key] = (declared, model.type_name)
+        # GORM's own NamingStrategy at the version each module selects.
+        by_module = {}
+        for key, (declared, type_name) in pending.items():
+            module = facts.module_of(declared.file)
+            by_module.setdefault(module, []).append((key, declared, type_name))
+        gorm_naming_unread = {}
+        for module, models in sorted(by_module.items(), key=lambda m: m[0] or ""):
+            if module is None:
+                gorm_naming_unread["."] = (
+                    f"{len(models)} models outside every Go module"
+                )
                 continue
-            gorm_defaults += 1
-            target = table(declared.file, gorm_table_name(model.type_name))
-            gorm_targets[key] = target
-            link(
-                "MAPS_TO",
-                symbol(declared.id),
-                target,
-                GORM_DEFAULT_RULE,
-                {"line": declared.line, "column": declared.column},
+            names, reason = gorm_table_names(
+                root, module, [type_name for _, _, type_name in models]
             )
+            if reason is not None:
+                gorm_naming_unread[module or "."] = reason
+                continue
+            for key, declared, type_name in models:
+                gorm_defaults += 1
+                target = table(declared.file, table_key(names[type_name]))
+                gorm_targets[key] = target
+                link(
+                    "MAPS_TO",
+                    symbol(declared.id),
+                    target,
+                    GORM_DEFAULT_RULE,
+                    {"line": declared.line, "column": declared.column},
+                )
         modules = sorted(
             (
                 (c.name, c.manifest.rpartition("/")[0])
@@ -1890,6 +2051,17 @@ class DataContractTool(AnalysisTool):
                 PRISMA_MODEL_RULE,
                 {"line": model.line, "model": model.model},
             )
+            for referenced, columns, to, on_delete in model.foreign_keys:
+                foreign_key(
+                    model.file,
+                    model.line,
+                    model.table,
+                    referenced,
+                    columns,
+                    to,
+                    on_delete,
+                    PRISMA_FOREIGN_KEY_RULE,
+                )
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
         # A caller whose own namespace has a schema the engine did not read
         # is not linked to another namespace's model of the same name.
@@ -1931,6 +2103,19 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
+        # An @Entity without a name: TypeORM's DefaultNamingStrategy at the
+        # release the project pins.
+        typeorm_names, typeorm_naming_unread = typeorm_table_names(
+            root,
+            sorted({(m.file, m.name) for m in typeorm_mappings if m.table is None}),
+        )
+        typeorm_mappings = [
+            m
+            if m.table is not None
+            else replace(m, table=table_key(typeorm_names[m.file, m.name]))
+            for m in typeorm_mappings
+            if m.table is not None or (m.file, m.name) in typeorm_names
+        ]
         typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
@@ -2921,12 +3106,34 @@ class DataContractTool(AnalysisTool):
             "partial"
             if unreadable
             or kysely_unindexed
+            or gorm_naming_unread
+            or typeorm_naming_unread
             or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"gorm_naming_unread: {module}: {reason}, so its models without a "
+            "TableName method get no table"
+            for module, reason in sorted(gorm_naming_unread.items())
+        ]
+        warnings += [
+            f"typeorm_naming_unread: {path}: {reason}, so its @Entity classes "
+            "without a name get no table"
+            for path, reason in sorted(typeorm_naming_unread.items())
+        ]
+        warnings += [
+            f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
+            "this statement, so its foreign keys are not read"
+            for path, line in sorted(foreign_keys_unparsed)
+        ]
+        warnings += [
+            f"drizzle_snapshot_unread: {reason}, so the foreign keys of each "
+            "migration are read instead, including keys later migrations drop"
+            for reason in drizzle_unread
+        ]
         warnings += [
             f"prisma_schema_unread: {path}: {reason}"
             for path, reason in sorted(prisma_read.unread.items())
@@ -3005,16 +3212,36 @@ class DataContractTool(AnalysisTool):
                         "files_not_checked": dict(Counter(facts.uncovered.values())),
                         "calls": len(facts.calls),
                         "table_names": len(facts.table_names),
+                        **(
+                            {"gopath_packages": gofacts.gopath_report(facts)}
+                            if facts.gopath
+                            else {}
+                        ),
                     },
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,
+                    "gorm_naming_unread": len(gorm_naming_unread),
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
+                    "foreign_keys": {
+                        "sql": len(set(foreign_keys)),
+                        "prisma": sum(len(m.foreign_keys) for m in prisma),
+                        "sql_not_parsed": len(foreign_keys_unparsed),
+                        "sql_dropped": foreign_keys_dropped,
+                        "sql_drops_naming_no_key": len(foreign_key_drops_unmatched),
+                        "sql_rollback_files": len(rollbacks),
+                        "drizzle_snapshot": len(set(drizzle_keys)),
+                        "drizzle_snapshot_unread": len(drizzle_unread),
+                        "prisma_migration_files_superseded": foreign_keys_superseded[
+                            "prisma"
+                        ],
+                    },
                     "prisma_schema": {
                         "engines": dict(sorted(prisma_read.engines.items())),
                         "unread": len(prisma_read.unread),
                     },
                     "typeorm_entities": len(typeorm_mappings),
+                    "typeorm_naming_unread": len(typeorm_naming_unread),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,

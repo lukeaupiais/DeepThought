@@ -10,7 +10,7 @@ from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.service_contracts.compose import compose_units
 from deepthought.service_contracts.spring import SpringConfig
-from go_ready import needs_go
+from deploy_tools_ready import needs_deploy_tools
 
 READY = (
     importlib.util.find_spec("yaml")
@@ -135,7 +135,7 @@ def _write(root, files):
 
 
 @unittest.skipUnless(READY, "pyyaml or tree-sitter grammars are not installed")
-@needs_go
+@needs_deploy_tools
 class ComposeTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

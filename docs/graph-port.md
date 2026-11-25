@@ -361,7 +361,9 @@ the chat model. The port answers from stored edges only:
   Message destinations and database tables work the same way: forwards over
   PUBLISHES and WRITES, then backwards over CONSUMES and READS, so a
   publisher or writer change reaches every consumer or reader (see
-  "Database tables").
+  "Database tables"). A table whose foreign key references a changed table
+  depends on it too (backwards over REFERENCES_TABLE), and so do that
+  table's readers.
   Those hops are `pattern_matched`, and the path's evidence says so. The
   traversal is a quantified path pattern, so this query needs Neo4j 5.9 or
   later.
@@ -374,7 +376,8 @@ the chat model. The port answers from stored edges only:
   that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
   lists under `providers` (at most 10, `providers_truncated` when more).
   Dependents are then found as for `get_impact`: the code that REQUESTS,
-  CONSUMES or READS the contract (direct), and the callers of that code, also
+  CONSUMES or READS the contract or, for a table, the tables whose foreign
+  keys reference it over REFERENCES_TABLE (direct), and the callers of that code, also
   through other contracts it handles (transitive). Providers and dependents
   share the byte budget, which must be at least 2048 here. Contract nodes are
   not declarations, so `search_contracts(query)` (`deepthought-graph
@@ -562,14 +565,23 @@ and stay unchecked; Maven name matches (guava: 5, plus 12 ambiguous between
 ### Compose services
 
 Compose files (`compose.yaml`, `docker-compose.yml` and variants such as
-`docker-compose.prod.yml`) declare `compose_service` components, one per
-`services` entry (needs PyYAML: the `components` or `languages` extra). Each
-file is read on its own, as `docker compose -f FILE` reads it: several `-f`
-files, `extends` and `include` are not merged, and `${VARIABLE}`
-interpolation is not performed. A service's root is its build context
-(`build: DIR` or `build.context`); one that only names an `image`, builds from
-a remote URL or needs interpolation has no root and no files. Files under a
-build context are PART_OF every service built from it.
+`docker-compose.prod.yml` or `docker-compose-kafka.yml`) declare
+`compose_service` components, one per service, as compose-go, the loader of
+`docker compose`, loads them (`deepthought.deploy_facts`; the Go toolchain is
+required). In each directory, the default file and the override file that
+compose-go's own discovery picks are one project, as `docker compose` reads
+a directory, and its services are declared by the default file (the
+override file declares nothing of its own); every other Compose file is a
+project of its own, as `docker compose -f FILE` reads it. `extends`,
+`include`, all profiles and `${VARIABLE}` interpolation from the project's
+`.env` are the loader's; the process environment is never read, and text
+no variable sets is unknown (an image keeps it as `{?}`, and an image
+whose name is unknown is not recorded). A file the loader rejects (for
+example a port that only an unset variable gives) is a diagnostic and
+declares nothing. A service's root is its build context; one that only
+names an `image`, builds from a remote URL or from a directory an unset
+variable names has no root and no files. Files under a build context are
+PART_OF every service built from it.
 
 | Edge | Rule | Evidence |
 |------|------|----------|
@@ -582,7 +594,9 @@ cache, and so on) are not ported.
 
 `--compose` adds `docker compose -f FILE --profile '*' config --format json`
 to the comparison tool: the services each file declares (all profiles), their
-build contexts and depends_on. No contradictions:
+build contexts and depends_on. It reads every file on its own, so it agrees
+with the components only for directories without an override file. Measured
+before the components were loaded by compose-go, with no contradictions:
 
 | Repository | Compose files | Services, contexts and depends_on confirmed |
 |------------|---------------|---------------------------------------------|
@@ -594,10 +608,15 @@ build contexts and depends_on. No contradictions:
 
 With PyYAML, every other `.yaml`/`.yml` file is read for Kubernetes objects
 (including `List` items) and Skaffold configs; a file that holds neither, or
-does not parse (an unrendered Helm template, for instance), is not a manifest
-and is skipped without a diagnostic. Each file is read as written: Helm charts
-and Kustomize overlays are not rendered, so render them first when their
-output is what should be analyzed.
+does not parse, is not a manifest and is skipped without a diagnostic. Helm
+charts and kustomizations are rendered by their tools (see "Services named
+by their deployments"): a chart's objects are declared by its `Chart.yaml`
+and a kustomization's by its kustomization file, and the files the tool read
+for them (a chart's tree, the resources a kustomization lists) are not
+manifests of their own. A chart or kustomization its tool cannot render (a
+remote chart dependency not fetched, a resource outside the
+kustomization's tree) is a diagnostic, and the plain files next to that
+kustomization are not read.
 
 - `k8s_workload`: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob
   and Pod, named `Kind/namespace/name` (or `Kind/name`), with the pod
@@ -3280,6 +3299,51 @@ become routes, each on the controller method named by its operationId. The
 not handled. The project's own MockMvc tests request 36 distinct method and
 path pairs under `/api`, and they are exactly the 36 routes.
 
+### Contract coverage
+
+The contracts a repository's query returns are only those its readers
+found, so the graph also says which readers ran. For each contract family
+and each language of the repository's source files there is one
+`ContractCoverage` node (`qualified_name`
+`<repo>::contract-coverage::<family>::<language>`) with:
+
+- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
+  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+- `language` and `files`, the number of the repository's files in it, for
+  every language the engine recognises by suffix (C, C++, C#, Go, Java,
+  JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
+  `engine.source_languages` over the same selection as the analysis; other
+  languages get no statement;
+- `status`: `read` when this tool has a reader for the family in that
+  language, else `not_read` with `reason` `no_reader`;
+- `sites`: the routes, handlers, calls, resolvers, operations or endpoints
+  found in that language; for `http_requests` and `grpc_calls` also
+  `linked`, how many of them were linked.
+
+The readers per family are `CONTRACT_READERS` in
+`analysis_tools/service_contracts.py`:
+
+| Family | Languages read |
+| --- | --- |
+| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
+| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+
+A contract query can return the coverage of the languages present next to
+what it found:
+
+```cypher
+MATCH (c:ContractCoverage {family: 'grpc_calls'})
+RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
+```
+
+`read` with no sites means the reader ran and found nothing it recognises,
+not that the language has no such calls. In online-boutique, the C# cart
+service's tests call `new CartServiceClient(channel)` where the client type
+comes from `using static Hipstershop.CartService;`, which the C# stub
+reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+
 ### OpenAPI Go clients (oapi-codegen)
 
 oapi-codegen turns an OpenAPI 3 document into Go code. With `client` among
@@ -3400,6 +3464,63 @@ legacy-use the FastAPI routers are mounted under a prefix read from settings
 at run time, so their routes are not read. emqx, fleetyards and
 realworld-react-fsd do not commit orval's output, and tidb-dashboard's
 generated files are server stubs.
+
+### OpenAPI TypeScript clients (openapi-fetch)
+
+openapi-fetch clients are typed by the `paths` that openapi-typescript
+generates from a spec, and send each request through a method named for its
+HTTP method:
+
+```ts
+import createClient from "openapi-fetch";
+const api = createClient<paths>({ baseUrl: "http://pets:8080/" });
+api.GET("/pets/{petId}", { params: { path: { petId } } });
+```
+
+A client is read as an axios instance is: a name bound once to a
+`createClient(...)` call (imported from `openapi-fetch`, as its default or
+named export), `this.NAME` given exactly one such value in its class, or a
+name imported from a repository module that exports one. Its `baseUrl`
+option is the base URL (unknown when the config is not an object literal or
+spreads another object). A call of its `GET`, `POST`, `PUT`, `DELETE`,
+`PATCH`, `HEAD` or `OPTIONS` method is an `HttpRequest` with client
+`openapi-fetch`; the URL is the path appended to the base without its
+trailing slashes, and each `{parameter}` of the path is unknown text.
+
+Not read: a client reached through something other than such a binding,
+such as an object of clients (`providers.tmdb.GET`), a function that returns
+one (`getApiClient().GET`) or a wrapper class whose getters return the
+client's methods. Telling those apart needs the
+TypeScript type checker, which cannot type the client without the
+repository's dependencies installed.
+
+A path held in a constant is read through it, also when the constant is
+checked with `satisfies` (`"/v1/x" satisfies keyof paths`): the values of
+TypeScript's `as`, `satisfies` and non-null (`!`) expressions are those of
+their expressions, for every reader that folds values.
+
+Results on ten repositories that use openapi-fetch (all `HttpRequest`s).
+No other request or edge changed.
+
+| Repository | Requests before | After | Linked before | After |
+| --- | --- | --- | --- | --- |
+| Clawdi-AI/clawdi (`b667836`) | 181 | 443 | 17 | 71 |
+| LombokApp/lombok-web (`a62f95a`) | 122 | 130 | 7 | 15 |
+| TeamMeanMachine/MeanScout (`0280389`) | 2 | 10 | 0 | 0 |
+| lichess-org/broadcaster (`e5a3091`) | 6 | 8 | 0 | 0 |
+| neondatabase/db-per-tenant (`b73c850`) | 1 | 5 | 0 | 0 |
+| nzoschke/codon (`769c1bd`) | 2 | 3 | 0 | 0 |
+| databasus, riven-frontend, tutorial-conduit, comuline/web | 205 | 205 | 121 | 121 |
+
+The 8 new lombok-web links go from `packages/auth-utils` to the NestJS
+controllers of `packages/api` that serve them. The 54 new clawdi links go
+from its deploy-API clients to `backend/scripts/mock_deploy_api.py`, the
+repository's FastAPI stand-in for that external API; they are correct for
+the path, and the stand-in is the only server of it in the repository. Of
+clawdi's 520 `api.METHOD(` calls, most of the rest go through the
+`ApiClient` wrapper class, which is not read. riven-frontend reaches its
+clients through an object of clients, and databasus through a function that
+returns one (`getApiClient().GET(...)`); neither is read.
 
 ### gRPC
 
@@ -3717,10 +3838,21 @@ Reading Go from go/types instead of import patterns, on the 18 Go
 repositories with a broker client (the three client repositories fully
 checked out): 3 links are gained and 4 lost. The gains are confluent-kafka-go
 examples whose consumer topic is a local the old rule could not follow.
-The losses are robot-shop's `dispatch` service, a GOPATH-era program with
-no `go.mod`, counted twice because the corpus holds two copies of it. The
-type checker cannot check it, so its file is now
-`go_types:not_type_checked`.
+The losses were robot-shop's `dispatch` service, a GOPATH-era program with
+no `go.mod`, counted twice because the corpus holds two copies of it. They
+are kept by checking such packages as modules of their own:
+
+- **GOPATH-era packages.** The Go files of a directory outside every module
+  are copied to a temporary module with a generated `go.mod`, and their
+  imports resolve to the latest versions when the analysis runs, which is
+  what `go get` gave such a package.
+- **Recorded resolution.** Because those versions change over time, each
+  such directory is listed in the run metadata (`go_gopath_packages` for
+  service contracts, `go_type_facts.gopath_packages` for data contracts)
+  with status `gopath_latest`, the module versions the check required and
+  the SHA-256 of the `go.sum` it produced, so a result can be traced and
+  reproduced. For robot-shop's `dispatch` these include
+  `github.com/streadway/amqp v1.1.0`.
 
 #### NestJS microservices
 
@@ -4107,6 +4239,8 @@ component roll-up like HTTP routes and message destinations:
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
@@ -4132,7 +4266,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-mapper-xml` | pattern_matched | a `<select>`, `<insert>`, `<update>` or `<delete>` of a MyBatis mapper XML file (root `<mapper namespace>`), with every dynamic branch (`<if>`, `<choose>`, `<foreach>`, `<where>`, `<set>`, `<trim>`) kept, `<sql>` fragments of the same mapper included and `<selectKey>` left out; `#{}` is a bind marker and `${}` text the code does not fix; the edge starts at the mapper interface method that the namespace and id name, else at the XML file |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-annotation` | pattern_matched | a mapper method's `@Select`, `@Insert`, `@Update` or `@Delete` (`org.apache.ibatis.annotations`), array strings joined with spaces and a `<script>` value read as mapper XML |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local whose value is followed through the function's statements (`=`, `:=`, `+=`, `if`/`switch`/`select` branches; each path's text kept), `+` joins (other operands unfixed) or sqlx's `Rebind`; one of its texts starts with a reading or writing verb, and the call links the tables of every such text |
@@ -4159,9 +4293,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-scip` | resolved | a scip-typescript index resolves the called method to Kysely's own `selectFrom`, a join (`innerJoin`, `leftJoin`, `rightJoin`, `fullJoin`, `crossJoin`, lateral joins), `insertInto`, `replaceInto`, `updateTable`, `deleteFrom` or `mergeInto`; its first argument is a string literal (alias dropped) or an array of them; selects and joins READ, the others WRITE |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal, or by a name bound to one by a module-level `const` of the file or imported by name from the one project module that declares it (when no function around the use declares that name again): `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction`, `Knex.QueryBuilder`, a type alias the file declares once for one of them, or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a model of a `.prisma` schema as Prisma's own schema engine reads it (`get_dmmf` of the `@prisma/prisma-schema-wasm` build the project's Prisma pins): its `@@map` name, else the model name. A schema with no Prisma version up its tree, a build npm cannot fetch, or a schema the engine rejects is unread and named in a `prisma_schema_unread` warning, and the run is partial |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.prisma-foreign-key` | resolved | a relation field with `fields` and `references` as Prisma's schema engine reads it (`relationFromFields`, `relationToFields`, `relationOnDelete` of `get_dmmf`): the model's table holds a foreign key to the related model's table. Column names are the `@map` names. Implicit many-to-many join tables (`_AToB`) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: the name TypeORM's own `DefaultNamingStrategy.tableName` gives the class (`HTTPRequestLog` is `http_request_log`), run by `deepthought.typeorm_naming` (`typeormnames/names.js`) at the typeorm release the entity's project pins: installed `node_modules/typeorm`, else a lockfile entry (npm, pnpm, yarn, bun), else the newest release of the declared range (`npm view`), installed into the cache with `npm install --ignore-scripts`. Custom naming strategies are not read. An entity whose release cannot be found or installed gets no table, named in a `typeorm_naming_unread` warning, and the run is partial |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-child-entity` | pattern_matched | a class decorated with `@ChildEntity` (single-table inheritance): the table of the entity it extends by name, through any number of child levels |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name. A repository called with a read method (`find`, `findOne`, `count` and the like) only READS, one called with a write method (`save`, `update`, `delete`, `remove` and the like) only WRITES, and any other use does both. Not used where a scip-typescript index resolves the `getRepository` or `@InjectRepository` name (`typeorm_name_rule_replaced` counts them), where `typeorm-scip` reads each call; where the index covers the file but records no symbol, or only a local one, there (its imports did not resolve) it read nothing, and the use is counted as `typeorm_index_unresolved` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-scip` | resolved | each call whose method the scip-typescript index resolves to a read (READS) or write (WRITES) method of TypeORM's `Repository`, `TreeRepository`, `MongoRepository` or `EntityManager`, at the method's name; the entity is the receiver's declared type `Repository<E>` (a property, constructor parameter property, parameter or variable, or `this` in a class extending it), TypeORM's `getRepository(E)` called on a `DataSource`, `Connection` or `EntityManager` (or a variable holding it), or an entity manager method's first argument, every name resolved through the index. `create`, `merge` and other methods that touch no table give no edge. A query builder (`createQueryBuilder` that the index resolves to TypeORM's, on a repository, entity manager, data source, connection or query runner) gives one edge on that line to its root table: the repository's entity, the entity argument, else the entity class or literal table name of the chain's first `from`, `into` or `update` (a name the chain declares with `addCommonTableExpression` is not a table). It is WRITES when the chain calls TypeORM's `insert`, `update`, `delete`, `softDelete` or `restore`, else READS; joined relations give no edge. A `relation(...)` builder writes the related side (a foreign key, or a many-to-many junction table), not its root, so it gives no edge (`relation_builders`). The metric `typeorm_scip` counts `linked`, `no_scip_index`, `not_typeorm`, `entity_unknown`, `not_an_entity`, `builders` (linked query builders) and `relation_builders`. An `@Entity` imported from a `typeorm/...` deep path counts as TypeORM's |
@@ -4187,7 +4322,8 @@ in-memory URLs (`:mem:`, `:memory:`), which give each process its own
 database, a file whose deepest enclosing Compose build context is built
 by services that name exactly one database in their `environment` uses that
 database as its namespace: a connection URL (`jdbc:` dropped) whose host is a
-service of the same Compose file running a database image (`postgres`,
+service of the same Compose project (as compose-go loads it, see "Compose
+services") running a database image (`postgres`,
 `postgis`, `timescaledb`, `mysql`, `mariadb`, `percona-server`, `mongo`,
 `cockroach`, `libsql-server`), keyed by the Compose file's directory, that
 service and the URL's database. On openstatus (3836510) this puts the Go
@@ -4195,7 +4331,9 @@ service and the URL's database. On openstatus (3836510) this puts the Go
 `monitor`, `private_location` and `private_location_to_monitor` tables as the
 TypeScript Drizzle schema the `server`, `dashboard` and `workflows` services
 use (`DATABASE_URL=http://libsql:8080`); before, it read tables of its own
-`go.mod`. `env_file`, interpolated values, host/port/name variables split
+`go.mod`. Values are read as the loader interpolates them from the
+project's `.env`; a value holding text no variable sets is not read, nor are
+`env_file` entries, host/port/name variables split
 across several keys and URLs fixed in code are not read. Otherwise the
 namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and

@@ -1119,22 +1119,26 @@ def compose_express_prefixes(found, resolve):
     return {key: sorted(full(key, frozenset())) for key in parents}
 
 
-def axios_base(value, modules, folder, content):
-    """The base URL ("" for none, PLACEHOLDER-bearing text when not fixed)
-    of the axios instance an ``axios.create(config)`` call ``value`` makes,
-    else None. A config that is not an object literal, or that spreads
-    another object, has an unknown base URL."""
-    if value is None or value.type != "call_expression":
-        return None
-    callee = value.child_by_field_name("function")
-    if callee is None or callee.type != "member_expression":
-        return None
-    owner = text(callee.child_by_field_name("object"), content)
-    if text(callee.child_by_field_name("property"), content) != "create":
-        return None
-    owner = owner[: -len(".default")] if owner.endswith(".default") else owner
-    if modules.get(owner) != "axios":
-        return None
+class OpenapiFetchBase(str):
+    """The base URL of an openapi-fetch client, as ``axios_base`` gives it
+    for a ``createClient(config)`` call."""
+
+
+# The modules openapi-fetch's createClient is imported from: the default
+# export or the named one.
+_OPENAPI_FETCH = (
+    "openapi-fetch",
+    "openapi-fetch.default",
+    "openapi-fetch.createClient",
+)
+# openapi-fetch's client methods, one per HTTP method, named in upper case.
+_OPENAPI_FETCH_VERBS = frozenset(HTTP_METHODS)
+
+
+def _client_base(value, folder, content, key):
+    """The base URL a client factory call's first argument gives under
+    ``key``: "" without one, PLACEHOLDER when the config is not an object
+    literal or spreads another object."""
     arguments = value.child_by_field_name("arguments")
     positional = [
         c
@@ -1148,8 +1152,40 @@ def axios_base(value, modules, folder, content):
         c.type == "spread_element" for c in config.named_children
     ):
         return PLACEHOLDER
-    base = _js_object(config, content).get("baseURL")
+    base = _js_object(config, content).get(key)
     return "" if base is None else folder.evaluate(base)
+
+
+def openapi_fetch_url(base, path):
+    """The URL an openapi-fetch client sends ``path`` to: the path, with
+    each ``{parameter}`` filled in at run time, appended to the base URL
+    without its trailing slashes."""
+    return base.rstrip("/") + re.sub(r"\{[^{}/]+\}", PLACEHOLDER, path)
+
+
+def axios_base(value, modules, folder, content):
+    """The base URL ("" for none, PLACEHOLDER-bearing text when not fixed)
+    of the axios instance an ``axios.create(config)`` call ``value`` makes,
+    or, as an OpenapiFetchBase, of the openapi-fetch client a
+    ``createClient(config)`` call makes; else None. A config that is not an
+    object literal, or that spreads another object, has an unknown base
+    URL."""
+    if value is None or value.type != "call_expression":
+        return None
+    callee = value.child_by_field_name("function")
+    if callee is not None and callee.type == "identifier":
+        if modules.get(text(callee, content)) in _OPENAPI_FETCH:
+            return OpenapiFetchBase(_client_base(value, folder, content, "baseUrl"))
+        return None
+    if callee is None or callee.type != "member_expression":
+        return None
+    owner = text(callee.child_by_field_name("object"), content)
+    if text(callee.child_by_field_name("property"), content) != "create":
+        return None
+    owner = owner[: -len(".default")] if owner.endswith(".default") else owner
+    if modules.get(owner) != "axios":
+        return None
+    return _client_base(value, folder, content, "baseURL")
 
 
 def axios_url(base, url):
@@ -1169,7 +1205,9 @@ def axios_exports(tree, content, language, externals=None):
     and ``export default`` of the ``axios.create(...)`` call itself."""
     root = tree.root_node
     modules = _js_modules(root, content)
-    if "axios" not in modules.values():
+    if "axios" not in modules.values() and not set(_OPENAPI_FETCH) & set(
+        modules.values()
+    ):
         return {}
     folder = Folder(language, root, content, externals)
     found = {}
@@ -1320,8 +1358,10 @@ def extract_javascript(context, nest=None, axios_imports=None):
         return True
 
     def instance_base(owner):
-        """The base URL of the axios instance ``owner`` names: a name bound
-        once to ``axios.create(...)`` or imported as one (``axios_imports``),
+        """The base URL of the axios instance or openapi-fetch client
+        (an OpenapiFetchBase) ``owner`` names: a name bound once to
+        ``axios.create(...)`` or ``createClient(...)`` or imported as one
+        (``axios_imports``),
         or ``this.NAME`` given exactly one value in its class, that call;
         else None."""
         if owner.type == "identifier":
@@ -1443,11 +1483,25 @@ def extract_javascript(context, nest=None, axios_imports=None):
                     module,
                 )
                 continue
+            if verb in _OPENAPI_FETCH_VERBS and positional:
+                base = instance_base(function.child_by_field_name("object"))
+                if isinstance(base, OpenapiFetchBase):
+                    context.request_folded(
+                        node,
+                        lambda f, u=positional[0], m=verb, b=base: (
+                            m,
+                            openapi_fetch_url(b, f.evaluate(u)),
+                        ),
+                        "openapi-fetch",
+                    )
+                continue
             base = (
                 instance_base(function.child_by_field_name("object"))
                 if (verb in _VERBS or verb == "request") and positional
                 else None
             )
+            if isinstance(base, OpenapiFetchBase):
+                continue
             if base is not None and verb == "request":
                 instance_config(node, base, positional[0])
             elif base is not None:
@@ -1462,7 +1516,7 @@ def extract_javascript(context, nest=None, axios_imports=None):
             continue
         if function.type == "identifier" and positional:
             base = instance_base(function)
-            if base is not None:
+            if base is not None and not isinstance(base, OpenapiFetchBase):
                 instance_config(node, base, positional[0])
                 continue
             if orval and orval_request(node, positional[0]):

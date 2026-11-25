@@ -20,7 +20,10 @@ and JdbcClient) name the tables they read and write (``SqlUse``).
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
+import json
 import logging
+import posixpath
+from pathlib import Path
 import re
 
 from .service_contracts.http import PLACEHOLDER
@@ -120,6 +123,36 @@ def extract_ddl(file, content: bytes):
     read from its tokens with ``reader="tokens_not_parsed"``. Temporary
     tables are not part of the schema. None when the file is not UTF-8 or
     no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found = []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        offset = text.count("\n", 0, start)
+        parsed = _sqlglot_ddl(text[start:end])
+        if parsed is None:
+            table = _token_ddl(statement)
+            if table is not None:
+                name, schema, line = table
+                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+            continue
+        found.extend(
+            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
+        )
+    return found
+
+
+def _ddl_statements(content: bytes):
+    """(text, statements) of a SQL file, each statement a list of sqlglot
+    tokens split at semicolons, or None when the file is not UTF-8 or no
+    dialect of DDL_DIALECTS tokenizes it."""
     import sqlglot
     from sqlglot.errors import SqlglotError
     from sqlglot.tokens import TokenType
@@ -145,24 +178,340 @@ def extract_ddl(file, content: bytes):
         else:
             current.append(token)
     statements.append(current)
-    found = []
+    return text, statements
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    """A foreign key a schema declares: ``table`` references ``references``."""
+
+    file: str
+    line: int
+    table: str
+    references: str
+    columns: tuple[str, ...] = ()
+    referenced_columns: tuple[str, ...] = ()
+    on_delete: str | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ForeignKeyDrop:
+    """A statement that removes foreign keys: ALTER TABLE ``table`` DROP
+    CONSTRAINT / DROP FOREIGN KEY ``constraint``, or DROP TABLE ``table``
+    (``constraint`` None), which takes the keys of and to the table."""
+
+    file: str
+    line: int
+    table: str
+    constraint: str | None = None
+
+
+def extract_foreign_keys(file, content: bytes):
+    """(foreign keys, lines not parsed) of a SQL file's CREATE TABLE and
+    ALTER TABLE statements, read by sqlglot: a column's REFERENCES
+    constraint and a table's FOREIGN KEY constraint, inline or added by
+    ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY. A statement with a
+    REFERENCES token that no dialect parses is not read; its line is
+    returned instead. Temporary tables are left out. None when the file is
+    not UTF-8 or no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
     for statement in statements:
         types = {t.token_type for t in statement}
-        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+        if (
+            TokenType.TABLE not in types
+            or TokenType.REFERENCES not in types
+            or not types & {TokenType.CREATE, TokenType.ALTER}
+        ):
             continue
         start, end = statement[0].start, statement[-1].end + 1
         offset = text.count("\n", 0, start)
-        parsed = _sqlglot_ddl(text[start:end])
-        if parsed is None:
-            table = _token_ddl(statement)
-            if table is not None:
-                name, schema, line = table
-                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+        keys = _sqlglot_foreign_keys(text[start:end])
+        if keys is None:
+            unparsed.append(statement[0].line)
             continue
-        found.extend(
-            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
-        )
-    return found
+        found.extend(ForeignKey(file, line + offset, *rest) for line, *rest in keys)
+    return found, unparsed
+
+
+def drizzle_foreign_keys(root, folder):
+    """The foreign keys of the schema state drizzle-kit records for a
+    migrations ``folder`` (relative to ``root``): the snapshot of the last
+    entry of ``meta/_journal.json``, which drizzle-kit writes as the schema
+    after every migration, so keys later migrations drop are not in it.
+    Returns (snapshot path, keys), or (None, reason) when the journal or its
+    last snapshot cannot be read."""
+    meta = f"{folder}/meta" if folder else "meta"
+    try:
+        journal = json.loads((Path(root) / meta / "_journal.json").read_text("utf-8"))
+        last = journal["entries"][-1]["idx"]
+        snapshot = f"{meta}/{last:04d}_snapshot.json"
+        text = (Path(root) / snapshot).read_text("utf-8")
+        tables = json.loads(text)["tables"]
+        keys = []
+        for table in tables.values():
+            for name, key in sorted((table.get("foreignKeys") or {}).items()):
+                position = text.find(json.dumps(name))
+                keys.append(
+                    ForeignKey(
+                        snapshot,
+                        text.count("\n", 0, position) + 1 if position >= 0 else 1,
+                        key["tableFrom"].lower(),
+                        key["tableTo"].lower(),
+                        tuple(c.lower() for c in key.get("columnsFrom") or ()),
+                        tuple(c.lower() for c in key.get("columnsTo") or ()),
+                        (key.get("onDelete") or "").upper() or None,
+                    )
+                )
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+        AttributeError,
+    ) as error:
+        return None, f"drizzle-kit snapshot of {folder or '.'}: {error!r}"
+    return snapshot, keys
+
+
+def _sqlglot_foreign_keys(text):
+    """(line, table, references, columns, referenced columns, on delete) of
+    each foreign key a statement declares, or None when no dialect parses
+    it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    def name(table):
+        if isinstance(table, exp.Schema):
+            table = table.this
+        if not isinstance(table, exp.Table) or not isinstance(
+            table.this, exp.Identifier
+        ):
+            return None
+        return table.name.lower()
+
+    for dialect in DDL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        found = []
+        for tree in trees:
+            if isinstance(tree, exp.Create):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                properties = tree.args.get("properties")
+                if properties and any(
+                    isinstance(p, exp.TemporaryProperty) for p in properties.expressions
+                ):
+                    continue
+                owner = tree.this
+            elif isinstance(tree, exp.Alter):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                owner = tree.this
+            else:
+                continue
+            table = name(owner)
+            if table is None:
+                continue
+            for reference in tree.find_all(exp.Reference):
+                target = name(reference.this)
+                if target is None:
+                    continue
+                referenced = tuple(
+                    e.name.lower()
+                    for e in getattr(reference.this, "expressions", None) or ()
+                    if isinstance(reference.this, exp.Schema)
+                )
+                holder = reference.parent
+                if isinstance(holder, exp.ForeignKey):
+                    columns = tuple(e.name.lower() for e in holder.expressions)
+                else:
+                    column = reference.find_ancestor(exp.ColumnDef)
+                    columns = (column.name.lower(),) if column else ()
+                on_delete = next(
+                    (
+                        str(o)[len("ON DELETE ") :].upper()
+                        for o in reference.args.get("options") or ()
+                        if str(o).upper().startswith("ON DELETE ")
+                    ),
+                    None,
+                )
+                line = (
+                    reference.this.this.this.meta.get("line", 1)
+                    if isinstance(reference.this, exp.Schema)
+                    else reference.this.this.meta.get("line", 1)
+                )
+                named = reference.parent
+                if isinstance(named, exp.ForeignKey):
+                    named = named.parent
+                constraint = (
+                    named.this.name.lower()
+                    if isinstance(named, (exp.Constraint, exp.ColumnConstraint))
+                    and isinstance(named.this, exp.Identifier)
+                    else None
+                )
+                found.append(
+                    (line, table, target, columns, referenced, on_delete, constraint)
+                )
+        return found
+    return None
+
+
+def extract_foreign_key_drops(file, content: bytes):
+    """(drops, lines not parsed) of a SQL file's statements that remove
+    foreign keys, read by sqlglot: ALTER TABLE ... DROP CONSTRAINT, ALTER
+    TABLE ... DROP FOREIGN KEY (MySQL) and DROP TABLE. A statement with a
+    DROP token that no dialect parses is not read; its line is returned.
+    None when the file is not UTF-8 or no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.DROP not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        line = statement[0].line
+        for dialect in DDL_DIALECTS:
+            try:
+                trees = [
+                    t
+                    for t in sqlglot.parse(text[start:end], read=dialect)
+                    if t is not None
+                ]
+            except (SqlglotError, ValueError, RecursionError):
+                continue
+            if not trees or any(isinstance(t, exp.Command) for t in trees):
+                continue
+            break
+        else:
+            unparsed.append(line)
+            continue
+        for tree in trees:
+            if isinstance(tree, exp.Drop):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                found.extend(
+                    ForeignKeyDrop(file, line, table.name.lower())
+                    for table in tree.args.get("tables") or ()
+                    if isinstance(table, exp.Table)
+                )
+            elif isinstance(tree, exp.Alter):
+                owner = tree.this
+                if (tree.args.get("kind") or "").upper() != "TABLE" or not (
+                    isinstance(owner, exp.Table)
+                ):
+                    continue
+                for action in tree.args.get("actions") or ():
+                    if not isinstance(action, exp.Drop) or (
+                        (action.args.get("kind") or "").upper()
+                        not in ("CONSTRAINT", "FOREIGN KEY")
+                    ):
+                        continue
+                    found.extend(
+                        ForeignKeyDrop(
+                            file, line, owner.name.lower(), named.name.lower()
+                        )
+                        for named in action.args.get("tables") or ()
+                        if isinstance(named, exp.Table)
+                    )
+    return found, unparsed
+
+
+_ROLLBACK_MIGRATION = re.compile(r"(?:^|[._-])down\.sql$", re.I)
+
+
+def is_rollback_migration(path):
+    """Whether a SQL file undoes a migration: golang-migrate and sqlx write
+    <version>_<name>.down.sql, Diesel <version>_<name>/down.sql. A rollback
+    is not part of the schema the migrations build."""
+    return bool(_ROLLBACK_MIGRATION.search(posixpath.basename(path)))
+
+
+_MIGRATION_FOLDERS = {"migrations", "migration", "migrate"}
+
+
+def migration_set(path):
+    """The folder whose SQL files apply one after another, in name order:
+    the nearest folder of the path named migrations, migration or migrate
+    (Prisma, sqlx, golang-migrate, Flyway's db/migration, Rails' db/migrate),
+    or the file itself when it is in none."""
+    parts = path.split("/")[:-1]
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index].lower() in _MIGRATION_FOLDERS:
+            return "/".join(parts[: index + 1])
+    return path
+
+
+def _natural(path):
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", path)
+    ]
+
+
+def _postgres_key_name(key):
+    """The name PostgreSQL gives an unnamed foreign key:
+    <table>_<columns>_fkey, cut to 63 bytes (ChooseConstraintName)."""
+    if not key.columns:
+        return None
+    label = f"{key.table}_{'_'.join(key.columns)}"
+    return f"{label[: 63 - len('_fkey')]}_fkey"
+
+
+def replay_foreign_keys(files):
+    """The foreign keys left once each file's statements run in order.
+
+    ``files`` holds (path, keys, drops) of the SQL files of one migration
+    set (``migration_set``); they apply in natural name order (V2 before
+    V10) and, within a file, in line order. A drop names a key by its
+    constraint name, or by the name PostgreSQL gives an unnamed key; DROP
+    TABLE takes the keys of and to the table. Returns (keys, dropped count,
+    drops that name no key read before them: DROP CONSTRAINT also drops
+    primary, unique and check constraints). Running the migrations against
+    a database would run the project's code, so their statements are
+    replayed from sqlglot's parse instead."""
+    keys, dropped, unmatched = [], 0, []
+    for _, found, drops in sorted(files, key=lambda f: _natural(f[0])):
+        events = [(k.line, 1, k) for k in found] + [(d.line, 0, d) for d in drops]
+        for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
+            if kind:
+                keys.append(item)
+                continue
+            if item.constraint is None:
+                left = [k for k in keys if item.table not in (k.table, k.references)]
+            else:
+                left = [
+                    k
+                    for k in keys
+                    if k.table != item.table
+                    or item.constraint
+                    not in (k.name, None if k.name else _postgres_key_name(k))
+                ]
+                if len(left) == len(keys):
+                    unmatched.append(item)
+            dropped += len(keys) - len(left)
+            keys = left
+    return keys, dropped, unmatched
 
 
 def _sqlglot_ddl(text):
@@ -2276,6 +2625,9 @@ class PrismaModel:
     table: str
     explicit: bool  # named by @@map
     line: int
+    # Foreign keys this model holds: (referenced table, columns, referenced
+    # columns, onDelete), column names as @map gives them.
+    foreign_keys: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -2299,13 +2651,6 @@ class ModelUse:
 def prisma_accessor(model):
     """The Prisma Client property of a model: its name, first letter lower."""
     return model[:1].lower() + model[1:]
-
-
-def typeorm_table_name(entity):
-    """TypeORM's DefaultNamingStrategy table name: snakeCase of the class
-    name (``UserProfile`` is ``user_profile``, ``HTTPLog`` is ``http_log``)."""
-    name = re.sub(r"([A-Z])([A-Z])([a-z])", r"\1_\2\3", entity)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
 
 
 def _script_string(node, content):
@@ -2474,7 +2819,9 @@ def extract_typeorm(tree, content, file, definitions):
                         file,
                         model_id,
                         entity,
-                        table_key(name) if name else typeorm_table_name(entity),
+                        # Without a name, TypeORM's own naming strategy
+                        # gives it (deepthought.typeorm_naming).
+                        table_key(name) if name else None,
                         node.start_point.row + 1,
                         node.start_point.column,
                         explicit=bool(name),
@@ -4026,149 +4373,7 @@ def apply_rails_inflections(tree, content, inflections):
     return supported
 
 
-# GORM (gorm.io/gorm 1.25, schema.NamingStrategy) default table names --------
-
-# github.com/jinzhu/inflection v1.0.0, the version GORM requires.
-_GO_PLURALS = (
-    ("([a-z])$", "${1}s"),
-    ("s$", "s"),
-    ("^(ax|test)is$", "${1}es"),
-    ("(octop|vir)us$", "${1}i"),
-    ("(octop|vir)i$", "${1}i"),
-    ("(alias|status)$", "${1}es"),
-    ("(bu)s$", "${1}ses"),
-    ("(buffal|tomat)o$", "${1}oes"),
-    ("([ti])um$", "${1}a"),
-    ("([ti])a$", "${1}a"),
-    ("sis$", "ses"),
-    ("(?:([^f])fe|([lr])f)$", "${1}${2}ves"),
-    ("(hive)$", "${1}s"),
-    ("([^aeiouy]|qu)y$", "${1}ies"),
-    ("(x|ch|ss|sh)$", "${1}es"),
-    ("(matr|vert|ind)(?:ix|ex)$", "${1}ices"),
-    ("^(m|l)ouse$", "${1}ice"),
-    ("^(m|l)ice$", "${1}ice"),
-    ("^(ox)$", "${1}en"),
-    ("^(oxen)$", "${1}"),
-    ("(quiz)$", "${1}zes"),
-)
-_GO_IRREGULARS = (
-    ("person", "people"),
-    ("man", "men"),
-    ("child", "children"),
-    ("sex", "sexes"),
-    ("move", "moves"),
-    ("mombie", "mombies"),
-)
-_GO_UNCOUNTABLES = (
-    "equipment",
-    "information",
-    "rice",
-    "money",
-    "species",
-    "series",
-    "fish",
-    "sheep",
-    "jeans",
-    "police",
-)
-
-
-def _go_replacement(template):
-    return re.sub(r"\$\{(\d+)\}", r"\\g<\1>", template)
-
-
-def _go_title(word):
-    # strings.Title: upper-cases the first letter of each word.
-    return re.sub(r"(?:^|(?<=[^A-Za-z0-9_]))[a-z]", lambda m: m.group(0).upper(), word)
-
-
-def _compile_go_plurals():
-    """inflection's compile(): uncountables, then irregulars (upper case,
-    title case, as written), then the plural rules last-defined first, each
-    upper-cased, as written and case-insensitive."""
-    rules = [
-        (re.compile(f"^(?i:({u}))$"), _go_replacement("${1}")) for u in _GO_UNCOUNTABLES
-    ]
-    for singular, plural in _GO_IRREGULARS:
-        rules += [
-            (re.compile(singular.upper() + "$"), plural.upper()),
-            (re.compile(_go_title(singular) + "$"), _go_title(plural)),
-            (re.compile(singular + "$"), plural),
-        ]
-    for find, template in reversed(_GO_PLURALS):
-        rules += [
-            (re.compile(find.upper()), _go_replacement(template.upper())),
-            (re.compile(find), _go_replacement(template)),
-            (re.compile(f"(?i:{find})"), _go_replacement(template)),
-        ]
-    return rules
-
-
-_GO_PLURAL_RULES = _compile_go_plurals()
-
-
-def go_inflection_plural(word):
-    """jinzhu/inflection's ``Plural``: the first rule that matches replaces
-    all its matches."""
-    for rule, replacement in _GO_PLURAL_RULES:
-        if rule.search(word):
-            return rule.sub(replacement, word)
-    return word
-
-
-_GORM_INITIALISMS = (
-    "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS",
-    "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SSH",
-    "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF",
-    "XSS",
-)  # fmt: skip
-
-
-def gorm_db_name(name):
-    """GORM's ``NamingStrategy.toDBName`` with the default options: common
-    initialisms title-cased (first in list order at each position, as
-    ``strings.Replacer`` does), then snake case."""
-    if not name:
-        return ""
-    out, i = [], 0
-    while i < len(name):
-        for initialism in _GORM_INITIALISMS:
-            if name.startswith(initialism, i):
-                out.append(initialism[0] + initialism[1:].lower())
-                i += len(initialism)
-                break
-        else:
-            out.append(name[i])
-            i += 1
-    value = "".join(out)
-    upper = [c.isascii() and c.isupper() for c in value]
-    digit = [c.isascii() and c.isdigit() for c in value]
-    buffer, last, current = [], False, upper[0]
-    for i, v in enumerate(value[:-1]):
-        following, number = upper[i + 1], digit[i + 1]
-        if current:
-            if not (last and (following or number)) and (
-                i > 0 and value[i - 1] != "_" and value[i + 1] != "_"
-            ):
-                buffer.append("_")
-            buffer.append(v.lower())
-        else:
-            buffer.append(v)
-        last, current = current, following
-    if current:
-        if not last and len(value) > 1:
-            buffer.append("_")
-        buffer.append(value[-1].lower())
-    else:
-        buffer.append(value[-1])
-    return "".join(buffer)
-
-
-def gorm_table_name(type_name):
-    """GORM's default table name of a model type: ``inflection.Plural`` of
-    its snake-case name (``UserModel`` is ``user_models``)."""
-    return go_inflection_plural(gorm_db_name(type_name))
+# GORM default table names come from GORM's own code (deepthought.gorm_naming).
 
 
 @dataclass(frozen=True)

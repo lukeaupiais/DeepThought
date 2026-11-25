@@ -315,7 +315,26 @@ def read_schemas(root, texts, environ=None):
                 continue
             for file in group:
                 read.engines[file] = build
+            by_name = {m["name"]: m for m in result["models"]}
             for model in result["models"]:
+                keys = []
+                for relation in model.get("relations", ()):
+                    target = by_name.get(relation["model"])
+                    if target is None:
+                        continue
+                    keys.append(
+                        (
+                            target["dbName"] or target["name"],
+                            tuple(
+                                model["columns"].get(f, f) for f in relation["fields"]
+                            ),
+                            tuple(
+                                target["columns"].get(f, f)
+                                for f in relation["references"]
+                            ),
+                            relation["onDelete"],
+                        )
+                    )
                 located = next(
                     (
                         (file, line)
@@ -331,6 +350,7 @@ def read_schemas(root, texts, environ=None):
                         model["dbName"] or model["name"],
                         model["dbName"] is not None,
                         located[1],
+                        tuple(keys),
                     )
                 )
     read.models.sort(key=lambda m: (m.file, m.line, m.model))
