@@ -95,6 +95,7 @@
 # node	src/client/client.ts	15	createProxy
 # node	src/client/client.ts	33	appendQueryParams
 # node	src/client/client.ts	47	constructor
+# node	src/client/client.ts	58	fetch
 # node	src/client/client.ts	151	hc
 # node	src/client/fetch-result-please.ts	14	fetchRP
 # node	src/client/fetch-result-please.ts	64	constructor
@@ -113,7 +114,22 @@
 # node	src/context.ts	281	setDefaultContentType
 # node	src/context.ts	288	createResponseInstance
 # node	src/context.ts	352	constructor
+# node	src/context.ts	448	render
+# node	src/context.ts	459	setLayout
+# node	src/context.ts	472	getLayout
+# node	src/context.ts	495	setRenderer
+# node	src/context.ts	519	header
+# node	src/context.ts	534	status
+# node	src/context.ts	551	set
+# node	src/context.ts	576	get
 # node	src/context.ts	609	newResponse
+# node	src/context.ts	659	newResponse
+# node	src/context.ts	682	body
+# node	src/context.ts	700	text
+# node	src/context.ts	726	json
+# node	src/context.ts	741	html
+# node	src/context.ts	768	redirect
+# node	src/context.ts	794	notFound
 # node	src/helper/accepts/accepts.ts	21	matchType
 # node	src/helper/accepts/accepts.ts	42	getSpecificity
 # node	src/helper/accepts/accepts.ts	52	defaultMatch
@@ -151,6 +167,9 @@
 # node	src/helper/dev/index.ts	39	showRoutes
 # node	src/helper/dev/index.ts	76	getRouterName
 # node	src/helper/factory/index.ts	336	constructor
+# node	src/helper/factory/index.ts	341	createApp
+# node	src/helper/factory/index.ts	353	createMiddleware
+# node	src/helper/factory/index.ts	357	createHandlers
 # node	src/helper/factory/index.ts	363	createFactory
 # node	src/helper/factory/index.ts	368	createMiddleware
 # node	src/helper/html/index.ts	11	html
@@ -209,10 +228,15 @@
 # node	src/hono-base.ts	195	clone
 # node	src/hono-base.ts	228	route
 # node	src/hono-base.ts	267	basePath
+# node	src/hono-base.ts	291	onError
+# node	src/hono-base.ts	311	notFound
 # node	src/hono-base.ts	352	mount
 # node	src/hono-base.ts	405	addRoute
 # node	src/hono-base.ts	418	handleError
 # node	src/hono-base.ts	425	dispatch
+# node	src/hono-base.ts	498	fetch
+# node	src/hono-base.ts	518	request
+# node	src/hono-base.ts	555	fire
 # node	src/hono.test.ts	18	throwExpression
 # node	src/hono.test.ts	28	createResponseProxy
 # node	src/hono.ts	26	constructor
@@ -510,6 +534,7 @@
 # node	src/request.ts	209	parseBody
 # node	src/request.ts	212	parseBody
 # node	src/request.ts	213	parseBody
+# node	src/request.ts	217	cachedBody
 # node	src/request.ts	258	json
 # node	src/request.ts	274	text
 # node	src/request.ts	290	arrayBuffer
@@ -713,6 +738,7 @@ src/client/utils.ts	11	mergePath	src/client/utils.ts	11	mergePath	0
 src/client/utils.ts	11	mergePath	src/helper/testing/index.ts	17	testClient	2
 src/client/utils.ts	22	replaceUrlParam	src/adapter/bun/ssg.ts	27	toSSG	3
 src/client/utils.ts	22	replaceUrlParam	src/adapter/deno/ssg.ts	27	toSSG	3
+src/client/utils.ts	22	replaceUrlParam	src/client/client.ts	58	fetch	1
 src/client/utils.ts	22	replaceUrlParam	src/client/client.ts	151	hc	1
 src/client/utils.ts	22	replaceUrlParam	src/client/utils.ts	22	replaceUrlParam	0
 src/client/utils.ts	22	replaceUrlParam	src/helper/ssg/ssg.ts	209	fetchRoutesContent	1
