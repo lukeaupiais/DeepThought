@@ -103,7 +103,10 @@ DJANGO_COLUMNS = {
     "    title = models.CharField(max_length=10)\n"
     '    tags = models.ManyToManyField("Tag")\n'
     "class Tag(models.Model):\n"
-    "    label = models.SlugField(primary_key=True)\n",
+    "    label = models.SlugField(primary_key=True)\n"
+    "class Comment(models.Model):\n"
+    '    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="notes")\n'
+    "    body = models.TextField()\n",
     "blog/views.py": "from django.db.models import Q, F, Count\n"
     "from .models import Author, Post\n"
     "def recent(name):\n"
@@ -118,7 +121,13 @@ DJANGO_COLUMNS = {
     "def build():\n"
     '    return Post(author_id=1, title=F("title"))\n'
     "def touch(**kw):\n"
-    '    return Post.objects.filter(**kw).update(title="t")\n',
+    '    return Post.objects.filter(**kw).update(title="t")\n'
+    "from . import models\n"
+    "def tally(post):\n"
+    '    post.title += "!"\n'
+    '    return models.Post.objects.order_by("title").get_or_create(title="q")\n'
+    "def noted():\n"
+    '    return Post.objects.filter(notes__body="x").exists()\n',
 }
 
 MODEL = "store/src/main/java/shop/model/"
@@ -6444,6 +6453,9 @@ class DjangoColumnTests(unittest.TestCase):
                 (8, "author", models + "Post#author.", True),
                 (9, "title", models + "Post#title.", True),
                 (11, "Tag", models + "Tag#", True),
+                (13, "Comment", models + "Comment#", True),
+                (14, "post", models + "Comment#post.", True),
+                (15, "body", models + "Comment#body.", True),
             ],
             "blog/views.py": [
                 (1, "Author", models + "Author#", False),
@@ -6456,6 +6468,9 @@ class DjangoColumnTests(unittest.TestCase):
                 (10, "Author", models + "Author#", False),
                 (12, "Post", models + "Post#", False),
                 (14, "Post", models + "Post#", False),
+                (17, "title", models + "Post#title.", False),
+                (18, "Post", models + "Post#", False),
+                (20, "Post", models + "Post#", False),
             ],
         }
         index = wire.Index()
@@ -6476,6 +6491,7 @@ class DjangoColumnTests(unittest.TestCase):
         return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
 
     def test_django_columns(self):
+        self.maxDiff = None
         with tempfile.TemporaryDirectory() as directory:
             write(directory, DJANGO_COLUMNS)
             output = asyncio.run(
@@ -6500,6 +6516,9 @@ class DjangoColumnTests(unittest.TestCase):
                 "blog_author::column::created",
                 "blog_author::column::full_name",
                 "blog_author::column::id",
+                "blog_comment::column::body",
+                "blog_comment::column::id",
+                "blog_comment::column::post_id",
                 "blog_post::column::author_id",
                 "blog_post::column::created",
                 "blog_post::column::id",
@@ -6508,6 +6527,7 @@ class DjangoColumnTests(unittest.TestCase):
             ],
         )
         author, post = "blog_author::column::", "blog_post::column::"
+        comment = "blog_comment::column::"
         key, access = "django-column-key", "django-scip-column-access"
         self.assertEqual(
             [e for e in edges if e[0] != "HAS_COLUMN"],
@@ -6517,6 +6537,8 @@ class DjangoColumnTests(unittest.TestCase):
                 ("READS_COLUMN", "counts", author + "full_name", 11, key),
                 ("READS_COLUMN", "counts", author + "id", 11, key),
                 ("READS_COLUMN", "counts", post + "author_id", 11, key),
+                ("READS_COLUMN", "noted", comment + "body", 21, key),
+                ("READS_COLUMN", "noted", comment + "post_id", 21, key),
                 ("READS_COLUMN", "recent", author + "full_name", 4, key),
                 ("READS_COLUMN", "recent", post + "author_id", 4, key),
                 ("READS_COLUMN", "recent", post + "created", 4, key),
@@ -6524,11 +6546,16 @@ class DjangoColumnTests(unittest.TestCase):
                 ("READS_COLUMN", "recent", post + "title", 4, key),
                 ("READS_COLUMN", "rename", author + "full_name", 7, access),
                 ("READS_COLUMN", "rename", post + "author_id", 7, access),
+                ("READS_COLUMN", "tally", post + "title", 18, access),
+                ("READS_COLUMN", "tally", post + "title", 19, key),
+                ("READS_COLUMN", "tally", post + "title", 19, key),
                 ("WRITES_COLUMN", "add", post + "author_id", 9, key),
                 ("WRITES_COLUMN", "add", post + "title", 9, key),
                 ("WRITES_COLUMN", "build", post + "author_id", 13, key),
                 ("WRITES_COLUMN", "build", post + "title", 13, key),
                 ("WRITES_COLUMN", "rename", post + "title", 6, access),
+                ("WRITES_COLUMN", "tally", post + "title", 18, access),
+                ("WRITES_COLUMN", "tally", post + "title", 19, key),
                 ("WRITES_COLUMN", "touch", post + "title", 15, key),
             ],
         )
@@ -6541,14 +6568,17 @@ class DjangoColumnTests(unittest.TestCase):
             for r in output.relationships
             if r.type in ("READS", "WRITES")
         )
-        # values() names recent's columns; counts returns whole rows; touch
-        # filters by **kw.
+        # values() names recent's columns; exists() reads no row; counts and
+        # get_or_create return whole rows; touch filters by **kw.
         self.assertEqual(
             resolved,
             [
                 ("add", "WRITES", True),
                 ("counts", "READS", False),
+                ("noted", "READS", True),
                 ("recent", "READS", True),
+                ("tally", "READS", False),
+                ("tally", "WRITES", False),
                 ("touch", "READS", False),
                 ("touch", "WRITES", False),
             ],

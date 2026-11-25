@@ -500,7 +500,8 @@ DJANGO_COLUMN_ACCESS_RULE = register_rule(
         "resolved",
         "A scip-python index resolves an attribute access to a field of a "
         "Django model (data-contracts.django-column): an assignment to it "
-        "writes the column, any other access reads it.",
+        "writes the column, an augmented assignment reads and writes it, any "
+        "other access reads it.",
     )
 )
 DJANGO_COLUMN_KEY_RULE = register_rule(
@@ -512,8 +513,10 @@ DJANGO_COLUMN_KEY_RULE = register_rule(
         "of filter, exclude, get and the like and of Q(), field names of "
         "values, only, order_by and the like and of F() and aggregates read, "
         "followed through relations (author__name reads author_id and the "
-        "author's name); keywords of update and create, defaults of "
-        "get_or_create and a Model(...) constructor's keywords write. Read "
+        "author's name) and reverse relations (by related_query_name, else "
+        "related_name, else the model name); keywords of update and create, "
+        "defaults of get_or_create and a Model(...) constructor's keywords "
+        "write, and get_or_create/update_or_create lookups read and write. Read "
         "against the model's fields, as scip-python does not resolve keyword "
         "lookups or field-name strings.",
     )
@@ -1974,10 +1977,16 @@ class DataContractTool(AnalysisTool):
                 site = (owner.file, field.line, field.column)
                 django_field_at[site][target] = column_target
                 django_field_name[site] = field.name
+        # A reverse relation's lookup name: related_query_name, else
+        # related_name, else the model's name in lower case.
+        django_related_query = {}
+        for target, owner, field, request in django_planned:
+            if field is not None and field.related_query:
+                django_related_query[(target, field.name)] = field.related_query
         for target, entry in django_models.items():
             for name, (column, related) in entry["fields"].items():
                 if column is not None and related in django_models:
-                    model_name = next(
+                    model_name = django_related_query.get((target, name)) or next(
                         (
                             by_id[m].name.lower()
                             for m, t in django_by_model.items()
@@ -1985,7 +1994,7 @@ class DataContractTool(AnalysisTool):
                         ),
                         None,
                     )
-                    if model_name:
+                    if model_name and "%" not in model_name and model_name != "+":
                         django_models[related]["reverse"].setdefault(
                             model_name, (target, name)
                         )
@@ -2004,37 +2013,44 @@ class DataContractTool(AnalysisTool):
                             column_nodes[name].properties["reads_unattributed"] = True
                     continue
                 entry = django_trees.get(file)
-                writes = False
+                kinds = ("READS_COLUMN",)
                 if entry is not None:
                     node = entry[1].root_node.descendant_for_point_range(
                         (line - 1, column), (line - 1, column)
                     )
                     access = node.parent if node is not None else None
                     holder = access.parent if access is not None else None
-                    writes = (
+                    if (
                         access is not None
                         and access.type == "attribute"
                         and holder is not None
-                        and holder.type in ("assignment", "augmented_assignment")
                         and holder.child_by_field_name("left") == access
-                    )
-                django_columns_counts["writes" if writes else "reads"] += 1
+                    ):
+                        if holder.type == "assignment":
+                            kinds = ("WRITES_COLUMN",)
+                        elif holder.type == "augmented_assignment":
+                            # ``x.f += 1`` reads the value it writes.
+                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
                 django_sites.add((file, line, column))
                 tool, receipt = references.tool(file)
-                link(
-                    "WRITES_COLUMN" if writes else "READS_COLUMN",
-                    code(file, _owner_at(owners_by_file[file], file, line, column)),
-                    next(iter(holders.values())),
-                    DJANGO_COLUMN_ACCESS_RULE,
-                    {
-                        "line": line,
-                        "column": column,
-                        "field": django_field_name[site],
-                        "indexer": tool,
-                        "receipt": receipt,
-                    },
-                    labels=("DbColumn", "Contract"),
-                )
+                for kind in kinds:
+                    django_columns_counts[
+                        "writes" if kind == "WRITES_COLUMN" else "reads"
+                    ] += 1
+                    link(
+                        kind,
+                        code(file, _owner_at(owners_by_file[file], file, line, column)),
+                        next(iter(holders.values())),
+                        DJANGO_COLUMN_ACCESS_RULE,
+                        {
+                            "line": line,
+                            "column": column,
+                            "field": django_field_name[site],
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                        labels=("DbColumn", "Contract"),
+                    )
 
         def django_keys(file, keyed, method):
             owners = [d for d in result.definitions if d.file == file]

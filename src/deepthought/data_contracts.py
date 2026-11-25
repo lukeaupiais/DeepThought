@@ -2274,6 +2274,17 @@ DJANGO_READS = {
     "latest",
     "values",
     "values_list",
+    # Methods that start a chain as often as they continue one.
+    "order_by",
+    "only",
+    "defer",
+    "select_related",
+    "prefetch_related",
+    "distinct",
+    "reverse",
+    "select_for_update",
+    "dates",
+    "datetimes",
 }
 DJANGO_WRITES = {
     "bulk_create",
@@ -2324,6 +2335,7 @@ class DjangoField:
     primary: bool
     line: int
     column: int
+    related_query: str | None = None  # related_query_name, else related_name
 
 
 @dataclass(frozen=True)
@@ -2509,6 +2521,9 @@ def extract_django(tree, content, file, definitions):
                 elif target is not None and target.type in ("identifier", "attribute"):
                     related = _text(target, content).rpartition(".")[2]
             primary = keywords.get("primary_key")
+            related_query = _string(
+                keywords.get("related_query_name"), content
+            ) or _string(keywords.get("related_name"), content)
             fields.append(
                 DjangoField(
                     _text(left, content),
@@ -2518,6 +2533,7 @@ def extract_django(tree, content, file, definitions):
                     primary is not None and _text(primary, content) == "True",
                     left.start_point.row + 1,
                     left.start_point.column,
+                    related_query,
                 )
             )
         for field, value in _assignments(body, content):
@@ -2566,12 +2582,13 @@ def extract_django(tree, content, file, definitions):
             continue
         target = node.child_by_field_name("object")
         name = node.child_by_field_name("attribute")
-        if (
-            target is None
-            or target.type != "identifier"
-            or name is None
-            or _text(name, content) != "objects"
-        ):
+        if name is None or _text(name, content) != "objects":
+            continue
+        # ``Model.objects`` or a module-qualified ``models.Model.objects``:
+        # the model is the last name, where the index resolves it.
+        while target is not None and target.type == "attribute":
+            target = target.child_by_field_name("attribute")
+        if target is None or target.type != "identifier":
             continue
         methods, current = [], node
         while (
@@ -2594,8 +2611,8 @@ def extract_django(tree, content, file, definitions):
                 _text(target, content),
                 reads,
                 writes,
-                node.start_point.row + 1,
-                node.start_point.column,
+                target.start_point.row + 1,
+                target.start_point.column,
             )
         )
     return models, accesses
@@ -3312,6 +3329,9 @@ def django_columns(chain, content, model, models, constructor=None):
                             found.complete = False
                         continue
                     path(text, name)
+                    if method in ("get_or_create", "update_or_create"):
+                        # Not found, the lookups are written with the row.
+                        path(text, name, True)
                     expression(value)
                 elif argument.type == "dictionary_splat":
                     found.complete = False
