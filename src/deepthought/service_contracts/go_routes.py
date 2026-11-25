@@ -102,14 +102,16 @@ _FIBER_V2 = _Framework(
     roots=frozenset({"App"}),
     mounts=frozenset({"Mount"}),
 )
-# Fiber v3: Get(path, handler, middleware ...Handler), the handler first;
-# Route(path) returns a Register whose verbs take no path.
+# Fiber v3: Get(path, handler, middleware ...Handler), which registers
+# append([]any{handler}, middleware...) run in order, so the endpoint is
+# the last (auth.Post("/logout", Protected(), Logout)); Route(path) returns
+# a Register whose verbs take no path.
 _FIBER_V3 = _Framework(
     "fiber",
     _TITLE,
-    {"All": (0, 1)},
+    {"All": (0, -1)},
     {"Add": (1, 2)},
-    0,
+    -1,
     frozenset({"Group", "Route"}),
     frozenset(),
     types=frozenset({"App", "Group", "Router", "Register"}),

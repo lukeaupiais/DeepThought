@@ -1887,14 +1887,16 @@ def _go_messaging_facts(root, sources):
         for c, content, _ in sources
         if c.language == "go" and c.file.endswith(".go")
     ]
-    if not any(
-        any(
+    routers = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and any(
             f'"{package}"'.encode() in content
             for package in go_routes_module.ROUTER_PACKAGES
         )
-        for c, content, _ in sources
-        if c.language == "go"
-    ):
+    ]
+    if not routers:
         routing = []
     if not files and not handlers and not routing:
         return {}, {}, {}, ([], [])
@@ -1919,6 +1921,13 @@ def _go_messaging_facts(root, sources):
         found[file] = (calls[file], literals[file], reason)
     handler_calls = {file: calls[file] for file in handlers}
     routes = go_routes_module.GoRouters(facts).routes() if routing else ([], [])
+    # A file importing a router package that the type checker could not
+    # read: its routes, if any, are not known.
+    routes[1].extend(
+        (file, 1, f"not_type_checked:{facts.uncovered[file]}")
+        for file in routers
+        if file in facts.uncovered
+    )
     return found, go_facts.gopath_report(facts), handler_calls, routes
 
 
