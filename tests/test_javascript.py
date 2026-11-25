@@ -13,6 +13,7 @@ from deepthought.models import AnalysisResult
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
     CALL_TS_COMPILER_EXPORT,
+    CALL_TS_EXPORT_CONFLICT,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
@@ -387,7 +388,7 @@ class JavaScriptCallTests(unittest.TestCase):
                 "S.only": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
                 # A name two stars give is a link error in the language; the
                 # compiler reports it and binds the first star's export.
-                "dup": ("linked", "a.js:dup", CALL_TS_COMPILER_EXPORT),
+                "dup": ("linked", "a.js:dup", CALL_TS_EXPORT_CONFLICT),
                 # A default export declared in place, and an import
                 # exported by a separate clause, are followed; a namespace
                 # re-export and a cycle are not.
@@ -402,7 +403,7 @@ class JavaScriptCallTests(unittest.TestCase):
                 "nr": ("unresolved", "imported_name_not_declared", None),
                 # Two re-exports of one name, which the language rejects;
                 # the compiler reports it and binds the first.
-                "o2": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
+                "o2": ("linked", "b.js:only", CALL_TS_EXPORT_CONFLICT),
             },
         )
         # The same in TypeScript, through an extensionless index module.
