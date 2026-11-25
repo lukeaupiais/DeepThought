@@ -4071,7 +4071,7 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.knex-create-table` | pattern_matched | `K.schema.createTable('t', ...)` or `createTableIfNotExists` (also after `withSchema`) on a Knex instance as `data-contracts.knex-query` defines one; `K.schema.table` (an alter) is not a declaration |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-scip` | resolved | a scip-typescript index resolves the called method to Kysely's own `selectFrom`, a join (`innerJoin`, `leftJoin`, `rightJoin`, `fullJoin`, `crossJoin`, lateral joins), `insertInto`, `replaceInto`, `updateTable`, `deleteFrom` or `mergeInto`; its first argument is a string literal (alias dropped) or an array of them; selects and joins READ, the others WRITE |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal, or by a name bound to one by a module-level `const` of the file or imported by name from the one project module that declares it (when no function around the use declares that name again): `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction`, `Knex.QueryBuilder`, a type alias the file declares once for one of them, or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
-| File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
+| File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a model of a `.prisma` schema as Prisma's own schema engine reads it (`get_dmmf` of the `@prisma/prisma-schema-wasm` build the project's Prisma pins): its `@@map` name, else the model name. A schema with no Prisma version up its tree, a build npm cannot fetch, or a schema the engine rejects is unread and named in a `prisma_schema_unread` warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
@@ -4208,7 +4208,18 @@ On prisma/prisma-examples, outside `node_modules`, the tool reads all 147
 `model` blocks of its 83 schemas. It links 490 client calls outside the
 test sources (548 with them) to their
 example's own model and leaves 6 whose name several models of the repository
-share outside the caller's package. Against a `grep` for
+share outside the caller's package.
+
+Prisma's own schema engine now reads those schemas, each with the
+prisma-schema-wasm build its example's Prisma pins (7 builds). At `45d6bf6` it reads 129 models of 75 schemas, the same model and
+table names the earlier pattern read for them, and leaves 8 schemas unread,
+each named in a warning: 5 `contract.prisma` files of Prisma 8 release
+candidates, whose `@prisma/engines` no longer pins a prisma-schema-wasm
+build, and 3 schemas whose datasource has no `url`, which the Prisma they
+pin (6.9, 6.15, 6.19) rejects as `prisma validate` 6.19.0 does. The calls
+of those examples are no longer linked (23 counted as
+`prisma_schema_unread`, none sent to another example's model of the same
+name), so 467 calls are linked, each also linked before. Against a `grep` for
 `x.model.method(` it finds 554 calls to grep's 525: the extra ones are
 chains split over lines or with a call as receiver
 (`this.prismaService.extendedPrismaClient().post.create`), and the 9 grep

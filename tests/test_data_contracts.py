@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -1400,7 +1401,7 @@ TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spe
     "tree_sitter_typescript"
 )
 SCRIPT_ORMS = {
-    "package.json": '{"name": "shop"}',
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
     "prisma/schema.prisma": """// The shop's tables.
 datasource db {
   provider = "postgresql"
@@ -1417,6 +1418,7 @@ model User {
 model UserProfile {
   id     Int  @id
   userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
 }
 """,
     "src/users.ts": """import { PrismaClient } from "@prisma/client";
@@ -1470,8 +1472,34 @@ export class AuditService {
 }
 
 
+def _npm_registry():
+    """node and npm, and the npm registry reachable: the engine fetches the
+    prisma-schema-wasm build a schema's Prisma pins. The acceptance sandbox
+    has no network; the database job, which has, runs these tests."""
+    npm = shutil.which("npm")
+    if not (shutil.which("node") and npm):
+        return False
+    try:
+        return (
+            subprocess.run(
+                [npm, "view", "prisma@6.19.0", "version"],
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+NODE = _npm_registry()
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
     def test_prisma_and_typeorm(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SCRIPT_ORMS)
@@ -1531,6 +1559,17 @@ class ScriptOrmTests(unittest.TestCase):
         metrics = output.metadata.custom_metrics
         self.assertEqual(
             (metrics["prisma_models"], metrics["typeorm_entities"]), (2, 2)
+        )
+        self.assertEqual(
+            metrics["prisma_schema"],
+            {
+                "engines": {
+                    "prisma/schema.prisma": (
+                        "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+                    )
+                },
+                "unread": 0,
+            },
         )
         self.assertEqual(
             metrics["orm_access_resolution"],
@@ -1602,6 +1641,183 @@ class ScriptOrmTests(unittest.TestCase):
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+PRISMA_FOLDER = {
+    "apps/package-lock.json": """{"packages": {
+  "node_modules/@prisma/engines-version": {
+    "version": "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+  }
+}}""",
+    "apps/api/package.json": '{"dependencies": {"@prisma/client": "^5.0.0"}}',
+    # A multi-file schema: the datasource file's folder holds the models.
+    "apps/api/prisma/schema/main.prisma": """datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+""",
+    "apps/api/prisma/schema/models/post.prisma": """model Post {
+  id       Int    @id
+  authorId Int
+  author   Author @relation(fields: [authorId], references: [id])
+  @@map(name: "posts")
+}
+""",
+    "apps/api/prisma/schema/author.prisma": """
+// model Author is declared below.
+model Author {
+  id    Int    @id
+  posts Post[]
+}
+""",
+    # The engine rejects this schema (a relation with no opposite field).
+    "tools/broken/package.json": '{"devDependencies": {"prisma": "6.19.0"}}',
+    "tools/broken/schema.prisma": """datasource db {
+  provider = "sqlite"
+  url      = "file:dev.db"
+}
+
+model Orphan {
+  id   Int  @id
+  peer Peer?
+}
+
+model Peer {
+  id Int @id
+}
+""",
+    # No Prisma version anywhere up the tree.
+    "scratch/loose.prisma": """model Loose {
+  id Int @id
+}
+""",
+}
+
+
+class PrismaVersionTests(unittest.TestCase):
+    def test_installed_and_locked_versions_win_over_declared_ranges(self):
+        from deepthought.prisma_schema import project_version
+
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PRISMA_FOLDER)
+            file = "apps/api/prisma/schema/main.prisma"
+            self.assertEqual(
+                project_version(directory, file),
+                ("engines", "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"),
+            )
+            os.remove(Path(directory) / "apps" / "package-lock.json")
+            self.assertEqual(project_version(directory, file), ("prisma", "^5.0.0"))
+            write(
+                directory,
+                {"apps/api/node_modules/prisma/package.json": '{"version": "5.22.0"}'},
+            )
+            self.assertEqual(project_version(directory, file), ("prisma", "5.22.0"))
+            self.assertIsNone(project_version(directory, "scratch/loose.prisma"))
+            write(
+                directory,
+                {"scratch/deno.json": '{"imports": {"prisma": "npm:prisma@7.10.0"}}'},
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"), ("prisma", "7.10.0")
+            )
+            os.remove(Path(directory) / "scratch" / "deno.json")
+            write(
+                directory,
+                {
+                    "pnpm-lock.yaml": "packages:\n  '@prisma/engines-version@7.1.1-3.abc':\n"
+                },
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"),
+                ("engines", "7.1.1-3.abc"),
+            )
+
+
+@unittest.skipUnless(
+    NODE, "Prisma schemas are read with node, npm and the npm registry"
+)
+class PrismaSchemaTests(unittest.TestCase):
+    def test_folders_rejections_and_missing_versions(self):
+        from deepthought.prisma_schema import read_schemas
+
+        with tempfile.TemporaryDirectory() as directory:
+            files = {k: v for k, v in PRISMA_FOLDER.items() if k.endswith(".prisma")}
+            write(directory, PRISMA_FOLDER)
+            read = read_schemas(directory, files)
+        self.assertEqual(
+            [(m.file, m.model, m.table, m.explicit, m.line) for m in read.models],
+            [
+                ("apps/api/prisma/schema/author.prisma", "Author", "Author", False, 3),
+                ("apps/api/prisma/schema/models/post.prisma", "Post", "posts", True, 1),
+            ],
+        )
+        self.assertEqual(
+            sorted(read.unread), ["scratch/loose.prisma", "tools/broken/schema.prisma"]
+        )
+        self.assertIn("no Prisma version", read.unread["scratch/loose.prisma"])
+        self.assertIn(
+            "opposite relation field", read.unread["tools/broken/schema.prisma"]
+        )
+        self.assertEqual(
+            sorted(read.engines),
+            [
+                "apps/api/prisma/schema/author.prisma",
+                "apps/api/prisma/schema/main.prisma",
+                "apps/api/prisma/schema/models/post.prisma",
+            ],
+        )
+
+    @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+    def test_unread_schema_makes_the_run_partial(self):
+        call = 'import { PrismaClient } from "@prisma/client";\n'
+        call += "export const posts = () => new PrismaClient().post.findMany();\n"
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "scratch/package.json": '{"name": "scratch"}',
+                    "scratch/loose.prisma": "model Post {\n  id Int @id\n}\n",
+                    "scratch/app.ts": call,
+                    "shop/package.json": '{"dependencies": {"prisma": "6.19.0"}}',
+                    "shop/schema.prisma": "model Post {\n  id Int @id\n}\n",
+                    "shop/app.ts": call,
+                },
+            )
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["prisma_models"], 1)
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 1,
+                "prisma_ambiguous": 0,
+                "prisma_schema_unread": 1,
+                "typeorm_linked": 0,
+                "typeorm_not_an_entity": 0,
+                "typeorm_wrapper_not_an_entity": 0,
+            },
+        )
+        # The scratch caller is not linked to the shop's Post.
+        self.assertEqual(
+            sorted(
+                r.source_match["qualified_name"].split("::")[1]
+                for r in output.relationships
+                if r.type == "READS"
+            ),
+            ["shop/app.ts"],
+        )
+        self.assertTrue(
+            any(
+                w.startswith(
+                    "prisma_schema_unread: scratch/loose.prisma: no Prisma version"
+                )
+                for w in output.metadata.warnings
+            ),
+            output.metadata.warnings,
+        )
 
 
 TYPEORM_WRAPPERS = {
