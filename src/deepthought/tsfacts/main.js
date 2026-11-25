@@ -23,7 +23,8 @@
 // offsets into the file as read from disk; {"file", "module", "resolved"}
 // for each import or re-export specifier the compiler resolves to a file
 // of the repository (outside node_modules); {"file", "program"} for each
-// file read; or {"error"} for a config the compiler rejects.
+// file read; {"file", "failures"} for names the checker failed on; or
+// {"error"} for a config the compiler rejects.
 //
 // Globals a build defines (the Angular CLI "define" option) are given as
 // DEFINES, a JSON list of [directory, {name: value}]: an ambient
@@ -184,6 +185,7 @@ function ambiguous(program, file) {
 }
 
 function analyze(program, checker, file, seen) {
+  let failures = 0;
   const offset = byteOffsets(file.text, file.fileName);
   const out = relative(file.fileName);
   function unwrap(node) {
@@ -323,7 +325,14 @@ function analyze(program, checker, file, seen) {
       const key = `${node.getStart(file)}:${node.end}`;
       if (!seen.has(key)) {
         seen.add(key);
-        const value = named(node, 0);
+        let value = null;
+        try {
+          value = named(node, 0);
+        } catch (error) {
+          // The checker gave up on this name (a stack overflow on a
+          // bundled library, say): it has no value.
+          failures += 1;
+        }
         if (value !== null) {
           emit({ file: out, start: offset(node.getStart(file)), end: offset(node.end), value });
         }
@@ -363,6 +372,7 @@ function analyze(program, checker, file, seen) {
     return !ts.isTypeNode(parent) && !ts.isTypeReferenceNode(parent);
   }
   visit(file);
+  if (failures > 0) emit({ file: out, failures });
 }
 
 const done = new Set();

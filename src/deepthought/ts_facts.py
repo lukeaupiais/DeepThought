@@ -39,6 +39,7 @@ class TsFacts:
     values: dict = field(default_factory=dict)
     programs: dict = field(default_factory=dict)  # file -> tsconfig ("" inferred)
     modules: dict = field(default_factory=dict)  # (file, specifier) -> file
+    failures: dict = field(default_factory=dict)  # file -> names not resolved
     rejected_configs: list = field(default_factory=list)
 
 
@@ -126,6 +127,8 @@ def collect(root, files, defines=(), *, timeout=1800):
         item = json.loads(line)
         if "error" in item:
             facts.rejected_configs.append(item["error"])
+        elif "failures" in item:
+            facts.failures[item["file"]] = item["failures"]
         elif "module" in item:
             facts.modules[(item["file"], item["module"])] = item["resolved"]
         elif "program" in item:

@@ -3045,6 +3045,16 @@ class ServiceContractTool(AnalysisTool):
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
                 ),
+                "typescript_compiler": (
+                    {
+                        "files": len(scripts.compiler.programs),
+                        "programs": len(set(scripts.compiler.programs.values())),
+                        "rejected_configs": len(scripts.compiler.rejected_configs),
+                        "names_failed": sum(scripts.compiler.failures.values()),
+                    }
+                    if scripts is not None
+                    else {}
+                ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
                 "fetch, axios, request, Go net/http and C# HttpClient requests with "
