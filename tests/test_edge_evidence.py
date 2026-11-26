@@ -171,6 +171,7 @@ class TreeSitterEvidenceTests(unittest.TestCase):
                 ("CALLS", "scip.call-occurrence"): 3,
                 # `value: Widget` and `-> Widget` name the class.
                 ("USES_TYPE", "scip.use-type"): 2,
+                ("SIGNATURE_USES", "scip.signature-type-reference"): 2,
                 # `missing_function()` is bound by nothing.
                 ("HAS_UNRESOLVED_CALL", "tree-sitter.call-site-unlinked"): 1,
             },
