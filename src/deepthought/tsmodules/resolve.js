@@ -199,6 +199,94 @@ function relativeTo(file) {
   return path.relative(root, real(file)).split(path.sep).join("/");
 }
 
+function conflictIn(checker, module, name) {
+  // Whether the language rejects the module's export of ``name``: two
+  // export clauses, or a clause and a declaration, give the name (the
+  // compiler keeps one and reports TS2300, TS2323 or TS2484), or the module
+  // does not export it itself and two of its ``export *`` give different
+  // symbols under it (TS2308).
+  if (!module || !module.exports) return false;
+  const file = module.valueDeclaration;
+  if (file && ts.isSourceFile(file)) {
+    // Read from the statements: the binder keeps the first of two
+    // clauses that give one name and drops the other.
+    let given = 0;
+    let clause = false;
+    for (const statement of file.statements) {
+      if (ts.isExportDeclaration(statement) && statement.exportClause) {
+        if (!ts.isNamedExports(statement.exportClause)) {
+          if (statement.exportClause.name.text === name) (given++, (clause = true));
+          continue;
+        }
+        for (const element of statement.exportClause.elements) {
+          if (element.name.text === name) (given++, (clause = true));
+        }
+      } else if (ts.isExportAssignment(statement)) {
+        if ((statement.isExportEquals ? "export=" : "default") === name) {
+          given++;
+          clause = true;
+        }
+      } else if (
+        ts.canHaveModifiers(statement) &&
+        (ts.getModifiers(statement) || []).some(
+          (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+        )
+      ) {
+        const isDefault = (ts.getModifiers(statement) || []).some(
+          (m) => m.kind === ts.SyntaxKind.DefaultKeyword,
+        );
+        const names = ts.isVariableStatement(statement)
+          ? statement.declarationList.declarations.map((d) => d.name)
+          : [statement.name];
+        for (const declared of names) {
+          const text = isDefault ? "default" : declared && declared.text;
+          if (text === name) given++;
+        }
+      }
+    }
+    if (clause && given > 1) return true;
+  }
+  if (module.exports.has(ts.escapeLeadingUnderscores(name))) return false;
+  const stars = module.exports.get("__export");
+  if (!stars) return false;
+  const given = new Set();
+  for (const declaration of stars.declarations || []) {
+    if (!declaration.moduleSpecifier) continue;
+    const target = checker.getSymbolAtLocation(declaration.moduleSpecifier);
+    if (!target) continue;
+    for (const exported of checker.getExportsOfModule(target)) {
+      if (ts.symbolName(exported) !== name) continue;
+      given.add(
+        exported.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(exported)
+          : exported,
+      );
+    }
+  }
+  return given.size > 1;
+}
+
+function throughModule(checker, declaration) {
+  // The module and name an alias reads from another module: an
+  // `export { a as b } from 'm'` or `import { a as b } from 'm'` element
+  // reads `a` from m. A name that
+  // m's `export *` gives skips m on the way to its declaration, so m is
+  // checked here.
+  let specifier = null;
+  let name = null;
+  if (ts.isExportSpecifier(declaration) || ts.isImportSpecifier(declaration)) {
+    // ExportDeclaration > NamedExports > element, or
+    // ImportDeclaration > ImportClause > NamedImports > element.
+    specifier = ts.isImportSpecifier(declaration)
+      ? declaration.parent.parent.parent.moduleSpecifier
+      : declaration.parent.parent.moduleSpecifier;
+    name = (declaration.propertyName || declaration.name).text;
+  }
+  if (!specifier) return null;
+  const module = checker.getSymbolAtLocation(specifier);
+  return module ? [module, name] : null;
+}
+
 function exportsOf(checker, source) {
   // What the module exports under each name, as the checker binds it:
   // aliases (export ... from, export { x }, export =) followed to the
@@ -216,8 +304,13 @@ function exportsOf(checker, source) {
     };
     let symbol = exported;
     let runtime = null;
+    // A name the language rejects anywhere along the way.
+    let conflict = conflictIn(checker, module, row.name);
     for (let step = 0; step < 64; step++) {
+      conflict = conflict || conflictIn(checker, symbol.parent, ts.symbolName(symbol));
       const first = (symbol.declarations || [])[0];
+      const through = first && throughModule(checker, first);
+      conflict = conflict || (through && conflictIn(checker, ...through));
       const file = first && first.getSourceFile().fileName;
       const implementation =
         file && file !== source.fileName ? implementationOf(file) : null;
@@ -236,6 +329,7 @@ function exportsOf(checker, source) {
           ...row,
           runtime: relativeTo(runtime[0]),
           runtime_name: runtime[1],
+          ...(conflict ? { conflict: true } : {}),
         }),
       );
       continue;
@@ -254,6 +348,7 @@ function exportsOf(checker, source) {
           declared: relativeTo(at.fileName),
           line: start.line,
           character: start.character,
+          ...(conflict ? { conflict: true } : {}),
         }),
       );
     }

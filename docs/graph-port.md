@@ -190,9 +190,16 @@ parser rule. One that the compiler follows to another file is
 file with no analyzed implementation is `typescript.call-declaration-file`
 (resolved): it names what the call is typed against, not the code that runs.
 The IMPORTS edge still names the file the compiler resolves, declaration file
-included. Where the language rejects a program, as with two `export *` that
-give one name or two exports of one name, the compiler reports an error and
-binds the first or later declaration it keeps; the call follows that binding.
+included. Where the language rejects an export on the way, the compiler
+reports an error and keeps one declaration, and the call links to it with its
+own rule, `typescript.call-export-conflict` (resolved). The cases are two
+export clauses, or a clause and a declaration, that give one name (TS2300,
+TS2323, TS2484), and a name that two of a module's `export *` give as
+different symbols while the module does not export it itself (TS2308). They
+are found in the imported module, in each module the compiler follows the
+export through, and in the implementation beside a declaration file. The
+program does not link at run time, so the link names what the compiler kept,
+not code that runs.
 
 The compiler is required. `analyze_repository` itself never starts a process,
 so its result carries no compiler view: callers attach one with
