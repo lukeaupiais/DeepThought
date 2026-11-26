@@ -448,7 +448,20 @@ Each dependent also says what the change asks of it. `impact` is `direct`
 when any one-hop path reaches it (it names the changed declaration or file
 itself, so a signature change may need an edit there, even when its
 strongest path is longer) and `transitive` otherwise (its behaviour may
-change, so it needs re-testing). `source_roles` lists `test` and `example`
+change, so it needs re-testing). `action` refines that for the kind of
+change. In `get_impact`, `change` (`--change`, MCP `change`) is `signature`
+(default: the declaration's parameters or results change, so one-hop
+dependents `must_change` and the rest `retest`) or `behaviour` (only its
+body changes, so every dependent is `retest`). In `get_contract_impact` the
+change is to the contract's messages: a dependent `must_change` when it uses
+the contract itself (one hop: a client, or a caller of a provider that
+carries the messages) or reaches it only through declarations that each
+have a `CARRIES_MESSAGE` edge to it, since it builds or reads those
+messages; it is `retest` otherwise when the contract has `message_types`
+(the types are known, so a wrapper that hides them shields its callers),
+and `unknown` when it has not (no type facts for that contract yet: HTTP
+routes, GraphQL fields, message destinations, tables, and gRPC methods with
+clients or handlers outside type-checked Go). `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
@@ -470,6 +483,67 @@ tool's own output that never reads Neo4j. Every compared seed matched exactly
 5.1.4 declarations (every fourth; 3,213 dependents) and 925 of the 937 in rxjs 7.8.1 `src/` (627
 dependents). 7 and 12 seeds with more than 100 dependents or 64 KB of output
 were truncated and not compared.
+
+### What an edit breaks
+
+`deepthought check-edit WORKSPACE DIFF` (`edit_check.check_edit`) answers
+what a proposed edit breaks from the language's own type checker, not from
+the graph. Missing in both the original and the port until now. The unified
+diff is applied with `git apply` to a scratch copy, and the checker of each
+edited language runs on an unedited copy and on the edited one:
+
+- Go: `gocheck/main.go` type-checks every package of each module that holds
+  an edited file (and each workspace module whose go.mod requires one of
+  them), with its tests, from source with go/types, after downloading the
+  module's dependencies through a copy of its go.mod. `go build` and `go vet`
+  stop at a package with errors and never check its importers or its tests,
+  so an edit that breaks a caller in its own package would hide every other
+  break; go/types returns the package as far as it typed it and importers are
+  checked against that. Go files in directories no build reads (`_examples`)
+  are listed in `unchecked_files`.
+- TypeScript and JavaScript: `tsc --noEmit` of the nearest tsconfig.json of
+  each edited file (a solution file's references instead) and of every
+  project that references one of those, through a wrapper config beside the
+  project that extends it. The compiler is the project's installed
+  typescript, else its locked or declared release installed into the cache
+  with `npm install --ignore-scripts` (`DEEPTHOUGHT_TYPESCRIPT` overrides).
+  A `compilerOptions.types` entry that is not installed would stop tsc
+  before it checks any file, so it is left out and named in the check's
+  `notes`. A package the project's `extends` chain names that is not
+  installed is installed into the cache and linked into the scratch copy.
+  An error in a config file stops tsc before it checks any file, so it fails
+  the check.
+- Python: `pyright --outputjson` over every Python file under the nearest
+  project (pyrightconfig.json, pyproject.toml, setup.cfg or setup.py), else
+  the workspace, with the project's settings: a configured `include` often
+  leaves out tests and examples, which call the edited code too
+  (`DEEPTHOUGHT_PYRIGHT`, else `pyright` on PATH, else pyright 1.1.409
+  installed into the cache).
+
+A diagnostic only the edited copy has is a **break**, reported at its line in
+the unedited source with the innermost declaration that holds it (Tree-sitter,
+the same names as graph Symbols) or `(top level of file)`, so it can be
+joined to the graph by file and line. Diagnostics on lines the edit wrote are
+`edit_diagnostics`: mistakes in the edit, not code it breaks. Existing errors
+(missing dependencies, a broken file elsewhere) appear on both sides and
+cancel. A check that cannot run is `unavailable` or `failed` with its reason,
+and the report is then not `complete`; files in other languages are listed in
+`unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
+run, 2 invalid input or a diff that does not apply.
+
+Independent checks against compiler-derived call truth (verification): a
+parameter added to chi's `NewRouter` breaks 115 of 115 call sites (67 in the
+package and its tests, 48 in middleware), to ky's `cancelBody` 12 of 12, and
+a required keyword to click's `echo` 431, including the 400 in tests and
+examples outside its pyright include.
+
+Measured against the graph's CALLS on the A/B development corpora: adding a
+parameter to chi's `URLParam` breaks 47 call lines, the same 47 the graph
+links. Adding one to hono's `getPath` breaks the 62 linked call lines plus
+one the graph cannot hold as a call (the function assigned as a default
+value in `Hono`'s constructor, now of the wrong type). The compiler side
+covers value uses and type errors; the graph side covers callers past the
+first break, other languages and other services.
 
 ## Components
 
@@ -2054,7 +2128,20 @@ indexers are required dependencies, not optional tools:
 |---|---|---|---|---|
 | Python | scip-python | 0.6.8 | `DEEPTHOUGHT_SCIP_PYTHON` | UTF-16 |
 | TypeScript, JavaScript | scip-typescript | 0.6.2 | `DEEPTHOUGHT_SCIP_TYPESCRIPT` | UTF-16 |
-| Go | scip-go | 0.1.26 | `DEEPTHOUGHT_SCIP_GO` | UTF-8 |
+| Go | scip-go | 0.2.7 | `DEEPTHOUGHT_SCIP_GO` | UTF-8 |
+
+scip-go is installed as `go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`
+and run as `scip-go index`. 0.1.26 knew the standard library from a list built
+into it, so the `uuid` package Go 1.27 added (imported by
+`database/sql/driver`) was taken for a module's package without a module, and
+every module importing `database/sql` failed with "Should not be possible to
+have nil module for userland package: uuid uuid". 0.2.x reads the standard
+library from the go command. 0.2.8 and later write only `typed_range`, which
+the engine's SCIP reader does not decode yet, so 0.2.7 is pinned. On chi,
+grpc-go, simplebank and miniflux the files covered are the same as with
+0.1.26, and the chi and cobra ground truth has no regression; interface
+methods now carry the method descriptor (`ResponseWriter#Write().`, was
+`ResponseWriter#Write.`).
 
 `deepthought indexers` lists them and whether each is installed (on `PATH`, or
 at the override path); it installs nothing. `deepthought index-scip WORKSPACE
@@ -2096,6 +2183,17 @@ writes in a scratch directory: `allowJs`, every file outside
 declarations it infers `{}` instead of `allowJs` and indexes no file, which
 left graphql-js, Ackee, node-express-boilerplate and robot-shop (424 files)
 `indexer_failed`; all are now covered.
+A configuration the compiler cannot read (`error TS5083`) that an `extends`
+names inside the workspace, outside `node_modules`, and that does not exist
+is written as an empty `{}` in the scratch copy and the run repeated; the
+receipt lists each under `dependencies.placeholder_configs`. A SvelteKit
+project's `tsconfig.json` extends `.svelte-kit/tsconfig.json`, which only
+`svelte-kit sync` writes, by running the repository's own `svelte.config.js`;
+the engine runs no repository code, as with install scripts. On immich
+(8c2195c) all 117 web files were `indexer_failed` and stopped the run; they
+now index, without the options the generated file adds (SvelteKit's `$lib`
+alias stays unresolved). A workspace indexed in place (no packages to
+install) is never written to, and such a run still fails.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.
@@ -2115,8 +2213,9 @@ with a reason:
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
-(outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
-directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
+(outside `vendor` and hidden directories; a `go.mod` below a directory whose
+name starts with `_`, such as chi's `_examples/rest`, or below `testdata`,
+such as sqlc's `internal/endtoend/testdata`, counts)
 gets its own run from its
 own directory, written to `scip-go.scip` for the root module and
 `scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
@@ -2321,7 +2420,11 @@ call rules. The import report carries a
 files with their reasons. The indexes a run writes are checked against their
 receipts again before they are read, and are read whole: the 50 MB cap
 `ingest_scip` keeps for an index from elsewhere does not apply to them
-(scip-python writes over 100 MB for a large monorepo such as superset).
+(scip-python writes over 100 MB for a large monorepo such as superset). The
+SCIP analysis tool reads the indexes it is given the same way, once their
+receipts validate (lobe-chat's 80 MB index used to fail there as "SCIP
+producer differs from the source receipt"), and names an index it cannot
+read with the reason.
 `--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
@@ -2677,20 +2780,32 @@ a constant another module exports (`deepthought.service_contracts.web`,
   that extends the enclosing class declares NAME again, or inside a
   `function` or a static member (where `this` is something else). A
   subclass in another file is not seen.
-- **Constants across modules.** A module exports `export const NAME = value`
-  (folded in its own module), `export { a as b }` of a name bound once there,
-  and what it re-exports with `export { a } from` and `export * from` (a name
-  two `export *` give differently is not exported, as in ECMAScript). An
-  import by name takes the exported value when the module specifier resolves
-  to an analysed file: a relative path, or a `compilerOptions.paths` alias of
-  the nearest `tsconfig.json` (as for data contracts). `let`/`var` exports,
-  default exports and namespace imports are not read.
-- **Build-time globals.** A name no scope binds or imports
-  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives it
-  in `angular.json` (the project's `build` target, options and every
+- **Constants across modules.** The TypeScript compiler resolves them
+  (`deepthought.ts_facts`, `src/deepthought/tsfacts/main.js`). The engine
+  builds one program per `tsconfig.json`/`jsconfig.json` (the compiler parses
+  `extends`, `paths`, `baseUrl`, `include` and `exclude`) and one inferred
+  program (`allowJs`) for the other files, and asks the checker what each
+  name or member access refers to, through imports, re-exports, aliases,
+  namespace imports and path aliases. Its value is the constant of a string
+  enum member, the initializer of a `const` (a string, a template or a `+`
+  join, each part followed the same way), a property of an object literal
+  that initializes a `const` (`as const` or not), or the single string
+  literal type the checker gives it. A name two `export *` give is
+  ambiguous (the compiler's TS2308) and has no value. `let` and `var` take
+  none. The folders of JavaScript/TypeScript files take the compiler's
+  value before anything else. Node.js and the compiler are required:
+  `typescript` (pinned, `ts_facts.TYPESCRIPT_VERSION`) is installed with npm
+  into the cache directory on first use, or read from
+  `DEEPTHOUGHT_TYPESCRIPT`, and without them the analysis raises
+  `TypeScriptMissing`. Imports used to find `axios.create` instances are
+  resolved by the compiler too. No lib or `@types` package is loaded, and
+  nothing is emitted or type-checked in full.
+- **Build-time globals.** An ambient `declare const NAME` without a value
+  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives
+  it in `angular.json` (the project's `build` target, options and every
   configuration), for files under the project's `sourceRoot` (else `root`).
   Only a string literal is read; a name defined differently in two
-  configurations is unknown text. `declare const` gives no value.
+  configurations is unknown text. A name a file imports is not a global.
 
 On jhipster/jhipster-sample-app (commit `6b000b5`) and
 jhipster-sample-app-websocket (`410a632`), whose URLs are
@@ -3535,47 +3650,55 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### Contract coverage
 
 The contracts a repository's query returns are only those its readers
-found, so the graph also says which readers ran. For each contract family
-and each language of the repository's source files there is one
-`ContractCoverage` node (`qualified_name`
-`<repo>::contract-coverage::<family>::<language>`) with:
+found, so the graph also says which readers ran. For each contract edge
+family and protocol, and each language of the repository's source files,
+there is one `EdgeCoverage` node (`qualified_name`
+`<repo>::edge-coverage::<family>::<protocol>::<language>`), in the shape the
+call and import coverage uses too:
 
-- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
-  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+- `family` and `protocol`: `HANDLES` or `REQUESTS` with `http`, `grpc` or
+  `graphql`, and `PUBLISHES` or `CONSUMES` with `messaging`;
 - `language` and `files`, the number of the repository's files in it, for
   every language the engine recognises by suffix (C, C++, C#, Go, Java,
   JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
   `engine.source_languages` over the same selection as the analysis; other
   languages get no statement;
-- `status`: `read` when this tool has a reader for the family in that
-  language, else `not_read` with `reason` `no_reader`;
+- `status`: always `not_linked`. Every contract site rule is
+  `pattern_matched`: the engine's own readers find the sites, and a reader
+  counts only the sites it recognises, so it can neither say every site was
+  decided by a deterministic tool (`linked`) nor that there are none
+  (`no_sites`). The `reason` is `parser_rules` when this tool reads the
+  family in that language, `sites` 0 included, and `not_supported` when it
+  has no reader;
+- `resolver`: `["service-contracts@<version>"]` where a reader ran, else
+  empty; `files_linked`: 0;
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
-  found in that language; for `http_requests` and `grpc_calls` also
-  `linked`, how many of them were linked.
+  found; for `REQUESTS` also how many were `linked`, `ambiguous` and
+  `unresolved`.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
 
 | Family | Languages read |
 | --- | --- |
-| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
-| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
-| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
-| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `http` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `HANDLES`/`REQUESTS` `grpc` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `HANDLES`/`REQUESTS` `graphql` | JavaScript, TypeScript |
+| `PUBLISHES`/`CONSUMES` `messaging` | Java, Python, Go, JavaScript, TypeScript |
 
 A contract query can return the coverage of the languages present next to
 what it found:
 
 ```cypher
-MATCH (c:ContractCoverage {family: 'grpc_calls'})
+MATCH (c:EdgeCoverage {family: 'REQUESTS', protocol: 'grpc'})
 RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
 ```
 
-`read` with no sites means the reader ran and found nothing it recognises,
-not that the language has no such calls. In online-boutique, the C# cart
-service's tests call `new CartServiceClient(channel)` where the client type
-comes from `using static Hipstershop.CartService;`, which the C# stub
-reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+`no_sites` means the reader ran and found nothing it recognises, not that
+the language has no such calls. In online-boutique, the C# cart service's
+tests call `new CartServiceClient(channel)` where the client type comes from
+`using static Hipstershop.CartService;`, which the C# stub reader does not
+follow, so `REQUESTS grpc csharp` is `no_sites`.
 
 ### OpenAPI Go clients (oapi-codegen)
 
@@ -3888,7 +4011,30 @@ neither server nor client; test source files (Go `_test.go`, Python
 `test_*.py`, `src/test/` and the like) are clients only, their calls marked
 `test_source`. The channel's target address is never read, so a stub links to
 the method wherever it is served; interceptors, reflection and dynamically
-loaded service definitions are not followed. Every edge is `pattern_matched`.
+loaded service definitions are not followed. Every HANDLES and REQUESTS
+edge is `pattern_matched`.
+
+**Message carriers.** For impact (see "Impact"), the Go type checker
+(`go_facts`, go/types) reads which protobuf messages each linked Go stub call
+passes and receives: the named types of its arguments and results, through
+pointers, slices, maps, channels and the type arguments of generic stream
+types (`grpc.ClientStreamingClient[Point, RouteSummary]`), that have
+protoc-gen-go's `ProtoReflect` method. The method's GrpcMethod node lists
+them as `message_types` (import path and name, such as
+`google.golang.org/grpc/examples/route_guide/routeguide.Point`) when every
+linked client call and every handler of the method is in a fully
+type-checked Go file and every call matches the checker's call at the
+method's name; otherwise the property is absent. Each Go function or method
+whose parameter or result types are built the same way from one of those
+types gets a `CARRIES_MESSAGE` edge to the method, listing the types it
+carries (`resolved`, rule `service-contracts.go-signature-carries-message`).
+A wrapper such as route_guide's `printFeature(client, point *pb.Point)`
+carries GetFeature's `Point`; `runRecordRoute(client)`, which builds its
+points inside, carries nothing. On grpc-go `9ad6d94` (`examples/` module,
+route_guide), all 4 methods get message types and every client wrapper,
+server handler and helper whose signature names a message carries it; the
+generated getters and stubs carry theirs too. Other languages' clients and
+handlers are not read yet, so their methods have no `message_types`.
 
 On Online Boutique (`evals/fixtures/service_contracts/online-boutique.json`,
 20 labelled gRPC links, all direct; `--kind grpc` scores a call site by client
@@ -4471,7 +4617,8 @@ component roll-up like HTTP routes and message destinations:
 
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
-| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric. Each migration set (see `data-contracts.sql-foreign-key`) is replayed in order: `DROP TABLE` removes a table (`ddl_tables_dropped`), `ALTER TABLE ... RENAME TO` moves it, declared at the rename (`ddl_tables_renamed`), and a table created twice keeps its first declaration. Rollback migrations declare nothing. A drizzle-kit folder is its own set; on lobe-chat the replayed tables equal the last drizzle-kit snapshot's 256 |
+| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read by PostgreSQL's own parser (libpg_query, through pglast; `postgres` in the `ddl_readers` metric), else from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed`. Each migration set (see `data-contracts.sql-foreign-key`) is replayed in order: `DROP TABLE` removes a table (`ddl_tables_dropped`), `ALTER TABLE ... RENAME TO` moves it, declared at the rename (`ddl_tables_renamed`), and a table created twice keeps its first declaration. Rollback migrations declare nothing. A drizzle-kit folder is its own set; on lobe-chat the replayed tables equal the last drizzle-kit snapshot's 256 |
+| File -[:DECLARES]-> DbColumn, DbTable -[:HAS_COLUMN]-> DbColumn | `data-contracts.sql-column`, `data-contracts.table-has-column` | resolved | each column of a table read by `data-contracts.sql-create-table`, as a `["DbColumn", "Contract"]` node (`{table}::column::{column}`, named `table.column`). The columns are the `CREATE TABLE` column definitions sqlglot (else PostgreSQL's parser) reads, replayed with the tables through each migration set: `ALTER TABLE ... ADD [COLUMN]` adds one, `DROP COLUMN` removes it, and `RENAME COLUMN` and MySQL's `CHANGE` rename it in place, declared at the rename. An ALTER sqlglot does not parse (`ADD CONSTRAINT ... USING INDEX`, `ALTER COLUMN ... SET STATISTICS`) is read by PostgreSQL's parser. A `DO` block runs with its migration, so the statements its PL/pgSQL body runs, in every branch, are read from libpg_query's PL/pgSQL parse at their own lines; a column change in a function or procedure body is not applied (it runs only if called) and leaves its table unknown, and so does a dynamic `EXECUTE` whose expression holds `ALTER` (for the whole migration set). A table that takes columns from elsewhere (`AS SELECT`, `LIKE`, `INHERITS`, `PARTITION OF`, `OF type`) is not complete. A quoted name keeps its case, as PostgreSQL keeps it, and an unquoted one is folded to lower case; a drop or rename matches the exact name, else the one name equal to it ignoring case. A table whose `CREATE TABLE` neither parser reads, or that an `ALTER TABLE` neither parser reads may change (its words include ADD, DROP, RENAME, CHANGE, MODIFY or COLUMN), gets no columns and no `columns_read` property (`ddl_tables_columns_unknown`, `ddl_alter_unparsed`); an unparsed ALTER whose table cannot be read marks the whole migration set. Tables with `columns_read: true` list every column. On lobe-chat all 256 tables are read (7 by PostgreSQL's parser, whose identity sequence options sqlglot rejects), with 3,598 columns: 3,597 equal drizzle-kit's last snapshot and the extra one, `channel_jobs.delivery_key`, is a column migration 0197 keeps on purpose while the snapshot omits it. On simplebank the 74 columns equal the fields of the `models.go` sqlc writes. On Mattermost's PostgreSQL migrations all 88 tables are read, with the columns its migrations add inside `DO` blocks |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |

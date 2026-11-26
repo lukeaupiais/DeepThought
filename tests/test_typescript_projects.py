@@ -155,3 +155,53 @@ class PnpmVersionTest(unittest.TestCase):
             self.assertIn(
                 "packages/a/index.ts", {d.relative_path for d in index.documents}
             )
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-typescript"])
+    and importlib.util.find_spec("google.protobuf")
+    and shutil.which("npm"),
+    "Install scip-typescript, npm and the scip extra",
+)
+class GeneratedConfigTest(unittest.TestCase):
+    def test_a_sveltekit_project_indexes_without_its_generated_config(self):
+        # web/tsconfig.json extends .svelte-kit/tsconfig.json, which only
+        # `svelte-kit sync` writes, by running the repository's own
+        # svelte.config.js; the compiler could not read it and no web file
+        # indexed (immich).
+        from deepthought._scip import scip_pb2
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / "work", Path(scratch) / "out"
+            write(
+                root,
+                {
+                    "web/package.json": json.dumps(
+                        {"name": "web", "dependencies": {"local": "file:./local"}}
+                    ),
+                    "web/local/package.json": json.dumps({"name": "local"}),
+                    "web/tsconfig.json": json.dumps(
+                        {
+                            "extends": "./.svelte-kit/tsconfig.json",
+                            "compilerOptions": {"strict": True},
+                        }
+                    ),
+                    "web/src/lib/a.ts": "export const one = 1;\n",
+                    "web/src/b.ts": 'import { one } from "./lib/a";\n'
+                    "export const two = one + 1;\n",
+                },
+            )
+            report = indexers.index_workspace(root, out, languages=("typescript",))
+            self.assertEqual(indexers.failed_files(report), {})
+            (run,) = [r for r in report["runs"] if r.get("module") == "web"]
+            self.assertEqual(run["status"], "indexed", run)
+            self.assertEqual(
+                run["dependencies"]["placeholder_configs"],
+                ["web/.svelte-kit/tsconfig.json"],
+            )
+            self.assertEqual(report["coverage"]["web/src/b.ts"]["status"], "covered")
+            index = scip_pb2.Index()
+            index.ParseFromString(Path(run["index"]).read_bytes())
+            self.assertIn("web/src/b.ts", {d.relative_path for d in index.documents})
+            # The workspace itself is left as it was.
+            self.assertFalse((root / "web" / ".svelte-kit").exists())
