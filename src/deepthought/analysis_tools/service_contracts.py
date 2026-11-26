@@ -3252,9 +3252,11 @@ class ServiceContractTool(AnalysisTool):
                 file = route.file
             else:
                 continue
-            calls = go_handler_calls.get(file)
+            # A handler that only delegates makes no context call of its
+            # own: its file may give no calls, and its helpers still count.
+            calls = go_handler_calls.get(file) or []
             tree, content = trees.get(file, (None, None))
-            if not calls or tree is None:
+            if tree is None:
                 continue
             if handler is not None:
                 function = _declaration_node(tree, handler)
