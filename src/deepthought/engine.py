@@ -519,7 +519,7 @@ def analyze_repository(
                 if tree.root_node.has_error:
                     coverage.append(
                         FileCoverage(
-                            relative, language, "partial", sha256(content).hexdigest()
+                            relative, language, "partial", digest
                         )
                     )
                     diagnostics.append(
@@ -530,7 +530,7 @@ def analyze_repository(
                 else:
                     coverage.append(
                         FileCoverage(
-                            relative, language, "analyzed", sha256(content).hexdigest()
+                            relative, language, "analyzed", digest
                         )
                     )
                 if language == "c":
