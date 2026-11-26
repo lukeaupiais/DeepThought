@@ -2447,3 +2447,53 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(PYTHON_READY, "Provision the python extra")
+class CallEdgePositionTests(unittest.TestCase):
+    def test_call_edges_sit_where_the_callee_name_is_written(self):
+        import asyncio
+
+        from deepthought.analysis_tools import TreeSitterTool
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "main.py").write_text(
+                "class C:\n"
+                "    def helper(self):\n"
+                "        return self\n"
+                "    def run(self):\n"
+                "        (self\n"
+                "            .helper()\n"  # 6
+                "            .helper())\n"  # 7
+                "        obj.attr.missing(\n"  # 8
+                "            1)\n"
+                "        (obj\n"
+                "            .nothing())\n"  # 11
+            )
+            output = asyncio.run(TreeSitterTool(Path(directory)).analyze("r"))
+        linked = sorted(
+            (r.properties["line"], r.properties["column"])
+            for r in output.relationships
+            if r.type == "CALLS"
+        )
+        # A chain over several lines: each call at its own `.helper`, not at
+        # the `(self` where the chain starts.
+        self.assertEqual(linked[:2], [(6, 13), (7, 13)])
+        unlinked = [
+            (n.properties["line"], n.properties["column"], n.properties["end_line"])
+            for n in output.nodes
+            if "UnresolvedCall" in n.labels
+        ]
+        # The name `missing`, after its receiver; the call still ends on 9.
+        self.assertIn((8, 17, 9), unlinked)
+        self.assertIn((11, 13, 11), unlinked)
+        self.assertEqual(
+            sorted(
+                r.properties["line"]
+                for r in output.relationships
+                if r.type == "HAS_UNRESOLVED_CALL"
+            ),
+            # The second `.helper()` is linked too: pyright types the first
+            # one's result as C.
+            [8, 11],
+        )
