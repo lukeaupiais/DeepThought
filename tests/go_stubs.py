@@ -89,7 +89,13 @@ import "context"
 
 const OffsetNewest int64 = -1
 
-type ProducerMessage struct{ Topic string }
+type Encoder interface{}
+type ByteEncoder []byte
+type StringEncoder string
+type ProducerMessage struct {
+\tTopic string
+\tValue Encoder
+}
 type SyncProducer interface {
 \tSendMessage(msg *ProducerMessage) (int32, int64, error)
 }
@@ -108,7 +114,10 @@ type ConsumerGroup interface {
 
 type Event interface{}
 type TopicPartition struct{ Topic *string }
-type Message struct{ TopicPartition TopicPartition }
+type Message struct {
+\tTopicPartition TopicPartition
+\tValue          []byte
+}
 type Producer struct{}
 
 func (p *Producer) Produce(msg *Message, deliveryChan chan Event) error { return nil }
