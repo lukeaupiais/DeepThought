@@ -266,6 +266,9 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.rows(impact),
             [
+                # The module-level ``ParamsDep = Annotated[Params, ...]`` alias
+                # names the type itself.
+                ("app/aliases.py", 1, "resolved", ["USES_TYPE"]),
                 ("b", 1, "resolved", ["USES_DEPENDENCY"]),
                 ("c", 1, "resolved", ["USES_DEPENDENCY"]),
                 ("d", 1, "resolved", ["USES_DEPENDENCY"]),
