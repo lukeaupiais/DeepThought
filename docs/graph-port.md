@@ -2429,7 +2429,32 @@ references (non-local symbols defined in another document): flask
 never imports itself (poetry's 100 test fixtures) gets no run. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
-from 5,403 to 6,473. scip-go gets
+from 5,403 to 6,473.
+
+A pytest test gets a fixture's value through a parameter without an
+annotation (`def test_x(app): app.route(...)`), which pyright cannot type,
+so scip-python records nothing at `route` or at anything reached from it.
+Each scip-python run whose documents include such tests indexes them a
+second time (`deepthought.fixture_probes`), in a copy of the workspace's
+Python files where each parameter
+that `deepthought.pytest_fixtures` resolves to a module-level fixture defaults to that fixture's value (`def test_x(*,
+app=_f0()):`, with the fixture imported at the end of an earlier line;
+generator and async fixtures through helpers that give what they yield or
+return). Fixtures that request fixtures are rewritten the same way, and the
+fixture decorators are blanked, since pytest's `fixture` hides the function.
+Pyright types a parameter from its default, so the types are the indexer's.
+Every edit is at a line's end or inside a signature, and only global
+symbols outside those spans are added, where the first index has no
+occurrence. Parameters a test assigns, annotated ones, fixtures in classes
+and plugin fixtures (`monkeypatch`) are left alone. The receipt records the
+parameters rewritten and the occurrences added under `fixture_probes`; a
+failed second run is recorded there and the first index is kept. On flask
+(49943b5) the Python calls scip-python left without an occurrence go from
+974 to 165 and the calls it links from 1,210 to 1,650, for about 9% more
+indexing time; httpx gets 90 occurrences. Projects whose fixture parameters
+are annotated (full-stack-fastapi-template) are unchanged.
+
+scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
 `--yarn-workspaces` from the workspace's manifests; `--yarn-workspaces` only
 for a private root package, since Yarn refuses to list the workspaces of
