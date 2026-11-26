@@ -529,7 +529,7 @@ DISAGREEMENT_COLUMNS = (
 def score(result, truth, examples=10, resolutions=None):
     """Judge every engine call resolution (``resolutions``, by default the
     parser's) against expected calls."""
-    from deepthought.calls import resolve_calls
+    from deepthought.calls import CALL_TS_DECLARATION_FILE, resolve_calls
 
     positions, indexed = truth
     expected = {
@@ -575,7 +575,14 @@ def score(result, truth, examples=10, resolutions=None):
         # A declaration's line can be that of its annotations or modifiers,
         # an oracle's that of its name: one inside the other is a match.
         targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
-        if resolution.status == "linked":
+        if resolution.rule_id == CALL_TS_DECLARATION_FILE and not (
+            keys and ours[0] not in targets
+        ):
+            # A declaration file with no implementation analyzed beside it:
+            # the call binds to what it declares, which is never confirmed.
+            # A link the oracle names other targets for is contradicted.
+            outcome = "declaration_file"
+        elif resolution.status == "linked":
             if not keys:
                 outcome = "unjudged" if site.file in indexed else "not_indexed"
             elif ours[0] in targets:
@@ -632,8 +639,9 @@ def score(result, truth, examples=10, resolutions=None):
 
 def analyze(workspace, languages, exclude=()):
     import deepthought
+    from deepthought.ts_modules import with_compiler_modules
 
-    return deepthought.analyze_repository(
+    result = deepthought.analyze_repository(
         Path(workspace).resolve(),
         repository_id="ground-truth",
         languages=tuple(languages),
@@ -641,6 +649,9 @@ def analyze(workspace, languages, exclude=()):
         max_files=100_000,
         max_total_bytes=1_000_000_000,
     )
+    # Imports, and the calls bound through them, as the engine resolves
+    # them: JavaScript and TypeScript by the TypeScript compiler.
+    return with_compiler_modules(result, Path(workspace).resolve())
 
 
 def fetch(corpus, cache):
@@ -1365,7 +1376,10 @@ def missing_requirements(manifest, names=(), scip=False):
     modules = set()
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
-            modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
+            modules.update(
+                LANGUAGES[lang][1]
+                for lang in corpus["languages"] + corpus.get("import_languages", [])
+            )
     if any(
         selected(c)
         for c in [
@@ -1441,10 +1455,12 @@ def score_scip_calls(corpus, workspace, cache, result, expected, examples=10):
     the same indexer derived checks the binding, not the indexer; the
     compile oracles (go_compile_truth.py, ts_compile_truth.py,
     py_check_truth.py) judge the indexer."""
-    from deepthought.scip_calls import bind_calls
+    # As TreeSitterTool binds them: pyright answers the Python calls the
+    # index gets wrong.
+    from deepthought.analysis_tools.tree_sitter import _bind
 
     indexes = engine_indexes(corpus, workspace, cache, scip_languages(corpus))
-    binding = bind_calls(result, indexes, workspace)
+    binding = _bind(result, indexes, workspace)
     report, samples = score(result, expected, examples, binding.resolutions)
     if "impact" in corpus:
         import impact_truth
@@ -1523,9 +1539,17 @@ def check(names, cache, update=False, examples=10, scip=False):
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result,
+                imports_of,
                 read_truth(CORPUS / corpus["imports"]),
+                workspace,
                 corpus.get("imports_granularity") == "directory",
                 examples,
             )
@@ -1601,8 +1625,18 @@ def check(names, cache, update=False, examples=10, scip=False):
             else []
         )
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result, read_truth(CORPUS / corpus["imports"]), examples=examples
+                imports_of,
+                read_truth(CORPUS / corpus["imports"]),
+                workspace,
+                examples=examples,
             )
             report["imports"] = imported
             samples = {"declarations": samples, "imports": import_samples}
@@ -1828,7 +1862,7 @@ def derive_imports(workspace, index, language, directory=False):
     return expected, indexed
 
 
-def score_imports(result, truth, directory=False, examples=10):
+def score_imports(result, truth, workspace, directory=False, examples=10):
     """Import resolutions judged against module-reference truth.
 
     An import statement is judged by the truth lines it spans. It is
@@ -1841,11 +1875,14 @@ def score_imports(result, truth, directory=False, examples=10):
     from deepthought.imports import resolve_imports
 
     expected, indexed = truth
+    # JavaScript and TypeScript imports as the engine resolves them: by the
+    # TypeScript compiler (deepthought.ts_modules).
+    resolutions = resolve_imports(result)
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()
     samples = {"contradicted": [], "linked_external": [], "missed": []}
-    for resolution in resolve_imports(result):
+    for resolution in resolutions:
         item = imports[resolution.import_id]
         if item.file not in indexed:
             counts["not_indexed"] += 1
@@ -2234,9 +2271,9 @@ def main(argv=None):
             # Calls bound from SCIP indexes of the workspace. Truth derived
             # from the same indexer checks the binding, not the indexer.
             import deepthought
-            from deepthought.scip_calls import bind_calls
+            from deepthought.analysis_tools.tree_sitter import _bind
 
-            binding = bind_calls(
+            binding = _bind(
                 result,
                 [
                     (deepthought.ingest_scip(path, repository_id="truth"), "-")

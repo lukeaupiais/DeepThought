@@ -8,7 +8,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from deepthought import imports as import_rules
 from deepthought import ts_modules
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository
@@ -52,8 +51,10 @@ FILES = {
     "typed/package.json": '{"name": "typed", "types": "index.d.ts"}',
     "typed/index.d.ts": "export default 1;\n",
     "typed/index.js": "export default 1;\n",
-    # No project includes it: the language service's options.
+    # No project includes these: the options of the nearest config, here
+    # the root's, whose paths apply.
     "other/x.ts": 'import { y } from "./y";\n',
+    "other/p.ts": 'import { x } from "@lib/m";\n',
     # Configs above the workspace are not read.
     "other/up.ts": 'import { y } from "@up/y";\n',
     "other/y.ts": "export const y = 1;\n",
@@ -68,6 +69,30 @@ FILES = {
     "js/b.js": 'import l from "linkedpkg";\n',
     "js/a.js": 'import { w } from "~/w";\n',
     "js/w.js": "export const w = 1;\n",
+    # The compiler includes one file per name: the .jsx beside d.js is left
+    # out of the project, and resolved with its options in a program of
+    # its own.
+    # Excluded from a project that does not allow JavaScript: allowed here.
+    "tsonly/tsconfig.json": (
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@t/*": ["*"]}},'
+        ' "include": ["v.ts"]}'
+    ),
+    "tsonly/s.js": 'import { v } from "@t/v";\n',
+    "tsonly/v.ts": "export const v = 1;\n",
+    # Of two configs in a directory, the tsconfig.json is the nearest.
+    "both/tsconfig.json": (
+        '{"compilerOptions": {"allowJs": true, "baseUrl": ".",'
+        ' "paths": {"@b/*": ["ts/*"]}}, "include": ["ts"]}'
+    ),
+    "both/jsconfig.json": (
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@b/*": ["js/*"]}},'
+        ' "include": ["js"]}'
+    ),
+    "both/f.js": 'import { t } from "@b/t";\n',
+    "both/ts/t.js": "export const t = 1;\n",
+    "both/js/t.js": "export const t = 1;\n",
+    "js/d.js": "export const d = 1;\n",
+    "js/d.jsx": 'import { w } from "~/w";\n',
     # A solution config includes its files through references, to a file
     # and to a directory; a reference back to it is not followed again.
     "sol/tsconfig.json": (
@@ -148,11 +173,19 @@ class CompilerImportTests(unittest.TestCase):
             repository_id="r",
             languages=("typescript", "javascript", "python"),
         )
-        parsed = import_rules.resolve_imports(result)
         scripts = [c.file for c in result.coverage]
         found = ts_modules.compiler_imports(self.root, scripts)
-        bound = ts_modules.bind_imports(result, self.root, found, parsed)
-        self.assertEqual([r.import_id for r in bound], [r.import_id for r in parsed])
+        bound = ts_modules.bind_imports(result, self.root, found)
+        # One resolution per JavaScript or TypeScript import, in identity
+        # order; other languages and configuration facts get none.
+        self.assertEqual(
+            [r.import_id for r in bound],
+            sorted(
+                i.id
+                for i in result.imports
+                if i.file.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"))
+            ),
+        )
         rule = ts_modules.TYPESCRIPT_COMPILER_MODULE
         outcomes = self.outcomes(result, bound)
         self.assertEqual(
@@ -174,6 +207,12 @@ class CompilerImportTests(unittest.TestCase):
                     (),
                 ),
                 ("src/a.ts", 6): ("./b", "linked", None, (("src/b.ts", rule),)),
+                ("src/a.ts", 7): (
+                    "./lazy",
+                    "linked",
+                    None,
+                    (("src/lazy.ts", rule),),
+                ),
                 ("src/a.ts", 8): (
                     "typed",
                     "linked",
@@ -212,12 +251,21 @@ class CompilerImportTests(unittest.TestCase):
                     (("packages/linkedpkg/index.d.ts", rule),),
                 ),
                 ("src/u.ts", 1): ("./b", "linked", None, (("src/b.ts", rule),)),
+                ("other/p.ts", 1): (
+                    "@lib/m",
+                    "linked",
+                    None,
+                    (("src/lib/m.ts", rule),),
+                ),
             },
         )
         for key, target in (
             ("other/z.js", "other/y.ts"),
             ("js/a.js", "js/w.js"),
             ("js/b.js", "packages/linkedpkg/index.d.ts"),
+            ("js/d.jsx", "js/w.js"),
+            ("tsonly/s.js", "tsonly/v.ts"),
+            ("both/f.js", "both/ts/t.js"),
         ):
             self.assertEqual(outcomes[(key, 1)][3], ((target, rule),))
         # Both statements on a line are bound, each at its own specifier.
@@ -234,33 +282,24 @@ class CompilerImportTests(unittest.TestCase):
         ]
         self.assertEqual(len(line6), 2)
         self.assertTrue(all(r.status == "linked" for r in line6))
-        # Other languages and configuration facts keep the parser's.
-        by_parser = self.outcomes(result, parsed)
         for key in (("p.py", 1), ("tsconfig.json", 1), ("typed/package.json", 1)):
-            self.assertEqual(outcomes[key], by_parser[key])
-        # The compiler records require() and import() too; the parser has
-        # no import fact for them, so they get no edge yet.
-        self.assertIn(("src/c.js", "./b"), {(r.file, r.specifier) for r in found})
-        self.assertIn(("src/a.ts", "./lazy"), {(r.file, r.specifier) for r in found})
+            self.assertNotIn(key, outcomes)
+        # require() in JavaScript and import() are bound like statements.
+        self.assertEqual(outcomes[("src/c.js", 1)][3], (("src/b.ts", rule),))
         self.assertNotIn("src/j.tsx", {r.file for r in found})
         projects = {(row.file, row.project) for row in found}
         self.assertIn(("src/a.ts", "tsconfig.json"), projects)
         self.assertIn(("other/x.ts", None), projects)
+        options = {(row.file, row.project, row.options_from) for row in found}
+        self.assertIn(("other/p.ts", None, "tsconfig.json"), options)
+        self.assertIn(("js/d.jsx", None, "js/jsconfig.json"), options)
 
     def test_an_import_the_compiler_does_not_record_is_reported(self):
         result = analyze_repository(
             self.root, repository_id="r", languages=("typescript",)
         )
-        parsed = import_rules.resolve_imports(result)
-        bound = ts_modules.bind_imports(result, self.root, [], parsed)
-        self.assertEqual(
-            {
-                r.reason
-                for r in bound
-                if r.reason != import_rules.RESOLUTION_CONFIGURATION
-            },
-            {ts_modules.NO_IMPORT},
-        )
+        bound = ts_modules.bind_imports(result, self.root, [])
+        self.assertEqual({r.reason for r in bound}, {ts_modules.NO_IMPORT})
         # A row for another specifier, or outside the statement, is not it.
         (item,) = [i for i in result.imports if i.file == "other/x.ts"]
         rows = [
@@ -271,7 +310,7 @@ class CompilerImportTests(unittest.TestCase):
         ]
         (resolution,) = [
             r
-            for r in ts_modules.bind_imports(result, self.root, rows, parsed)
+            for r in ts_modules.bind_imports(result, self.root, rows)
             if r.import_id == item.id
         ]
         self.assertEqual(resolution.reason, ts_modules.NO_IMPORT)
@@ -285,7 +324,7 @@ class CompilerImportTests(unittest.TestCase):
         )
         found = {
             r.import_id: r.status
-            for r in ts_modules.bind_imports(result, self.root, [row], parsed)
+            for r in ts_modules.bind_imports(result, self.root, [row])
         }
         self.assertEqual((found[first.id], found[second.id]), ("linked", "unresolved"))
         # A file outside the workspace is external.
@@ -294,7 +333,7 @@ class CompilerImportTests(unittest.TestCase):
         )
         (resolution,) = [
             r
-            for r in ts_modules.bind_imports(result, self.root, [outside], parsed)
+            for r in ts_modules.bind_imports(result, self.root, [outside])
             if r.import_id == item.id
         ]
         self.assertEqual(resolution.reason, ts_modules.EXTERNAL)
