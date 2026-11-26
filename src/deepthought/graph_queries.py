@@ -25,7 +25,8 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
     "|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE|CARRIES|READS_COLUMN"
+    "|REFERENCES_TABLE|CARRIES|READS_COLUMN|USES_TYPE|REFERENCES_FUNCTION"
+    "|READS_FIELD|WRITES_FIELD"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
 # What provides a contract: handles a route, publishes to a destination,
@@ -1262,10 +1263,12 @@ class GraphQueryService:
         interface's callers), USES_FIXTURE (a test to its pytest fixtures),
         USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
         CONSUMES, READS, REFERENCES_TABLE (a table with a foreign key to a
-        changed table) and CARRIES (a route or message destination whose
+        changed table), CARRIES (a route or message destination whose
         request, response or message is a changed type, so its clients must
-        change with it) edges, and forwards over HANDLES, PUBLISHES and
-        WRITES: a handler's route (a publisher's
+        change with it), and the SCIP uses USES_TYPE, REFERENCES_FUNCTION,
+        READS_FIELD and WRITES_FIELD (a type contains its fields, so a
+        changed type reaches their readers and writers) edges, and forwards
+        over HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
         readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
