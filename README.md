@@ -189,6 +189,14 @@ full and core-only installations on Python 3.10–3.14 with networking disabled,
 the checkout hidden and fixtures read-only. It retains build artifacts without
 publishing a package release.
 
+Every push to `main` runs all of it. A pull request into `main` tests the oldest
+and newest Python (3.10 and 3.14) and scores the ground-truth corpora only when
+it changes the engine, the scoring tools, the corpora or the build; a change to
+documentation alone gets one build. A pull request stacked on another branch
+runs the test suite only, and its full run comes once it is rebased onto
+`main`. The `ci-ok` check passes when every check the change needed passed, and
+is the one check a merge into `main` waits for.
+
 Apache-2.0. Retained source attribution and licences are in `NOTICE` and `licenses/`.
 
 ### Recorded source consistency (SDK)
@@ -233,6 +241,19 @@ with at most one additional sentinel byte to detect growth past a byte limit.
 Cancellation is cooperative between reads. This SDK operation introduces no new
 mandatory dependency or changes to analysis/graph artifact schemas.
 
+
+### What an edit breaks (CLI)
+
+```sh
+deepthought check-edit ./workspace ./change.diff
+```
+
+Applies the unified diff to a scratch copy, runs the edited languages' own
+type checkers (Go, `tsc`, pyright) on the workspace before and after, and
+prints each new diagnostic at its unedited line with the declaration that
+holds it. Exit codes: **0** nothing breaks, **1** breaks, **3** a check could
+not run, **2** invalid input. See "What an edit breaks" in
+`docs/graph-port.md`.
 
 ### Recorded source consistency (CLI)
 

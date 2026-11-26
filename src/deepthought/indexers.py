@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -86,7 +87,12 @@ INDEXERS = {
         ),
         IndexerSpec(
             "scip-go",
-            "0.1.26",
+            # 0.1.26 knew the standard library from a list built into it: the
+            # uuid package Go 1.27 added (imported by database/sql/driver)
+            # was taken for a module's package without a module, and the run
+            # stopped. 0.2.x reads it from the go command. 0.2.8 and later
+            # write only typed_range, which this reader does not decode yet.
+            "0.2.7",
             ("go",),
             "DEEPTHOUGHT_SCIP_GO",
             # go/token columns are byte offsets.
@@ -230,6 +236,7 @@ def _arguments(spec, root, output, project_name):
         ], root
     if spec.name == "scip-go":
         return [
+            "index",
             "--output",
             str(output),
             "--module-version",
@@ -426,8 +433,10 @@ _GO_IGNORED = {"vendor", "testdata", "node_modules"}
 
 def go_modules(workspace):
     """Workspace-relative directories holding a go.mod (``.`` for the root),
-    outside vendor, testdata and hidden directories. Directories whose name
-    starts with ``_`` are searched too."""
+    outside vendor and hidden directories. Directories named testdata or
+    whose name starts with ``_`` are searched too: the go command's ./...
+    skips them, but a go.mod there is a module of its own (sqlc keeps its
+    922 generated end-to-end packages in internal/endtoend/testdata)."""
     root = Path(workspace).resolve(strict=True)
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -435,9 +444,9 @@ def go_modules(workspace):
             name
             for name in names
             if name not in _SKIP_DIRECTORIES
-            and name not in _GO_IGNORED
-            # A go.mod below a directory the go command ignores (_examples)
-            # is still a module of its own.
+            and name not in _GO_IGNORED - {"testdata"}
+            # A go.mod below a directory the go command ignores (_examples,
+            # testdata) is still a module of its own.
             and not name.startswith(".")
             and not (Path(directory) / name).is_symlink()
         )
@@ -682,21 +691,34 @@ def run_indexer(
                     "without_dependencies",
                 )
             }
-        try:
-            result = subprocess.run(
-                [str(executable), *argv],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                env=_environment(spec, root, environ, platform, dependencies),
+        while True:
+            try:
+                result = subprocess.run(
+                    [str(executable), *argv],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    env=_environment(spec, root, environ, platform, dependencies),
+                )
+            except subprocess.TimeoutExpired:
+                run.reason = "indexer_timeout"
+                run.wall_seconds = time.monotonic() - started
+                return run
+            log = (result.stdout + result.stderr)[-4000:]
+            if spec.name != "scip-typescript" or indexed_root == root:
+                break
+            missing = _missing_generated_configs(
+                result.stdout + result.stderr, indexed_root
             )
-        except subprocess.TimeoutExpired:
-            run.reason = "indexer_timeout"
-            run.wall_seconds = time.monotonic() - started
-            return run
-        log = (result.stdout + result.stderr)[-4000:]
+            if not missing:
+                break
+            _write_placeholder_configs(indexed_root, missing)
+        if spec.name == "scip-typescript" and indexed_root != root:
+            placeholders = _placeholder_configs(indexed_root)
+            if placeholders:
+                run.dependencies["placeholder_configs"] = placeholders
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
             run.wall_seconds = time.monotonic() - started
@@ -823,6 +845,53 @@ def _prepared_packages(root, directory, environ, timeout):
     return prepared
 
 
+# The compiler's report of a configuration file it could not read, such as
+# the target of an ``extends``.
+_UNREADABLE_CONFIG = re.compile(r"error TS5083: Cannot read file '([^']+)'")
+
+
+def _missing_generated_configs(log, indexed_root):
+    """Workspace-relative paths of configuration files the compiler could not
+    read, inside the workspace copy, outside node_modules, and absent.
+
+    A SvelteKit project's tsconfig.json extends .svelte-kit/tsconfig.json,
+    which only ``svelte-kit sync`` writes, and sync runs the repository's own
+    svelte.config.js, which the engine never runs (install scripts are off
+    for the same reason). The compiler names each such file, so an empty
+    configuration stands in for it and the project's files index without the
+    options it would add (SvelteKit's $lib alias stays unresolved)."""
+    copy = Path(indexed_root).resolve()
+    found = set()
+    for match in _UNREADABLE_CONFIG.finditer(log):
+        path = Path(match.group(1)).resolve()
+        if not path.is_relative_to(copy) or path.exists():
+            continue
+        relative = path.relative_to(copy)
+        if "node_modules" in relative.parts or path.suffix != ".json":
+            continue
+        found.add(relative.as_posix())
+    return sorted(found)
+
+
+def _placeholder_record(indexed_root):
+    return Path(indexed_root).parent / "placeholder-configs.json"
+
+
+def _placeholder_configs(indexed_root):
+    """The empty configurations written into this workspace copy so far."""
+    record = _placeholder_record(indexed_root)
+    return json.loads(record.read_text()) if record.is_file() else []
+
+
+def _write_placeholder_configs(indexed_root, missing):
+    for relative in missing:
+        path = Path(indexed_root) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n")
+    written = sorted(set(_placeholder_configs(indexed_root)) | set(missing))
+    _placeholder_record(indexed_root).write_text(json.dumps(written))
+
+
 def _root_config(root):
     """The workspace's own compiler configuration: its tsconfig.json, else
     the jsconfig.json a JavaScript project keeps its options in (preact maps
@@ -868,8 +937,11 @@ def canonical_bytes(index):
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
-    identities are reproducible.
+    identities are reproducible. The indexer's own arguments are dropped:
+    scip-go 0.2 records its scratch output path there, and the receipt keeps
+    the arguments with paths left out.
     """
+    del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
         occurrences = sorted(
@@ -993,6 +1065,16 @@ def _index_workspace(
 ):
     runs = []
     modules = go_modules(root) if "go" in present else []
+    # A module that holds no Go source file of its own (a testdata fixture
+    # with only a go.mod) has nothing to index.
+    modules = [
+        m
+        for m in modules
+        if any(
+            language == "go" and go_module_of(path, modules) == m
+            for path, language in sources.items()
+        )
+    ]
     projects = (
         typescript_projects(root) if present & {"typescript", "javascript"} else []
     )
