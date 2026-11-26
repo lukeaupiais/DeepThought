@@ -313,7 +313,7 @@ class ScipReferences:
         when no index covers the file or it records no reference there, else
         a tuple (empty for a symbol declared outside the repository). A
         declaration of another name is dropped, since an index may follow a
-        star re-export to a wrong one."""
+        star re-export to a wrong one; a ``name`` of None keeps every one."""
         view = self.covering.get(file)
         if view is None:
             return None
@@ -332,7 +332,9 @@ class ScipReferences:
         for reference in found:
             for scip in view.definitions.get(_key(file, reference.native_id), ()):
                 parsed = _declaration(scip, view, self.lines, self.in_file)
-                if parsed is not None and parsed.symbol.rsplit(".", 1)[-1] == name:
+                if parsed is not None and (
+                    name is None or parsed.symbol.rsplit(".", 1)[-1] == name
+                ):
                     targets[parsed.id] = parsed
         return tuple(sorted(targets.values(), key=lambda d: d.id))
 

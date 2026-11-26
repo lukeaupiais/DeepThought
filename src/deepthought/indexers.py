@@ -605,6 +605,7 @@ class IndexRun:
     module: str | None = None
     platform: str | None = None
     dependencies: dict | None = None
+    fixture_probes: dict | None = None
 
     def to_dict(self):
         return {
@@ -624,6 +625,11 @@ class IndexRun:
             **(
                 {"dependencies": self.dependencies}
                 if self.dependencies is not None
+                else {}
+            ),
+            **(
+                {"fixture_probes": self.fixture_probes}
+                if self.fixture_probes is not None
                 else {}
             ),
         }
@@ -870,6 +876,20 @@ def run_indexer(
         ]
         for document in outside + other:
             parsed.documents.remove(document)
+        if spec.name == "scip-python":
+            run.fixture_probes = _probe_fixtures(
+                spec,
+                executable,
+                argv[argv.index("--project-name") + 1],
+                root,
+                base,
+                Path(scratch),
+                environ,
+                dependencies,
+                timeout,
+                parsed,
+                before,
+            )
         # The indexers record the workspace's absolute URI; documents are
         # relative to it, and nothing reads it, so it is fixed to keep the
         # index the same wherever the workspace lives.
@@ -920,6 +940,11 @@ def run_indexer(
                     else {}
                 ),
                 **(
+                    {"fixture_probes": run.fixture_probes}
+                    if run.fixture_probes is not None
+                    else {}
+                ),
+                **(
                     {
                         "platform": platform or GO_PLATFORM,
                         "go_version": (
@@ -940,6 +965,91 @@ def run_indexer(
     run.documents = documents
     run.wall_seconds = time.monotonic() - started
     return run
+
+
+def _probe_fixtures(
+    spec,
+    executable,
+    project_name,
+    root,
+    base,
+    scratch,
+    environ,
+    dependencies,
+    timeout,
+    parsed,
+    inputs,
+):
+    """Add to ``parsed`` what scip-python gives the code of tests and
+    fixtures once their fixture parameters are typed
+    (``deepthought.fixture_probes``): a second run over a rewritten copy of
+    the workspace's Python files, limited to the directory holding this
+    run's rewritten files. Returns the counts for the receipt, or None when
+    nothing is rewritten."""
+    from ._scip import scip_pb2
+    from .fixture_probes import HELPERS, HELPERS_TEXT, merge, plan, target
+
+    sources = {}
+    for path in inputs:
+        if path.endswith(".py"):
+            try:
+                sources[path] = (root / path).read_text("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+    rewrite = plan(sources)
+    directory = target(rewrite, {d.relative_path for d in parsed.documents})
+    if directory is None:
+        return None
+    copy = scratch / "fixture-probes"
+    if not copy.is_dir():
+        for path in inputs:
+            destination = copy / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if path in rewrite.files:
+                destination.write_text(rewrite.files[path], "utf-8")
+            else:
+                shutil.copyfile(root / path, destination)
+        (copy / HELPERS).mkdir()
+        (copy / HELPERS / "__init__.py").write_text(HELPERS_TEXT, "utf-8")
+    output = scratch / "fixture-probes.scip"
+    output.unlink(missing_ok=True)
+    outcome = {"parameters": rewrite.parameters}
+    try:
+        result = subprocess.run(
+            [
+                str(executable),
+                "index",
+                "--cwd",
+                str(copy),
+                "--output",
+                str(output),
+                "--project-name",
+                project_name,
+                "--project-version",
+                "0",
+                "--quiet",
+                *(["--target-only", directory] if directory != "." else []),
+            ],
+            cwd=copy,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=_environment(
+                spec, copy, environ, None, dependencies, copy / base.relative_to(root)
+            ),
+        )
+    except subprocess.TimeoutExpired:
+        return {**outcome, "status": "failed", "reason": "indexer_timeout"}
+    if result.returncode or not output.is_file():
+        return {**outcome, "status": "failed", "reason": "indexer_failed"}
+    rewritten = scip_pb2.Index()
+    rewritten.ParseFromString(output.read_bytes())
+    return {
+        **outcome,
+        "status": "indexed",
+        "occurrences": merge(parsed, rewritten, rewrite, directory),
+    }
 
 
 def _without_logs(value):
