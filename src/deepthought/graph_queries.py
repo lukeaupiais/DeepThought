@@ -219,7 +219,7 @@ def _is_path(value):
     return "/" in value or value.rpartition(".")[2] in _FILE_KINDS
 
 
-_NAMELIKE = re.compile(r"^[A-Za-z_$][\w$]{2,}$")
+_NAMELIKE = re.compile(r"^(?=.{3})[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$")
 
 
 def _query_strings(query, parameters):
@@ -521,14 +521,18 @@ class GraphQueryService:
             ) as session:
                 from neo4j import Query
 
-                result = await session.run(
-                    Query(
-                        "MATCH (n) OPTIONAL MATCH (n)-[r]->() "
-                        "RETURN count(n) AS nodes, count(r) AS relationships",
-                        timeout=timeout,
-                    )
-                )
-                await result.consume()
+                for text in (
+                    "MATCH (n) OPTIONAL MATCH (n)-[r]->() "
+                    "RETURN count(n) AS nodes, count(r) AS relationships",
+                    # The properties first questions filter on, not only the
+                    # records: "what is declared at file:line".
+                    "MATCH (s:Symbol) RETURN count(s.name) AS names,"
+                    " count(s.file_path) AS files, max(s.start_line) AS first,"
+                    " max(s.end_line) AS last",
+                    "MATCH (f:File) RETURN count(f.path) AS paths",
+                ):
+                    result = await session.run(Query(text, timeout=timeout))
+                    await result.consume()
         except Exception:
             return False
         return True
@@ -2838,24 +2842,26 @@ class GraphQueryService:
         )
 
     async def _why_empty(self, query, parameters, repo_url, snapshot_id, timeout):
-        """Sentences on why a query matched nothing, from the paths and names
-        it looks for: a path no analyzed file has (and whether the file is in
-        the working copy, and whether its kind of file is analyzed at all), or
-        a name that is declared, so the query's other conditions are what
-        matched nothing."""
+        """Sentences on why a query matched nothing, from the paths and code
+        names it looks for. A path no analyzed file has is named (with
+        whether the working copy has it and whether its kind of file is
+        analyzed at all); a declared name is located, with its callers; an
+        undeclared one is named. When everything the query looks for is in
+        the graph, the last sentence says its other conditions matched
+        nothing."""
         strings = _query_strings(query, parameters)
-        paths = [v for v in strings if _is_path(v)]
-        # Code names: camelCase, PascalCase or snake_case. Plain words
-        # ('python', 'linked') and ALL_CAPS labels are property values.
+        paths = [v for v in strings if _is_path(v)][:8]
+        # Code names, dotted ones (Scanner.PopValue) included. A plain
+        # lowercase word may be a property value ('python', 'linked'), so it
+        # is only reported when something by that name is declared.
         names = [
             v
             for v in strings
-            if _NAMELIKE.match(v) and re.search(r"[a-z]", v) and re.search(r"[A-Z_]", v)
-        ]
-        paths, names = paths[:8], names[:8]
+            if _NAMELIKE.match(v) and v not in paths and re.search(r"[a-z]", v)
+        ][:8]
         if not paths and not names:
             return []
-        reasons = []
+        reasons, missing = [], 0
         async with self.driver.session(
             database=self.database, default_access_mode="READ"
         ) as session:
@@ -2866,11 +2872,13 @@ class GraphQueryService:
                     result = await tx.run(
                         "UNWIND $paths AS p OPTIONAL MATCH (f:File {repo_url:$repo_url,"
                         "snapshot_id:$snapshot_id}) WHERE f.path CONTAINS p "
-                        "RETURN p, count(f) AS files",
+                        "WITH p, collect(f.path) AS found "
+                        "RETURN p, size(found) AS files, found[0] AS example",
                         paths=paths,
                         **scope,
                     )
-                    absent = [r["p"] async for r in result if not r["files"]]
+                    found = {r["p"]: (r["files"], r["example"]) async for r in result}
+                    absent = [p for p in paths if not found.get(p, (0,))[0]]
                     analyzed = set()
                     if absent:
                         result = await tx.run(
@@ -2882,18 +2890,24 @@ class GraphQueryService:
                             **scope,
                         )
                         analyzed = {r["extension"] async for r in result}
-                    for path in absent:
+                    for path in paths:
+                        files, example = found.get(path, (0, None))
+                        if files:
+                            reasons.append(
+                                f"'{path}' is analyzed ({example}"
+                                + (f" and {files - 1} more" if files > 1 else "")
+                                + ")."
+                            )
+                            continue
+                        missing += 1
                         sentence = f"No analyzed file path contains '{path}'"
                         if self.workspace is not None and self._workspace_digest(
                             path
                         ) not in (None, _OUTSIDE):
                             sentence += ", though the working copy has that file"
-                        extension = path.rsplit("/", 1)[-1].rpartition(".")[2]
-                        if (
-                            "." in path.rsplit("/", 1)[-1]
-                            and analyzed
-                            and (extension not in analyzed)
-                        ):
+                        base = path.rsplit("/", 1)[-1]
+                        extension = base.rpartition(".")[2]
+                        if "." in base and analyzed and extension not in analyzed:
                             sentence += (
                                 f": no .{extension} file is analyzed in this snapshot "
                                 "(analyzed: "
@@ -2903,26 +2917,47 @@ class GraphQueryService:
                         reasons.append(sentence + ".")
                 if names:
                     result = await tx.run(
-                        "UNWIND $names AS n OPTIONAL MATCH (s:Symbol {repo_url:$repo_url,"
+                        "UNWIND $names AS n "
+                        "OPTIONAL MATCH (s:Symbol {repo_url:$repo_url,"
                         "snapshot_id:$snapshot_id,name:n}) "
-                        "RETURN n, count(s) AS declared",
+                        "WITH n, s ORDER BY s.file_path, s.start_line "
+                        "WITH n, collect(s) AS declared "
+                        "WITH n, declared, declared[0] AS first "
+                        "OPTIONAL MATCH (caller)-[c:CALLS]->(callee) "
+                        "WHERE callee IN declared "
+                        "RETURN n, size(declared) AS count, first.file_path AS file, "
+                        "first.start_line AS line, count(c) AS callers",
                         names=names,
                         **scope,
                     )
                     for record in [r async for r in result]:
-                        if record["declared"]:
-                            reasons.append(
-                                f"'{record['n']}' is declared ({record['declared']} "
-                                "declaration(s) by that name), so the query's other "
-                                "conditions matched nothing."
+                        name, count = record["n"], record["count"]
+                        if count:
+                            where = f"{record['file']}:{record['line']}"
+                            sentence = (
+                                f"'{name}' is declared at {where}"
+                                if count == 1
+                                else f"'{name}' has {count} declarations, the first"
+                                f" at {where}"
                             )
-                        else:
                             reasons.append(
-                                f"Nothing named '{record['n']}' is declared in the "
+                                f"{sentence}, with {record['callers']} call"
+                                f"{'' if record['callers'] == 1 else 's'} to"
+                                f" {'it' if count == 1 else 'them'}."
+                            )
+                        elif re.search(r"[A-Z_.]", name):
+                            missing += 1
+                            reasons.append(
+                                f"Nothing named '{name}' is declared in the "
                                 "analyzed files."
                             )
             finally:
                 await tx.rollback()
+        if reasons and not missing:
+            reasons.append(
+                "Everything above is in the graph, so the query's other conditions"
+                " (links, properties, line numbers) matched nothing."
+            )
         return reasons
 
     async def query_cypher(
