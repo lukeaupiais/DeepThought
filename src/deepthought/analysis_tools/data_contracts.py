@@ -22,6 +22,7 @@ import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from .. import ts_modules
 from ..gorm_naming import table_names as gorm_table_names
 from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
@@ -1117,6 +1118,8 @@ class DataContractTool(AnalysisTool):
             max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         scan = scan_components(root, include=include, exclude=exclude)
         packages = {c: c for c in scan.components if c.kind in PACKAGE_KINDS}
         cache = {}

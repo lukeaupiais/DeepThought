@@ -308,8 +308,14 @@ class NestedFunctionTests(unittest.TestCase):
             "})\n",
             "utf-8",
         )
-        result = deepthought.analyze_repository(
-            repo, repository_id="t", languages=("typescript",)
+        from deepthought.ts_modules import with_compiler_modules
+
+        # TypeScript imports are the compiler's.
+        result = with_compiler_modules(
+            deepthought.analyze_repository(
+                repo, repository_id="t", languages=("typescript",)
+            ),
+            repo,
         )
         # The oracle labels test cases by their call (`it.each(rows)("x")`)
         # and keeps the callback inside describe("wrapped") as its own node.
