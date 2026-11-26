@@ -1275,6 +1275,18 @@ PROTO_FIELD_TYPE_RULE = register_rule(
         "value) holds to a type of a compiled .proto file of the repository.",
     )
 )
+PROTO_GO_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-generated-proto-type",
+        "resolved",
+        "The Go type checker reads the protoimpl.TypeBuilder protoc-gen-go "
+        "writes in a generated file: protobuf decodes its RawDescriptor, and "
+        "its GoTypes give the Go type of each enum and message of that "
+        "descriptor, in protobuf-go's flattened ordering (NumEnums and "
+        "NumMessages must match the descriptor). The Go type is generated "
+        "from the type of that full name in the repository's .proto files.",
+    )
+)
 PROTO_RPC_MESSAGE_RULE = register_rule(
     EvidenceRule(
         "service-contracts.grpc-method-message",
@@ -1295,6 +1307,7 @@ NON_SITE_RULES = frozenset(
         PROTO_TYPE_RULE.rule_id,
         PROTO_FIELD_TYPE_RULE.rule_id,
         PROTO_RPC_MESSAGE_RULE.rule_id,
+        PROTO_GO_TYPE_RULE.rule_id,
     }
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
@@ -2072,11 +2085,13 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
 
 def _go_messaging_facts(root, sources):
     """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
-    calls}, (GoRoutes, unread), GoStructs) from the Go type checker: the
+    calls}, (GoRoutes, unread), GoStructs, GoProtoFiles) from the Go type
+    checker: the
     first for the Go sources that import a broker client, the third for
     those whose HTTP handlers may carry payloads
     (``_GO_HTTP_PAYLOAD_IMPORTS``), the fourth the routes of gin, Echo, chi
-    and Fiber routers (``go_routes``), the last the module's struct types;
+    and Fiber routers (``go_routes``), then the module's struct types, the
+    last the protoc-gen-go files' descriptors and Go types;
     reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
@@ -2110,11 +2125,20 @@ def _go_messaging_facts(root, sources):
     ]
     if not routers:
         routing = []
-    if not files and not handlers and not routing:
-        return {}, {}, {}, ([], []), ()
+    # protoc-gen-go output: its TypeBuilder names the Go type of each
+    # message and enum of the .proto file.
+    generated = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and c.file.endswith(".go")
+        and b"protoimpl.TypeBuilder" in content
+    ]
+    if not files and not handlers and not routing and not generated:
+        return {}, {}, {}, ([], []), (), ()
     facts = go_facts.collect(
         root,
-        sorted({*files, *handlers, *routing}),
+        sorted({*files, *handlers, *routing, *generated}),
         list(_go_modules(root, sources).values()),
     )
     calls, literals = defaultdict(list), defaultdict(list)
@@ -2140,7 +2164,14 @@ def _go_messaging_facts(root, sources):
         for file in routers
         if file in facts.uncovered
     )
-    return found, go_facts.gopath_report(facts), handler_calls, routes, facts.structs
+    return (
+        found,
+        go_facts.gopath_report(facts),
+        handler_calls,
+        routes,
+        facts.structs,
+        facts.proto_files,
+    )
 
 
 _FIELD_DEPTH = 6
@@ -2574,12 +2605,23 @@ def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
-def _proto_type_graph(repo_url, grpc, grpc_names, file_node, nodes, relationships):
+def _proto_type_graph(
+    repo_url,
+    grpc,
+    grpc_names,
+    file_node,
+    nodes,
+    relationships,
+    go_proto_files=(),
+    declaration=None,
+    symbol_node=None,
+):
     """ProtoMessage, ProtoField and ProtoEnum nodes of the compiled .proto
     files, and the rpcs' request and response messages (CARRIES). Copies of
     one type (a .proto vendored into each service) are one node declared in
     each copy; when the copies' fields disagree, the node says so and has no
-    fields. Returns the number of CARRIES edges written."""
+    fields. The Go types protoc-gen-go generates for them are GENERATED_FROM
+    them. Returns the numbers of CARRIES and GENERATED_FROM edges written."""
     from deepthought.service_contracts.protoc import ProtoMessage
 
     def key(item):
@@ -2719,7 +2761,37 @@ def _proto_type_graph(repo_url, grpc, grpc_names, file_node, nodes, relationship
                 PROTO_RPC_MESSAGE_RULE,
                 {"direction": direction},
             )
-    return carried
+    # Go: protoc-gen-go's TypeBuilder lists, for its file's descriptor, the
+    # Go type of each enum and message; a type whose descriptor the
+    # repository's .proto files also declare is generated from it.
+    from deepthought.service_contracts.protoc import flattened_types
+
+    generated = 0
+    seen = set()
+    for item in go_proto_files:
+        names = flattened_types(item.descriptor, item.enums, item.messages)
+        if names is None:
+            continue
+        for position, full_name in enumerate(names):
+            go_type = item.types[position] if position < len(item.types) else None
+            kind = "enum" if position < item.enums else "message"
+            if go_type is None or (kind, full_name) not in copies:
+                continue
+            file, line, name = go_type
+            definition_id = declaration(file, name, line)
+            if definition_id is None or (definition_id, full_name) in seen:
+                continue
+            seen.add((definition_id, full_name))
+            generated += 1
+            edge(
+                "GENERATED_FROM",
+                *symbol_node(definition_id),
+                labels[kind],
+                qualified(kind, full_name),
+                PROTO_GO_TYPE_RULE,
+                {"file_path": file, "line": line},
+            )
+    return carried, generated
 
 
 @register_tool
@@ -2951,6 +3023,7 @@ class ServiceContractTool(AnalysisTool):
             go_handler_calls,
             (go_found_routes, go_route_unread),
             go_structs,
+            go_proto_files,
         ) = _go_messaging_facts(root, sources)
         # Go handler declarations by (file, line) of their name.
         go_declarations = defaultdict(list)
@@ -4020,8 +4093,16 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
-        proto_carried = _proto_type_graph(
-            repo_url, grpc, grpc_names, file_node, nodes, relationships
+        proto_carried, proto_generated = _proto_type_graph(
+            repo_url,
+            grpc,
+            grpc_names,
+            file_node,
+            nodes,
+            relationships,
+            go_proto_files,
+            declaration,
+            symbol_node,
         )
         for handler in grpc.handlers:
             labels, source = symbol_node(handler.handler_id)
@@ -4355,6 +4436,7 @@ class ServiceContractTool(AnalysisTool):
                     sorted(Counter(type(t).__name__ for t in grpc.proto_types).items())
                 ),
                 "grpc_proto_message_edges": proto_carried,
+                "proto_generated_types": proto_generated,
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())

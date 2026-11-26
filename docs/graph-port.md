@@ -4809,9 +4809,25 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   and a `DECLARES` from each file; when the copies' fields or values
   disagree the node has `copies_disagree` and no fields. Map entry messages
   are their field's map, not types. The `proto_types` metric counts the
-  types read and `grpc_proto_message_edges` the `CARRIES` edges. The
-  generated code of each message (protoc-gen-go structs, `_pb2` classes,
-  TypeScript declarations) is not linked to it yet.
+  types read and `grpc_proto_message_edges` the `CARRIES` edges.
+- **Generated Go types.** The Go type that protoc-gen-go generates for a
+  message or enum is `GENERATED_FROM` that type (rule
+  `service-contracts.go-generated-proto-type`, resolved, with the Go type's
+  `file_path` and `line`). The Go type checker reads the
+  `protoimpl.TypeBuilder` in the generated file's init. Its `DescBuilder`
+  holds the file's serialized descriptor (a `[]byte` literal, or since
+  protoc-gen-go 1.36 a string constant through `unsafe.Slice`), which
+  protobuf decodes. Its `GoTypes` gives the Go type of each enum and then
+  each message, in protobuf-go's flattened ordering: top-level
+  declarations first, then, for each message in depth-first order, the
+  enums or messages nested directly in it. Map entries have no Go type.
+  `NumEnums` and `NumMessages` must match the descriptor. So the link does
+  not depend on how protoc-gen-go names types, or on where the code was
+  generated to (`go_package` often names another import path than the
+  directory the code is committed in). A type links only when a compiled
+  `.proto` file of the repository declares its full name. The
+  `proto_generated_types` metric counts the links. Python `_pb2` modules
+  and TypeScript declarations are not linked yet.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
