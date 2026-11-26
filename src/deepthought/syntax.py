@@ -5328,7 +5328,9 @@ def _go_binding(node, content, callee, cache):
     if visible is None:
         return None
     value = visible[1]
-    name = _bound_name(value) if getattr(value, "type", None) == "func_literal" else None
+    name = (
+        _bound_name(value) if getattr(value, "type", None) == "func_literal" else None
+    )
     if name is None:
         return ()
     return (name.start_point.row + 1, name.start_point.column)
