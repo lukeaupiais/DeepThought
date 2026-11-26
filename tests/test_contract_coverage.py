@@ -107,7 +107,9 @@ class ContractCoverageTests(unittest.TestCase):
     def test_contract_site_rules_are_parser_rules(self):
         # Coverage reports every read family as parser_rules. A contract
         # site rule backed by a deterministic tool (evidence ``resolved``)
-        # must come with linked or partial coverage for its files.
+        # must come with linked or partial coverage for its files. Rules of
+        # edges that are not sites (NON_SITE_RULES: what a site carries) are
+        # not coverage's.
         import deepthought.analysis_tools.service_contracts as contracts
         from deepthought.analysis_tools.evidence import _RULES
 
@@ -117,6 +119,7 @@ class ContractCoverageTests(unittest.TestCase):
             for rule_id, rule in _RULES.items()
             if rule_id.startswith("service-contracts.")
             and rule.evidence_type != "pattern_matched"
+            and rule_id not in contracts.NON_SITE_RULES
         )
         self.assertEqual(resolved, ["service-contracts.repository-contains-graphql"])
 

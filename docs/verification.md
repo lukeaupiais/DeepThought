@@ -1274,6 +1274,19 @@ dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
 none.
 
+TypeScript has a similar gap: a call through a member of a constant object
+literal, such as `const detector = detectors[name]; detector(c, options)`
+in hono's language middleware, binds to the local `detector`, so the call
+graph stops there. `node tools/ts_member_dispatch.cjs TYPESCRIPT_JS ROOT`
+(the TypeScript package scip-typescript installs, with the call truth's
+`# indexed` files on stdin) resolves the object to a `const` whose
+initializer is an object literal and lists each member the compiler names
+as a possible target of that call. A key that is a literal, a non-constant
+object, or a member the compiler cannot name (a spread, a computed value)
+yields no row. Passed as `--possible-calls`, these make a dependent reached
+only through them unjudged: hono gains one `# unjudged` row
+(`detectLanguage` for the cookie parser), ky and preact none.
+
 Go call truth comes from scip-go, so a separate oracle checks it with the
 compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
 module, renames a seeded sample of declarations one at a time, and runs
@@ -1305,6 +1318,9 @@ renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
 38 give 431, all confirmed, and 6 fall outside the project.
+JavaScript declarations are sampled too: with `allowJs` and `checkJs` in
+the project, tsc reports their uses at `.js`, `.mjs` and `.cjs` paths, and
+JavaScript outside the project is `blocked` like TypeScript.
 
 `tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
 Python with mypy (`--check-untyped-defs`, no configuration file, so no
@@ -1322,7 +1338,10 @@ are blanked first, since one would hide the error a rename adds. Each edit gets 
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
-36 give 145, all confirmed, and 2 are `untyped`.
+36 give 145, all confirmed, and 2 are `untyped`. On rich, whose call truth is
+scip-python's, 27 give 119: 116 are confirmed, and the other 3 are in
+`rich/_win32_console.py`, which mypy treats as unreachable off Windows and does
+not check.
 
 gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
