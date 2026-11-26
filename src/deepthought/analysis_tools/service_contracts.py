@@ -968,6 +968,11 @@ CARRIES_MESSAGE_RULE = register_rule(
     )
 )
 
+# Rules of this tool's edges that are not contract sites (HANDLES,
+# REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
+# Contract coverage counts sites only, so these may be resolved.
+NON_SITE_RULES = frozenset({CARRIES_MESSAGE_RULE.rule_id})
+
 
 _BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
 
