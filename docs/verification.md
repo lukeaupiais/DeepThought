@@ -1271,6 +1271,19 @@ dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
 none.
 
+TypeScript has a similar gap: a call through a member of a constant object
+literal, such as `const detector = detectors[name]; detector(c, options)`
+in hono's language middleware, binds to the local `detector`, so the call
+graph stops there. `node tools/ts_member_dispatch.cjs TYPESCRIPT_JS ROOT`
+(the TypeScript package scip-typescript installs, with the call truth's
+`# indexed` files on stdin) resolves the object to a `const` whose
+initializer is an object literal and lists each member the compiler names
+as a possible target of that call. A key that is a literal, a non-constant
+object, or a member the compiler cannot name (a spread, a computed value)
+yields no row. Passed as `--possible-calls`, these make a dependent reached
+only through them unjudged: hono gains one `# unjudged` row
+(`detectLanguage` for the cookie parser), ky and preact none.
+
 Go call truth comes from scip-go, so a separate oracle checks it with the
 compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
 module, renames a seeded sample of declarations one at a time, and runs
@@ -1302,6 +1315,9 @@ renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
 38 give 431, all confirmed, and 6 fall outside the project.
+JavaScript declarations are sampled too: with `allowJs` and `checkJs` in
+the project, tsc reports their uses at `.js`, `.mjs` and `.cjs` paths, and
+JavaScript outside the project is `blocked` like TypeScript.
 
 `tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
 Python with mypy (`--check-untyped-defs`, no configuration file, so no

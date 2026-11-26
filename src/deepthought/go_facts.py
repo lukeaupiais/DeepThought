@@ -49,6 +49,10 @@ class GoMissing(RuntimeError):
     """The Go toolchain, which types Go code for the engine, is not installed."""
 
 
+class GoVersionUnreadable(RuntimeError):
+    """``go env GOVERSION`` names no Go release the engine can compare."""
+
+
 @dataclass(frozen=True)
 class GoValue:
     """What gofacts knows of an argument or a keyed literal element."""
@@ -180,6 +184,21 @@ def _version(name):
     return tuple(int(part or 0) for part in match.groups()) if match else None
 
 
+def installed_version(goversion):
+    """The release of the installed Go command, from ``go env GOVERSION``:
+    (1, 27, 4) for "go1.27.4", and for an experiment build such as
+    "go1.27.4-X:nodwarf5" or "go1.27.4 X:nodwarf5", whose experiment
+    suffix does not change the release. Raises GoVersionUnreadable for
+    anything else."""
+    version = _version(re.sub(r"[- ]X:\S*$", "", goversion or ""))
+    if version is None:
+        raise GoVersionUnreadable(
+            f"cannot read the Go release from GOVERSION {goversion!r}; "
+            "install a Go release (go1.N.M)"
+        )
+    return version
+
+
 def wanted_toolchain(text):
     """The toolchain a go.mod asks for: its toolchain line, else the release
     its go line names (go 1.26.0 is go1.26.0; from Go 1.21, go 1.22 is
@@ -198,7 +217,7 @@ def module_toolchain(go, info, text):
     for a newer release that the module cache already holds (as ``go``
     with GOTOOLCHAIN=auto would download it). Nothing is downloaded."""
     wanted = wanted_toolchain(text)
-    if wanted is None or _version(wanted) <= _version(info["GOVERSION"]):
+    if wanted is None or _version(wanted) <= installed_version(info["GOVERSION"]):
         return go
     cached = (
         Path(info["GOMODCACHE"])

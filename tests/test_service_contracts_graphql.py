@@ -9,6 +9,7 @@ import unittest
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.service_contracts.graphql import schema_fields
+from typescript_ready import needs_typescript
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_typescript"
@@ -144,6 +145,7 @@ class SchemaTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class ResolverTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -278,6 +280,7 @@ const notAServer = { Query: { field: () => 1 } };
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class ResolverMapTests(unittest.TestCase):
     def test_resolver_maps(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -414,6 +417,7 @@ module.exports = { Query, Mutation };
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class ResolverModuleTests(unittest.TestCase):
     def test_followed_modules(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -502,6 +506,7 @@ const AMBIGUOUS = gql`{ shared ghost }`;
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class ClientTests(unittest.TestCase):
     def test_client_operations(self):
         with tempfile.TemporaryDirectory() as directory:

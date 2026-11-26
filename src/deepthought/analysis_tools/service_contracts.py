@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from collections import Counter, defaultdict
 from hashlib import sha256
+import contextlib
 import dataclasses
 from pathlib import PurePosixPath
 import functools
@@ -24,12 +25,10 @@ import time
 
 from .._version import __version__
 from ..data_contracts import (
-    read_tsconfig_paths,
-    resolve_script_alias,
     resolve_script_module,
 )
 from ..engine import analyze_repository, source_languages
-from .. import go_facts
+from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -39,6 +38,7 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
+from ..service_contracts.folding import compiler_values
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -1356,9 +1356,9 @@ def _config_paths(root, names):
 
 
 def _script_constants(root, sources):
-    """String constants the repository's scripts export, import or have
-    defined by angular.json, resolving relative imports and tsconfig.json
-    ``paths`` aliases to analyzed script files."""
+    """The repository's scripts with the TypeScript compiler's facts about
+    them (``ts_facts``: string values of names, and how imports resolve)
+    and the globals angular.json defines for them."""
     scripts = {
         coverage.file: (tree, content, coverage.language)
         for coverage, content, tree in sources
@@ -1366,30 +1366,15 @@ def _script_constants(root, sources):
     }
     if not scripts:
         return None
-    files = set(scripts)
-    ts_paths, defines = {}, []
-    for path in _config_paths(root, ("tsconfig.json", "angular.json")):
+    defines = []
+    for path in _config_paths(root, ("angular.json",)):
         try:
             content = (root / path).read_bytes()
         except OSError:
             continue
-        if path.endswith("angular.json"):
-            defines.extend(angular_defines(path, content))
-            continue
-        found = read_tsconfig_paths(path, content)
-        if found is not None:
-            ts_paths[path.rpartition("/")[0]] = found
-    cache = {}
-
-    def resolve(file, module):
-        key = (file, module)
-        if key not in cache:
-            cache[key] = resolve_script_module(
-                file, module, files
-            ) or resolve_script_alias(file, module, files, ts_paths)
-        return cache[key]
-
-    return ScriptConstants(scripts, resolve, defines)
+        defines.extend(angular_defines(path, content))
+    facts = ts_facts.collect(root, list(scripts), defines)
+    return ScriptConstants(scripts, facts, defines)
 
 
 # Build manifests: the nearest directory above a file with one of them is
@@ -1635,61 +1620,80 @@ def _go_modules(root, sources):
     return found
 
 
-# The languages each contract family has a reader for in this tool. A
-# language of the repository outside a family's set is stated as not read,
-# so that the sites found for a family are not taken as all of them.
+# The languages each contract family has a reader for in this tool, by
+# (edge family, protocol). A language of the repository outside a family's
+# set is stated as not linked, so that the sites found for a family are not
+# taken as all of them.
 _WEB_LANGUAGES = frozenset(
     {"python", "javascript", "typescript", "go", "java", "csharp", "php"}
 )
+_MESSAGING_LANGUAGES = frozenset({"java", "python", "go", "javascript", "typescript"})
 CONTRACT_READERS = {
-    "http_routes": _WEB_LANGUAGES,
-    "http_requests": _WEB_LANGUAGES,
-    "grpc_handlers": frozenset(grpc_contracts.SERVER_LANGUAGES),
-    "grpc_calls": frozenset(grpc_contracts.CALL_LANGUAGES),
-    "graphql_resolvers": frozenset({"javascript", "typescript"}),
-    "graphql_requests": frozenset({"javascript", "typescript"}),
-    "message_endpoints": frozenset(
-        {"java", "python", "go", "javascript", "typescript"}
-    ),
+    ("HANDLES", "http"): _WEB_LANGUAGES,
+    ("REQUESTS", "http"): _WEB_LANGUAGES,
+    ("HANDLES", "grpc"): frozenset(grpc_contracts.SERVER_LANGUAGES),
+    ("REQUESTS", "grpc"): frozenset(grpc_contracts.CALL_LANGUAGES),
+    ("HANDLES", "graphql"): frozenset({"javascript", "typescript"}),
+    ("REQUESTS", "graphql"): frozenset({"javascript", "typescript"}),
+    ("PUBLISHES", "messaging"): _MESSAGING_LANGUAGES,
+    ("CONSUMES", "messaging"): _MESSAGING_LANGUAGES,
 }
+_RESOLVER = f"service-contracts@{__version__}"
 
 
 def contract_coverage(repo_url, languages, coverage, sites):
-    """One ContractCoverage node per (contract family, language of the
-    repository's source files): whether this tool reads that family in that
-    language (status ``read``, or ``not_read`` with reason ``no_reader``),
-    how many files of the language there are (``languages``, from
-    ``source_languages``), and how many sites it found (and, for client
-    calls, linked). ``sites`` maps each family to (file, linked or None) per
-    site."""
+    """One EdgeCoverage node per (edge family, protocol, language of the
+    repository's source files), in the shape the call and import coverage
+    shares. Every contract site rule of this tool is pattern_matched: the
+    engine's own readers find the sites, and a reader counts only the sites
+    it recognises, so a family is never ``linked`` or ``no_sites`` here. It
+    is ``not_linked`` with reason ``parser_rules`` when this tool reads the
+    family in that language (``sites`` may be 0), and with reason
+    ``not_supported`` when it has no reader; ``files_linked`` is 0.
+    ``resolver``; ``files`` (``languages``, from ``source_languages``);
+    ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
+    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
+    resolution status or None) per site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
-    for family in sorted(CONTRACT_READERS):
-        found, linked = {}, {}
-        for file, link in sites.get(family, ()):
-            language = language_of.get(file)
-            found[language] = found.get(language, 0) + 1
-            if link:
-                linked[language] = linked.get(language, 0) + 1
-        clients = family in ("http_requests", "grpc_calls")
+    for family, protocol in sorted(CONTRACT_READERS):
+        counts = {}
+        for file, status in sites.get((family, protocol), ()):
+            found = counts.setdefault(language_of.get(file), {})
+            found["sites"] = found.get("sites", 0) + 1
+            if status is not None:
+                found[status] = found.get(status, 0) + 1
         for language in sorted(languages):
-            read = language in CONTRACT_READERS[family]
+            read = language in CONTRACT_READERS[(family, protocol)]
+            found = counts.get(language, {})
+            reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
-                    ["ContractCoverage"],
+                    ["EdgeCoverage"],
                     {
                         "qualified_name": (
-                            f"{repo_url}::contract-coverage::{family}::{language}"
+                            f"{repo_url}::edge-coverage::{family}::{protocol}::"
+                            f"{language}"
                         ),
                         "repo_url": repo_url,
-                        "name": f"{family} {language}",
+                        "name": f"{family} {protocol} {language}",
                         "family": family,
+                        "protocol": protocol,
                         "language": language,
-                        "status": "read" if read else "not_read",
-                        **({} if read else {"reason": "no_reader"}),
+                        "status": "not_linked",
+                        "reason": reason,
+                        "resolver": [_RESOLVER] if read else [],
                         "files": languages[language],
-                        "sites": found.get(language, 0),
-                        **({"linked": linked.get(language, 0)} if clients else {}),
+                        "files_linked": 0,
+                        "sites": found.get("sites", 0),
+                        **(
+                            {
+                                key: found.get(key, 0)
+                                for key in ("linked", "ambiguous", "unresolved")
+                            }
+                            if family == "REQUESTS"
+                            else {}
+                        ),
                     },
                 )
             )
@@ -2040,6 +2044,14 @@ class ServiceContractTool(AnalysisTool):
     async def analyze(
         self, repo_url, languages=None, file_patterns=None, skip_patterns=None
     ):
+        # The TypeScript compiler's values serve the folders of this run.
+        with contextlib.ExitStack() as stack:
+            self._compiler_stack = stack
+            return await self._analyze(
+                repo_url, languages, file_patterns, skip_patterns
+            )
+
+    async def _analyze(self, repo_url, languages, file_patterns, skip_patterns):
         started = time.monotonic()
         selected = tuple(
             sorted(
@@ -2227,6 +2239,15 @@ class ServiceContractTool(AnalysisTool):
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
+        if scripts is not None:
+            self._compiler_stack.enter_context(
+                compiler_values(
+                    {
+                        content: scripts.compiler.values.get(file, {})
+                        for file, (_, content, _) in scripts.sources.items()
+                    }
+                )
+            )
         axios_exported = {}
 
         def axios_imported(file):
@@ -2966,6 +2987,7 @@ class ServiceContractTool(AnalysisTool):
             return {scope for scope, d in depth.items() if d == deepest}
 
         groups = {}
+        graphql_status = {}  # id(request) -> linked | ambiguous | unresolved
         for request in graphql_requests:
             package = _node_package(root, request.file)
             if package not in groups:
@@ -2978,7 +3000,9 @@ class ServiceContractTool(AnalysisTool):
             if len(scopes) != 1:
                 reason = "client_field_ambiguous" if scopes else "client_field_unknown"
                 graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+                graphql_status[id(request)] = "ambiguous" if scopes else "unresolved"
                 continue
+            graphql_status[id(request)] = "linked"
             full = f"{request.operation}.{request.field}"
             if request.caller_id is None:
                 labels, source = file_node(request.file)
@@ -3241,7 +3265,7 @@ class ServiceContractTool(AnalysisTool):
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
-        linked_requests = {r.request_id for r in resolutions if r.route_id}
+        request_status = {r.request_id: r.status for r in resolutions}
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3251,16 +3275,25 @@ class ServiceContractTool(AnalysisTool):
             ),
             result.coverage,
             {
-                "http_routes": [(r.file, None) for r in routes],
-                "http_requests": [(q.file, q.id in linked_requests) for q in requests],
-                "grpc_handlers": [(h.file, None) for h in grpc.handlers],
-                "grpc_calls": [
-                    (grpc_calls[r.call_id].file, r.status == "linked")
-                    for r in grpc.resolutions
+                ("HANDLES", "http"): [(r.file, None) for r in routes],
+                ("REQUESTS", "http"): [
+                    (q.file, request_status.get(q.id, "unresolved")) for q in requests
                 ],
-                "graphql_resolvers": [(r.file, None) for r in graphql_resolvers],
-                "graphql_requests": [(r.file, None) for r in graphql_requests],
-                "message_endpoints": [(e.file, None) for e in endpoints],
+                ("HANDLES", "grpc"): [(h.file, None) for h in grpc.handlers],
+                ("REQUESTS", "grpc"): [
+                    (grpc_calls[r.call_id].file, r.status) for r in grpc.resolutions
+                ],
+                ("HANDLES", "graphql"): [(r.file, None) for r in graphql_resolvers],
+                ("REQUESTS", "graphql"): [
+                    (r.file, graphql_status.get(id(r), "unresolved"))
+                    for r in graphql_requests
+                ],
+                ("PUBLISHES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role == "publish"
+                ],
+                ("CONSUMES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role != "publish"
+                ],
             },
         )
         nodes = (
@@ -3310,6 +3343,16 @@ class ServiceContractTool(AnalysisTool):
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
+                ),
+                "typescript_compiler": (
+                    {
+                        "files": len(scripts.compiler.programs),
+                        "programs": len(set(scripts.compiler.programs.values())),
+                        "rejected_configs": len(scripts.compiler.rejected_configs),
+                        "names_failed": sum(scripts.compiler.failures.values()),
+                    }
+                    if scripts is not None
+                    else {}
                 ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
