@@ -1183,8 +1183,12 @@ calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
-the variable's name, so calls inside it belong to it. A named function
-expression keeps no declaration of its own.
+the variable's name, so calls inside it belong to it. A class field that holds
+one (`fetch = async () => {}`, `static make = function () {}`, a `#private`
+field too) is a `Method` of the class with the field's name (`static` when the
+field is), so calls inside it belong to the field, impact reaches its
+callers, and `this.fetch()` links to it. A named function expression keeps no
+declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
