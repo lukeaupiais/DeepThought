@@ -12,12 +12,16 @@ A handler's call of one of these methods carries that argument's type:
   MsgPack and CBOR)
   (the first argument), and ``encoding/json``'s ``Decoder.Decode`` on a
   decoder made by ``json.NewDecoder(r.Body)`` where ``r`` is the handler's
-  ``*http.Request`` parameter;
+  ``*http.Request`` parameter, and go-chi/render's ``Bind``, ``Decode``
+  (the second argument, with the handler's request first) and
+  ``DecodeJSON`` (with the request's ``Body`` first);
 - response: gin's ``Context.JSON`` (and ``IndentedJSON``, ``PureJSON``,
   ``SecureJSON``, ``AsciiJSON``) and echo's ``Context.JSON``/``JSONPretty``
   (the second argument), fiber's ``Ctx.JSON`` (the first), and
   ``Encoder.Encode`` on ``json.NewEncoder(w)`` where ``w`` is the
-  handler's ``http.ResponseWriter`` parameter.
+  handler's ``http.ResponseWriter`` parameter, and go-chi/render's
+  ``JSON``, ``Render`` and ``Respond`` (the third argument, with the
+  handler's response writer first).
 
 The decoder and encoder may be made in the call itself or held in a
 variable the handler assigns once from such a call. Calls in functions the
@@ -62,6 +66,22 @@ _CALLS = {
             "CBOR",
         )
     },
+}
+_CHI_RENDER = "github.com/go-chi/render"
+# go-chi/render's package functions: (declaring package, function) ->
+# (direction, argument index, handler parameter type the first argument
+# must be, field of it read). render.Render and render.Bind take their
+# value as a Renderer or Binder; the argument's static type is the body.
+_FUNCTIONS = {
+    **{
+        (_CHI_RENDER, name): ("response", 2, "http.ResponseWriter", None)
+        for name in ("JSON", "Render", "Respond")
+    },
+    **{
+        (_CHI_RENDER, name): ("request", 1, "*http.Request", None)
+        for name in ("Bind", "Decode")
+    },
+    (_CHI_RENDER, "DecodeJSON"): ("request", 1, "*http.Request", "Body"),
 }
 # encoding/json's Decoder.Decode and Encoder.Encode: what they read and
 # write is checked on the handler's parameters.
@@ -128,16 +148,10 @@ def _assigned_once(function, content):
     return {k: v for k, v in found.items() if counts[k] == 1}
 
 
-def _json_stream(operand, function, content, made_by, parameter_type, field):
-    """Whether the decoder or encoder ``operand`` is ``json.<made_by>(x)``,
-    directly or through a variable assigned once, with ``x`` the handler's
-    parameter of ``parameter_type`` (followed by ``.field`` when given)."""
-    if operand is not None and operand.type == "identifier":
-        operand = _assigned_once(function, content).get(text(operand, content))
-    argument = _json_call(operand, content, made_by)
-    if argument is None:
-        return False
-    if field is not None:
+def _handler_parameter(argument, function, content, parameter_type, field):
+    """Whether ``argument`` is the handler's parameter of ``parameter_type``
+    (followed by ``.field`` when given)."""
+    if argument is not None and field is not None:
         if argument.type != "selector_expression":
             return False
         if text(argument.child_by_field_name("field"), content) != field:
@@ -145,8 +159,20 @@ def _json_stream(operand, function, content, made_by, parameter_type, field):
         argument = argument.child_by_field_name("operand")
     if argument is None or argument.type != "identifier":
         return False
-    return _parameters(function, content).get(text(argument, content)) in (
+    return _parameters(function, content).get(text(argument, content)) == (
         parameter_type
+    )
+
+
+def _json_stream(operand, function, content, made_by, parameter_type, field):
+    """Whether the decoder or encoder ``operand`` is ``json.<made_by>(x)``,
+    directly or through a variable assigned once, with ``x`` the handler's
+    parameter of ``parameter_type`` (followed by ``.field`` when given)."""
+    if operand is not None and operand.type == "identifier":
+        operand = _assigned_once(function, content).get(text(operand, content))
+    argument = _json_call(operand, content, made_by)
+    return argument is not None and _handler_parameter(
+        argument, function, content, parameter_type, field
     )
 
 
@@ -173,10 +199,23 @@ def handler_payloads(function, content, calls, bound=None):
             and f.type == "selector_expression"
             and text(f.child_by_field_name("field"), content) == call.method
         ]
-        if not nodes or call.receiver is None:
+        if not nodes:
             continue
-        key = (call.declared, call.receiver[1], call.method)
-        if key in _CALLS:
+        if call.receiver is None:
+            if (call.declared, call.method) not in _FUNCTIONS:
+                continue
+            direction, index, parameter_type, field = _FUNCTIONS[
+                (call.declared, call.method)
+            ]
+            arguments = nodes[0].child_by_field_name("arguments")
+            first = (
+                None
+                if arguments is None
+                else next(iter(arguments.named_children), None)
+            )
+            if not _handler_parameter(first, function, content, parameter_type, field):
+                continue
+        elif (key := (call.declared, call.receiver[1], call.method)) in _CALLS:
             direction, index = _CALLS[key]
         elif call.declared == "encoding/json" and key[1:] in _JSON:
             direction, index = _JSON[key[1:]], 0
@@ -189,7 +228,7 @@ def handler_payloads(function, content, calls, bound=None):
                     function,
                     content,
                     "NewDecoder",
-                    ("*http.Request",),
+                    "*http.Request",
                     "Body",
                 )
             else:
@@ -198,7 +237,7 @@ def handler_payloads(function, content, calls, bound=None):
                     function,
                     content,
                     "NewEncoder",
-                    ("http.ResponseWriter",),
+                    "http.ResponseWriter",
                     None,
                 )
             if not ok:

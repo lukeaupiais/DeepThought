@@ -880,6 +880,23 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 				return true
 			}
 		}
+		// go-chi/render's package functions that decode a request body
+		// into, or render a response from, their last argument.
+		if function, ok := info.Uses[selector.Sel].(*types.Func); ok {
+			if pkg := function.Pkg(); pkg != nil && pkg.Path() == "github.com/go-chi/render" && chiRender[function.Name()] {
+				f, line, column := where(call.Pos())
+				out := fact{Kind: "call", File: f, Line: line, Column: column, Method: function.Name(), Declared: pkg.Path()}
+				for _, arg := range call.Args {
+					a := argument{Ref: reference(arg), Type: named(info.TypeOf(arg))}
+					if t := info.TypeOf(arg); t != nil && types.IsInterface(t) {
+						a = argument{Ref: reference(arg), Interface: true}
+					}
+					out.Arguments = append(out.Arguments, a)
+				}
+				emit(out)
+				return true
+			}
+		}
 		selection := info.Selections[selector]
 		if selection == nil || selection.Kind() != types.MethodVal {
 			return true
@@ -925,6 +942,13 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		emit(out)
 		return true
 	})
+}
+
+// chiRender names go-chi/render's functions whose last argument is the
+// request body decoded or the response rendered.
+var chiRender = map[string]bool{
+	"JSON": true, "Render": true, "Respond": true,
+	"Bind": true, "Decode": true, "DecodeJSON": true,
 }
 
 // Placeholder stands for text the code does not fix inside a string.
