@@ -569,7 +569,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     text,
-                    "1 result (all of them).\n"
+                    "1 result: every one this query matched.\n"
                     "- Child.run (src/a.py:5) calls helper (src/a.py:12) at line 6",
                 )
                 text = await service.query_cypher_text(
@@ -582,7 +582,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     text.splitlines()[:3],
                     [
-                        "4 results (all of them).",
+                        "4 results: every one this query matched.",
                         'Each chain below starts at src/a.py (file) ("it"):',
                         "- it defines Base (class, src/a.py:1)",
                     ],

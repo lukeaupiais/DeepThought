@@ -379,7 +379,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             self.assertEqual(
                                 [i.text for i in spoken.content if i.type == "text"],
                                 [
-                                    f"1 result (all of them).\n- count {len(self.expected)}"
+                                    f"1 result: every one this query matched.\n- count {len(self.expected)}"
                                 ],
                             )
                             denied = await session.call_tool(
