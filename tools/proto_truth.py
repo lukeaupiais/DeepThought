@@ -84,7 +84,7 @@ def engine_declarations(repo, protos):
     texts = {p: (repo / p).read_text("utf-8", "replace") for p in protos}
     read = read_protos(repo, protos, texts)
     rpcs, bindings = set(), set()
-    for _package, methods, http in read.values():
+    for _package, methods, http, _types in read.values():
         for m in methods:
             rpcs.add((m.file, m.service, m.method, m.line, m.streaming))
         for b in http:

@@ -4715,6 +4715,34 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   reflection test inputs, and Prisma's gRPC example names an rpc and a
   message `Post`, which protoc rejects (protobuf.js loads it at run time),
   so that example's 14 server links are no longer drawn.
+- **Messages, fields and enums.** Each `.proto` file protoc compiles is a
+  `File` node (`language` `protobuf`, `file_sha256`; the Repository
+  `CONTAINS` it, rule `service-contracts.proto-file`), and the message and
+  enum types its descriptor declares are nodes: `ProtoMessage`
+  (`{repo}::proto::message::{full name}`), `ProtoEnum`
+  (`{repo}::proto::enum::{full name}`, with `values` as `NAME=number`) and,
+  for each field of a message, `ProtoField`
+  (`{message}::field::{name}`) with `number`, `type` (a scalar's name, or
+  the full name of the message or enum it holds), `type_kind` (`scalar`,
+  `message` or `enum`), `label` (`repeated`, `optional`, `required`),
+  `map_key` (a `map<k, v>` field: `type` is the value's), `oneof`,
+  `json_name`, `deprecated` and the line of the field. Edges, all
+  `resolved` from the descriptor (rule `service-contracts.proto-type`
+  unless named): the File `DECLARES` each top-level type; a message
+  `CONTAINS` its nested types and `HAS_FIELD` each field; a field
+  `USES_TYPE` the message or enum it holds when a compiled file of the
+  repository declares it (rule `service-contracts.proto-field-type`;
+  well-known types such as `google.protobuf.Timestamp` stay a name in
+  `type`); and a `GrpcMethod` `CARRIES` its request and response messages
+  with `direction` `request` or `response` (rule
+  `service-contracts.grpc-method-message`). Like methods, the copies of one
+  type that services vendor are one node with every copy in `declared_in`
+  and a `DECLARES` from each file; when the copies' fields or values
+  disagree the node has `copies_disagree` and no fields. Map entry messages
+  are their field's map, not types. The `proto_types` metric counts the
+  types read and `grpc_proto_message_edges` the `CARRIES` edges. The
+  generated code of each message (protoc-gen-go structs, `_pb2` classes,
+  TypeScript declarations) is not linked to it yet.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
