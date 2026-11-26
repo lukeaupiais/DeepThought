@@ -2041,23 +2041,27 @@ _FIBER_PACKAGES = ("github.com/gofiber/fiber/v2", "github.com/gofiber/fiber/v3")
 def _fiber_endpoint(candidates, fiber_next, declarations, definitions):
     """The (function reference, literal reference) of the handler Fiber
     ends a route's chain with: the first, in run order, that never calls
-    c.Next() on its context. None when a handler before it is not the
-    module's (a library's middleware or handler) or not one declaration,
-    since whether it passes the request on is then not known."""
-    for function, literal in candidates:
+    c.Next() on its context. A func literal, function or method value
+    passes the request on when c.Next() is called on its own parameter or
+    inside its declaration; a factory call (Protected()) is known to give
+    middleware only when c.Next() is called inside it, since the handler
+    it returns may be a library's (limiter.New). None when a handler before
+    the endpoint is not known either way: a library's, not one
+    declaration, or a factory without c.Next()."""
+    for function, literal, factory in candidates:
         if literal is not None:
             passes_on = literal in fiber_next
         elif function is not None:
             ids = declarations.get(function[1:3], [])
             if len(ids) != 1 or ids[0] not in definitions:
                 return None
-            # The function, a factory returning the handler, or a method
-            # value: any c.Next() on a parameter declared inside it.
             found = definitions[ids[0]]
             passes_on = any(
                 ref[1] == found.file and found.line <= ref[2] <= found.end_line
                 for ref in fiber_next
             )
+            if factory and not passes_on:
+                return None
         else:
             return None
         if not passes_on:

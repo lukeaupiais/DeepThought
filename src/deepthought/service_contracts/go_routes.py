@@ -149,7 +149,8 @@ class GoRoute:
     paths: tuple[str, ...]
     handler: tuple | None
     literal: tuple | None = None
-    # Fiber: (function reference, func literal parameter reference) of each
+    # Fiber: (function reference, func literal parameter reference, whether
+    # the argument is a call, a factory returning the handler) of each
     # handler argument in the order Fiber runs them, when more than one.
     candidates: tuple = ()
 
@@ -351,7 +352,14 @@ class GoRouters:
             self._literal(call, handler_at),
             (
                 tuple(
-                    (self._handler(call, i), self._literal(call, i)) for i in handlers
+                    (
+                        self._handler(call, i),
+                        self._literal(call, i),
+                        i < len(call.refs)
+                        and call.refs[i] is not None
+                        and call.refs[i][0] == "c",
+                    )
+                    for i in handlers
                 )
                 if framework in (_FIBER_V2, _FIBER_V3) and len(handlers) > 1
                 else ()

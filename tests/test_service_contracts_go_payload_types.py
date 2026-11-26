@@ -278,6 +278,7 @@ class GoPayloadTypeTests(unittest.TestCase):
         self.assertEqual(
             sorted((self.paths[f[5]], f[1], f[2]) for f in found),
             [
+                ("/factory", "CreateOrder", "request"),
                 ("/first", "CreateOrder", "request"),
                 ("/inline", "CreateOrder", "request"),
                 ("/last", "CreateOrder", "request"),
@@ -306,6 +307,13 @@ func restrict() fiber.Handler {
 \t}
 }
 
+// A factory returning a handler that is not the module's (a library's
+// middleware): whether it passes the request on is not known.
+func limit() fiber.Handler {
+\tvar library fiber.Handler
+\treturn library
+}
+
 func audit(c fiber.Ctx) error {
 \tc.JSON(api.Order{})
 \treturn c.Next()
@@ -315,6 +323,7 @@ func main() {
 \tapp := fiber.New()
 \tctl := controller{}
 \tapp.Post("/first", ctl.create, restrict())
+\tapp.Post("/factory", limit(), ctl.create)
 \tapp.Post("/last", restrict(), ctl.create)
 \tapp.Post("/inline", func(c fiber.Ctx) error {
 \t\treturn c.Next()
