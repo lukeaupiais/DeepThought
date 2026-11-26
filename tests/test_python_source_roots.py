@@ -79,7 +79,8 @@ class SourceLayoutIndexTest(unittest.TestCase):
             root, out = Path(scratch) / "work", Path(scratch) / "out"
             write(root, SERVICE_A)
             report = indexers.index_workspace(root, out, languages=("python",))
-            (run,) = report["runs"]
+            # The service imports its own package, so it is a run of its own.
+            (run,) = [r for r in report["runs"] if r.get("module") == "services/a"]
             self.assertEqual(run["status"], "indexed", run["detail"])
             index = scip_pb2.Index()
             index.ParseFromString(Path(run["index"]).read_bytes())

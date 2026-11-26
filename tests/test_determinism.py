@@ -92,6 +92,13 @@ class DeterminismTest(unittest.TestCase):
         self.assertLessEqual({".py", ".ts", ".js", ".go", ".java", ".rs"}, linked)
         self.assertTrue(document["imports"] and document["supertypes"])
         self.assertTrue(document["impls"] and document["graph"])
+        # Calls in the tool's output are bound from the pinned SCIP indexers.
+        rules = {
+            r["properties"]["rule_id"]
+            for r in document["standardized_output"]["relationships"]
+            if r["type"] == "CALLS"
+        }
+        self.assertIn("scip.call-occurrence", rules)
 
     def test_first_difference_names_the_path(self):
         left = {"calls": [{"status": "linked", "target_id": "a"}]}
