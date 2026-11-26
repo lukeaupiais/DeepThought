@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -177,6 +178,28 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(used.declared, ("9.9",))
         self.assertEqual(used.errors[0], "x")
         self.assertTrue(used.errors[1].startswith("9.9.9: "), used.errors)
+
+    def test_an_interpreter_killed_without_output_falls_back(self):
+        # A signal (the OOM killer) ends the process with no stderr.
+        other = Interpreter("/py", "9.9.9", ("9.9",), ())
+        killed = subprocess.CompletedProcess([], -9, stdout="", stderr="")
+        with (
+            mock.patch.object(python_runtime, "interpreter_for", return_value=other),
+            mock.patch.object(python_runtime, "_run", return_value=killed),
+        ):
+            facts, used = read_ast_facts(".", SOURCES)
+        self.assertEqual(facts, ast_facts(SOURCES))
+        self.assertIsNone(used.executable)
+        self.assertEqual(used.errors, ("9.9.9: exit status -9",))
+
+    def test_a_killed_install_is_a_reason(self):
+        killed = subprocess.CompletedProcess([], -9, stdout="", stderr="")
+        with (
+            mock.patch.object(python_runtime, "_uv", return_value="/uv"),
+            mock.patch.object(python_runtime, "_run", return_value=killed),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exit status -9"):
+                python_runtime._find("3.14", None, 60)
 
 
 @unittest.skipUnless(

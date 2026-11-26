@@ -104,6 +104,13 @@ def _run(argv, timeout, environ=None, stdin=None):
     )
 
 
+def _failure(result):
+    """The last line a failed command wrote to stderr, or its exit status
+    when it wrote nothing (killed by a signal, such as the OOM killer)."""
+    lines = result.stderr.strip().splitlines()
+    return lines[-1] if lines else f"exit status {result.returncode}"
+
+
 def _version(executable, environ):
     result = _run(
         [
@@ -131,7 +138,7 @@ def _find(request, environ, timeout):
             [uv, "python", "install", "--no-config", request], timeout, environ
         )
         if install.returncode:
-            raise RuntimeError(install.stderr.strip().splitlines()[-1])
+            raise RuntimeError(_failure(install))
         result = _run(find, 60, environ)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "not found after install")
@@ -205,7 +212,7 @@ def read_ast_facts(root, sources, environ=None, timeout=600):
                 json.dumps(sources),
             )
             if result.returncode:
-                raise RuntimeError(result.stderr.strip().splitlines()[-1])
+                raise RuntimeError(_failure(result))
             return json.loads(result.stdout), interpreter
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             failed = Interpreter(
