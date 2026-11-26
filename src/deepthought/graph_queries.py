@@ -39,6 +39,7 @@ _IMPACT_ACTIONS = {
 }
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
