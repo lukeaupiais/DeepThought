@@ -27,6 +27,41 @@ from evidence_fixtures import FIXTURE_EVIDENCE
 
 
 class QueryInputTests(unittest.TestCase):
+    def test_a_read_the_database_timed_out_is_tried_once_more(self):
+        class TimedOut(Exception):
+            def __init__(self, code):
+                super().__init__(code)
+                self.code = code
+
+        def service(errors):
+            calls = []
+
+            async def once(*args, **kwargs):
+                calls.append(args)
+                if errors:
+                    raise errors.pop(0)
+                return {"status": "succeeded"}
+
+            graph = GraphQueryService(None)
+            graph._read_once = once
+            return graph, calls
+
+        timed_out = "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration"
+        graph, calls = service([TimedOut(timed_out)])
+        self.assertEqual(
+            asyncio.run(graph._read("q", {}, "r", "s"))["status"], "succeeded"
+        )
+        self.assertEqual(len(calls), 2)
+        # Only once, and only for a timeout.
+        graph, calls = service([TimedOut(timed_out), TimedOut(timed_out)])
+        with self.assertRaises(TimedOut):
+            asyncio.run(graph._read("q", {}, "r", "s"))
+        self.assertEqual(len(calls), 2)
+        graph, calls = service([TimedOut("Neo.ClientError.Statement.SyntaxError")])
+        with self.assertRaises(TimedOut):
+            asyncio.run(graph._read("q", {}, "r", "s"))
+        self.assertEqual(len(calls), 1)
+
     def test_bounds_reject_ambiguous_or_unbounded_requests(self):
         for args in [
             (True, 16000, 5),
@@ -175,10 +210,16 @@ class QueryInputTests(unittest.TestCase):
             "MATCH (n:`CALL`) RETURN n",
             "MATCH (n) // set the scene\nRETURN n",
             "MATCH (n) /* DELETE */ RETURN n",
+            # The query's own names are not clauses.
+            "MATCH (s:Symbol) OPTIONAL MATCH (c)-[r:CALLS]->(s) "
+            "RETURN s.source_code AS declaration, r AS call",
+            "MATCH (start:File)-[:DEFINES]->(set) RETURN start.path, set.name",
+            "MATCH (s) RETURN s {.name, use: s.start_line} AS show",
+            "MATCH (s) WHERE s.load = $create RETURN s",
         ]:
             with self.subTest(query=query):
                 self.assertEqual(run(query), {"status": "succeeded"})
-        self.assertEqual(len(reads), 9)
+        self.assertEqual(len(reads), 13)
         for query in [
             "MATCH (n) DELETE n",
             "MATCH (n) SET n.bad = true RETURN n",
@@ -187,10 +228,13 @@ class QueryInputTests(unittest.TestCase):
             'RETURN "unterminated',
             "MATCH (n) /* open comment RETURN n",
             'MATCH (n) WHERE n.name = "x" DELETE n',
+            "MATCH (n) WITH n AS m DETACH DELETE m",
+            "MATCH (n) CALL { WITH n SET n.x = 1 } RETURN n",
+            "LOAD CSV FROM 'file:///x' AS row RETURN row",
         ]:
             with self.subTest(query=query), self.assertRaises(ValueError):
                 run(query)
-        self.assertEqual(len(reads), 9)
+        self.assertEqual(len(reads), 13)
         self.assertEqual(_cypher_code("RETURN 'x' AS y"), "RETURN     AS y")
 
 
@@ -630,6 +674,92 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 )
                 self.assertTrue(text.startswith("2 results, cut at the limit"))
                 self.assertLessEqual(len(text.encode()), 1024)
+                # An empty answer says why, from the paths and names the query
+                # looks for: an unanalyzed kind of file, a declared name (so
+                # the other conditions matched nothing), an undeclared one.
+                empty = (
+                    "MATCH (s:Symbol)-[:CALLS]->(t:Symbol) WHERE t.name IN $names"
+                    " AND s.file_path = 'web/App.vue' RETURN s"
+                )
+                arguments = ({"names": ["Child", "missing_fn"]}, repo)
+                raw = await service.query_cypher(
+                    empty,
+                    *arguments,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(raw["returned"], 0)
+                self.assertEqual(
+                    raw["why_empty"],
+                    [
+                        "No analyzed file path contains 'web/App.vue': no .vue file"
+                        " is analyzed in this snapshot (analyzed: .py); search the"
+                        " source for it.",
+                        "'Child' is declared at src/a.py:4, with 0 calls to it.",
+                        "Nothing named 'missing_fn' is declared in the analyzed files.",
+                    ],
+                )
+                text = await service.query_cypher_text(
+                    empty,
+                    *arguments,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    text.splitlines()[:2], ["No results.", raw["why_empty"][0]]
+                )
+                # When everything the query looks for is in the graph, the
+                # other conditions are what matched nothing. A plain word
+                # ('nope') may be a property value: named only when declared.
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol {name: 'helper', file_path: 'src/a.py'})"
+                    "<-[:CALLS]-(c {name: 'nope'}) RETURN c",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    raw["why_empty"],
+                    [
+                        "'src/a.py' is analyzed (src/a.py).",
+                        "'helper' is declared at src/a.py:12, with 1 call to it.",
+                        "Everything above is in the graph, so the query's other"
+                        " conditions (links, properties, line numbers) matched"
+                        " nothing.",
+                    ],
+                )
+                # A parameter the query never uses is not looked for, and an
+                # unknown label or relationship type is named.
+                raw = await service.query_cypher(
+                    "MATCH (s:Nope)-[:CALLS]->(t:Symbol) RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(len(raw["why_empty"]), 1)
+                self.assertTrue(
+                    raw["why_empty"][0].startswith("The graph has no label 'Nope' ("),
+                    raw["why_empty"],
+                )
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol) WHERE s.language = 'cobol' RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertNotIn("why_empty", raw)
+                # A UNION whose parts return different columns names the fix.
+                with self.assertRaisesRegex(ValueError, "same aliases"):
+                    await service.query_cypher(
+                        "RETURN 1 AS a UNION RETURN 2 AS b",
+                        {},
+                        repo,
+                        snapshot_id=snapshot,
+                        allow_database_scope=True,
+                    )
                 with self.assertRaises(ValueError):
                     await service.query_cypher_text(
                         "MATCH (n) DETACH DELETE n",
