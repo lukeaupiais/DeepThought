@@ -358,6 +358,54 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertLessEqual(
                     len(json.dumps(raw, sort_keys=True).encode()), 1024
                 )
+                # The text form reads links as sentences, names link ends the
+                # query did not return, and keeps its own byte budget.
+                text = await service.query_cypher_text(
+                    "MATCH ()-[r:CALLS]->() RETURN r",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    text,
+                    "1 result (all of them).\n"
+                    "- Child.run (src/a.py:5) calls helper (src/a.py:12) at line 6",
+                )
+                text = await service.query_cypher_text(
+                    "MATCH p=(f:File)-[:DEFINES]->(n:Symbol) RETURN p ORDER BY n.start_line",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    text.splitlines()[:3],
+                    [
+                        "4 results (all of them).",
+                        'Each chain below starts at src/a.py (file) ("it"):',
+                        "- it defines Base (class, src/a.py:1)",
+                    ],
+                )
+                text = await service.query_cypher_text(
+                    "MATCH (n:Symbol) RETURN n.name AS name, n.start_line AS line",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                    limit=2,
+                    max_output_bytes=1024,
+                )
+                self.assertTrue(text.startswith("2 results, cut at the limit"))
+                self.assertLessEqual(len(text.encode()), 1024)
+                with self.assertRaises(ValueError):
+                    await service.query_cypher_text(
+                        "MATCH (n) DETACH DELETE n",
+                        {},
+                        repo,
+                        snapshot_id=snapshot,
+                        allow_database_scope=True,
+                    )
         finally:
             async with driver.session(database=database) as session:
                 result = await session.run(

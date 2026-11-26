@@ -182,6 +182,39 @@ def _value(value):
     raise ValueError("Unsupported non-JSON query value: " + type(value).__name__)
 
 
+# Raw rows a text reply is rendered from; its own budget is on the text.
+_RAW_TEXT_BYTES = 4_000_000
+
+
+def _check_cypher(query, parameters, allow_database_scope):
+    """Reject anything but one parameterized read query (defense in depth)."""
+    _text(query, "query")
+    if allow_database_scope is not True:
+        raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
+    if not isinstance(parameters, dict) or any(
+        not isinstance(k, str) for k in parameters
+    ):
+        raise ValueError("Cypher parameters must be a string-keyed dictionary")
+    _json(parameters)
+    if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
+        raise ValueError("Scope and fetch_limit parameters are reserved")
+    if len(query.encode()) > 16384:
+        raise ValueError("Cypher text exceeds 16384 bytes")
+    # Keywords are looked for in the query's code only: a quoted name such as
+    # "use", "Start" or "delete.go" is data, not a clause.
+    code = _cypher_code(query)
+    if not re.match(r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I):
+        raise ValueError("Only a single read query is accepted")
+    if re.search(
+        r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
+        code,
+        re.I,
+    ):
+        raise ValueError(
+            "Procedures, updates, administration and multiple statements are disabled"
+        )
+
+
 class GraphQueryService:
     """Single query implementation shared by programmatic and agent callers.
 
@@ -223,11 +256,17 @@ class GraphQueryService:
         repository_scope=False,
         required_capability=None,
         metric=None,
+        observe=True,
+        raw_output_bytes=None,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
             _text(snapshot_id, "snapshot_id")
         _bounds(limit, max_output_bytes, timeout)
+        if raw_output_bytes is not None:
+            # Text results are budgeted after rendering; the raw rows they are
+            # rendered from may be larger than any JSON reply.
+            max_output_bytes = raw_output_bytes
         started = time.monotonic()
         parameters = dict(parameters)
         parameters.update(
@@ -306,7 +345,7 @@ class GraphQueryService:
                     raise ValueError("Query metadata exceeds the output byte budget")
                 # Optional evidence hook shared by CLI, MCP and embedded callers.
                 # Emit only after a real Neo4j read; no raw query or parameters.
-                if self.observer is not None:
+                if self.observer is not None and observe:
                     encoded = _json(response).encode()
                     event = {
                         "backend": "neo4j",
@@ -2250,33 +2289,7 @@ class GraphQueryService:
         The conservative lexical restrictions are defense in depth; the server's
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
-        _text(query, "query")
-        if allow_database_scope is not True:
-            raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
-        if not isinstance(parameters, dict) or any(
-            not isinstance(k, str) for k in parameters
-        ):
-            raise ValueError("Cypher parameters must be a string-keyed dictionary")
-        _json(parameters)
-        if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
-            raise ValueError("Scope and fetch_limit parameters are reserved")
-        if len(query.encode()) > 16384:
-            raise ValueError("Cypher text exceeds 16384 bytes")
-        # Keywords are looked for in the query's code only: a quoted name
-        # such as "use", "Start" or "delete.go" is data, not a clause.
-        code = _cypher_code(query)
-        if not re.match(
-            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I
-        ):
-            raise ValueError("Only a single read query is accepted")
-        if re.search(
-            r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
-            code,
-            re.I,
-        ):
-            raise ValueError(
-                "Procedures, updates, administration and multiple statements are disabled"
-            )
+        _check_cypher(query, parameters, allow_database_scope)
         return await self._read(
             query,
             parameters,
@@ -2287,3 +2300,101 @@ class GraphQueryService:
             timeout=timeout,
             database_scope=True,
         )
+
+    async def query_cypher_text(
+        self,
+        query,
+        parameters,
+        repo_url,
+        *,
+        snapshot_id,
+        allow_database_scope=False,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """``query_cypher`` written as short sentences (see ``result_text``).
+
+        The same rows are read; links whose end items the query did not return
+        have those items looked up, and the snapshot's EdgeCoverage records
+        give the closing coverage line. Neither lookup is journaled as a query.
+        The byte budget applies to the text: whole lines past it are cut and
+        the reply says so.
+        """
+        from .result_text import render
+
+        _check_cypher(query, parameters, allow_database_scope)
+        response = await self._read(
+            query,
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            database_scope=True,
+            raw_output_bytes=_RAW_TEXT_BYTES,
+        )
+        known, wanted = set(), set()
+
+        def visit(value):
+            if isinstance(value, dict):
+                if "labels" in value and "element_id" in value:
+                    known.add(value["element_id"])
+                if {"type", "source", "target"} <= set(value):
+                    wanted.update((value["source"], value["target"]))
+                for v in value.values():
+                    visit(v)
+            elif isinstance(value, list):
+                for v in value:
+                    visit(v)
+
+        visit(response["items"])
+        missing = sorted(wanted - known)
+        nodes = {}
+        for offset in range(0, len(missing), 100):
+            page = await self._read(
+                "MATCH (n) WHERE elementId(n) IN $ids RETURN n",
+                {"ids": missing[offset : offset + 100]},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+            )
+            nodes.update((r["n"]["element_id"], r["n"]) for r in page["items"])
+        coverage = []
+        for page_number in range(10):
+            page = await self._read(
+                "MATCH (e:EdgeCoverage) RETURN e.family AS family, e.protocol AS protocol,"
+                " e.language AS language, e.status AS status, e.reason AS reason"
+                " ORDER BY family, protocol, language SKIP $skip LIMIT $fetch_limit",
+                {"skip": page_number * 100},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+            )
+            coverage.extend(page["items"])
+            if not page["truncated"]:
+                break
+        text = render(
+            response, nodes=nodes, coverage=coverage, query=query, limit=limit
+        )
+        if len(text.encode()) > max_output_bytes:
+            lines = text.split("\n")
+            kept, size = [], 0
+            note = "... {} more lines cut at the {}-byte budget: narrow the query."
+            for line in lines:
+                size += len(line.encode()) + 1
+                if size + len(note.encode()) + 16 > max_output_bytes:
+                    break
+                kept.append(line)
+            kept.append(note.format(len(lines) - len(kept), max_output_bytes))
+            text = "\n".join(kept)
+        return text
