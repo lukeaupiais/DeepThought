@@ -3,7 +3,8 @@ protobuf types it is generated from (GENERATED_FROM): protoc-gen-js
 (google-protobuf, as grpc-web and grpc-tools use it), protobuf-es 1 and 2,
 and ts-proto. The fixtures are the generators' output for order.proto
 (protoc-gen-js 3.21.4, protoc-gen-es 2.10.1, ts-proto 2.6.1; the
-protoc-gen-js file cut after its exportSymbol calls)."""
+protoc-gen-js file cut after its exportSymbol calls), and protobuf-es's own
+erasable_syntax test file and its output with erasable_syntax=true."""
 
 import asyncio
 from pathlib import Path
@@ -69,11 +70,11 @@ class IndexedTypeTests(unittest.TestCase):
 @unittest.skipUnless(available(), "grpcio-tools is not installed")
 @needs_typescript
 class GeneratedScriptTests(unittest.TestCase):
-    def links(self, generated):
+    def links(self, generated, proto="order.proto"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "proto").mkdir()
-            shutil.copy(FIXTURES / "order.proto", root / "proto" / "order.proto")
+            shutil.copy(FIXTURES / proto, root / "proto" / proto)
             (root / "web" / "src").mkdir(parents=True)
             target = root / "web" / "src" / generated
             shutil.copy(FIXTURES / generated, target)
@@ -110,6 +111,19 @@ class GeneratedScriptTests(unittest.TestCase):
                 (name.replace(".", "_"), f"{kind}::shop.v1.{name}", "resolved", rule)
                 for kind, name in TYPES
             ),
+        )
+
+    def test_protobuf_es_2_erasable_enums(self):
+        # erasable_syntax=true: an enum is a const object and a type of
+        # one name, not a TypeScript enum; the type links.
+        rule = "service-contracts.ts-generated-proto-type"
+        self.assertEqual(
+            self.links("erasable_syntax_pb.ts", "erasable_syntax.proto"),
+            [
+                ("Color", "enum::Color", "resolved", rule),
+                ("ESyntax", "message::ESyntax", "resolved", rule),
+                ("Season", "enum::Season", "resolved", rule),
+            ],
         )
 
     def test_protobuf_es_1(self):
