@@ -79,6 +79,7 @@ class _Context:
         self.folder = Folder(language, self.root, content, externals)
         self.calls_of = None
         self.python_router_of = None
+        self.script_route_of = None
         # Python and Express: {router name: full prefixes} of the file's
         # mounted routers.
         self.mounts = {}
@@ -1030,7 +1031,23 @@ def _express_router_value(value, modules, content):
     )
 
 
-def express_routers(tree, content):
+def _router_middleware(node, content):
+    """The router ``node`` exports as its middleware (koa-router's
+    ``router.routes()``), else ``node``."""
+    function = None if node is None else node.child_by_field_name("function")
+    if (
+        node is not None
+        and node.type == "call_expression"
+        and function is not None
+        and function.type == "member_expression"
+        and text(function.child_by_field_name("property"), content)
+        in ("routes", "middleware")
+    ):
+        return function.child_by_field_name("object")
+    return node
+
+
+def express_routers(tree, content, is_router=None):
     """Express apps and routers of one script file, what it exports and the
     routers it mounts, for composing route prefixes across files
     (``compose_express_prefixes``).
@@ -1042,7 +1059,10 @@ def express_routers(tree, content):
     ``mounts`` lists (parent name, prefixes, children) for each
     ``parent.use([path,] ...)``: the folded path (several for an array, ""
     for none) and each argument that may be a router, as ("local", name) or
-    (module specifier, export name). ``modules`` is ``_js_modules``."""
+    (module specifier, export name). ``modules`` is ``_js_modules``.
+    ``is_router(value)``, when given, also counts a bound value the SCIP
+    index resolves to a router constructor (``new Router()`` of
+    koa-router)."""
     root = tree.root_node
     modules = _js_modules(root, content)
     folder = Folder("javascript", root, content)
@@ -1052,6 +1072,9 @@ def express_routers(tree, content):
         if node.type == "identifier":
             name = text(node, content)
             return ("local", name) if name not in modules else ("import", modules[name])
+        if _router_middleware(node, content) is not node:
+            # koa-router mounts a router as its middleware: router.routes().
+            return child_of(_router_middleware(node, content))
         if (
             node.type == "call_expression"
             and text(node.child_by_field_name("function"), content) == "require"
@@ -1072,12 +1095,12 @@ def express_routers(tree, content):
                 if ancestor is not None and ancestor.type == "export_statement":
                     exports[text(name, content)] = text(name, content)
         elif node.type == "export_statement":
-            value = node.child_by_field_name("value")
+            value = _router_middleware(node.child_by_field_name("value"), content)
             if value is not None and value.type == "identifier":
                 exports["default"] = text(value, content)
         elif node.type == "assignment_expression":
             left = text(node.child_by_field_name("left"), content)
-            right = node.child_by_field_name("right")
+            right = _router_middleware(node.child_by_field_name("right"), content)
             if right is None or right.type != "identifier":
                 continue
             if left == "module.exports":
@@ -1122,7 +1145,13 @@ def express_routers(tree, content):
     routers = {
         name
         for name, values in bound.items()
-        if len(values) == 1 and _express_router_value(values[0], modules, content)
+        if len(values) == 1
+        and (
+            _express_router_value(values[0], modules, content)
+            or (
+                is_router is not None and values[0] is not None and is_router(values[0])
+            )
+        )
     }
     return routers, exports, mounts, modules
 
@@ -1376,6 +1405,84 @@ def _class_members(node, name, content):
     return values
 
 
+def _own_prefix(context, owner):
+    """The ``prefix`` option a router named ``owner`` is constructed with
+    in its scope (``new Router({prefix: "/users"})``), else ""."""
+    if owner.type != "identifier":
+        return ""
+    found = context.folder.binding(owner)
+    if found is None or found[1].type not in ("new_expression", "call_expression"):
+        return ""
+    arguments = found[1].child_by_field_name("arguments")
+    options = [
+        c for c in (arguments.named_children if arguments else ()) if c.type == "object"
+    ]
+    for pair in options[0].named_children if options else ():
+        key = pair.child_by_field_name("key")
+        if pair.type == "pair" and key is not None:
+            if text(key, context.content).strip("'\"") == "prefix":
+                return context.folder.evaluate(pair.child_by_field_name("value"))
+    return ""
+
+
+def _typed_script_route(context, node, function, positional, framework, method):
+    """A route registered by a call whose method the SCIP index resolves to
+    a router library's registration method (``script_route_of``). The path
+    is the first argument, the second when koa-router names the route
+    first (``router.get("user", "/users/:id", ...)``), or, on an Express
+    route chain (``router.route("/x").get(h).post(h)``), the argument of
+    ``route``; the handler is the last argument. A call with no handler
+    argument (Express's ``app.get("port")`` setting getter) is no route."""
+    content = context.content
+    if len(positional) < (1 if framework == "express-route" else 2):
+        return
+    owner = function.child_by_field_name("object")
+    path_node = positional[0]
+    if framework == "express-route":
+        # Walk the chain down to its ``route(path)`` call.
+        while owner.type == "call_expression":
+            inner = owner.child_by_field_name("function")
+            if inner is None or inner.type != "member_expression":
+                return
+            if text(inner.child_by_field_name("property"), content) == "route":
+                arguments = owner.child_by_field_name("arguments")
+                written = [c for c in arguments.named_children if c.type != "comment"]
+                if not written:
+                    return
+                path_node, owner = written[0], inner.child_by_field_name("object")
+                break
+            owner = inner.child_by_field_name("object")
+        else:
+            return
+        framework = "express"
+    elif (
+        framework == "koa-router"
+        and len(positional) >= 3
+        and positional[1].type in ("string", "template_string")
+    ):
+        path_node = positional[1]
+    handler_node = positional[-1]
+    handler = (
+        context.named_function(text(handler_node, content))
+        if handler_node.type == "identifier"
+        else None
+    )
+    declared = _own_prefix(context, owner) + context.folder.evaluate(path_node)
+    for prefix in context.mounts.get(text(owner, content), [""]):
+        path, base_unknown = _express_path(prefix + declared), False
+        if prefix.startswith(PLACEHOLDER) or path.startswith(PLACEHOLDER):
+            path, base_unknown = _unknown_base(path)
+        context.route(
+            node,
+            [method],
+            path,
+            framework,
+            handler,
+            base_unknown,
+            receiver_indexed=True,
+        )
+
+
 def extract_javascript(context, nest=None, axios_imports=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
@@ -1528,6 +1635,17 @@ def extract_javascript(context, nest=None, axios_imports=None):
         if function.type == "member_expression":
             owner = text(function.child_by_field_name("object"), content)
             verb = text(function.child_by_field_name("property"), content)
+            typed = (
+                context.script_route_of(
+                    context.file, function.child_by_field_name("property")
+                )
+                if context.script_route_of is not None
+                and not is_app(function.child_by_field_name("object"))
+                else None
+            )
+            if typed is not None:
+                _typed_script_route(context, node, function, positional, *typed)
+                continue
             if (
                 is_app(function.child_by_field_name("object"))
                 and (verb in _VERBS or verb == "all")
@@ -2222,6 +2340,7 @@ def extract_web(
     axios_imported=None,
     go_routes=None,
     python_router_of=None,
+    script_route_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -2238,13 +2357,17 @@ def extract_web(
     {(line, column, method): (GoRoute, handler declaration id)};
     ``python_router_of(file, receiver node)`` the (framework, full prefixes)
     of a router another Python module defines, as the SCIP index resolves
-    the receiver name (``_python_router_resolver``), or None."""
+    the receiver name (``_python_router_resolver``), or None;
+    ``script_route_of(file, property node)`` the (framework, method) of a
+    JavaScript/TypeScript route registration method the SCIP index resolves
+    the called name to (``_script_route_resolver``), or None."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
     context.calls_of = calls_of
     context.mounts = mounts or {}
     context.python_router_of = python_router_of
+    context.script_route_of = script_route_of
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
