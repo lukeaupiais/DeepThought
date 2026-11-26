@@ -6,10 +6,13 @@ from pathlib import Path
 import re
 import unittest
 
+import deepthought
 from deepthought import result_text
 from deepthought.storage.graph.schema import RELATIONSHIP_SENTENCES
 
-SOURCE = Path(__file__).resolve().parents[1] / "src" / "deepthought"
+# The package under test, installed or from src: acceptance runs the tests
+# outside the checkout.
+SOURCE = Path(deepthought.__file__).resolve().parent
 
 
 def symbol(eid, name, path, line, labels=("Function", "Symbol")):
