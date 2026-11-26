@@ -465,6 +465,78 @@ class AppliedTest(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter and grammars are required")
+class AliasTruthTest(unittest.TestCase):
+    """A call through a local bound once to a plain name, or through a
+    classmethod's ``cls``, leads where the index says that name leads."""
+
+    SOURCE = (
+        "class Span:\n"
+        "    @classmethod\n"
+        "    def make(cls):\n"
+        "        return cls()\n"
+        "def run():\n"
+        "    _Span = Span\n"
+        "    alias = _Span\n"
+        "    alias()\n"
+        "    twice = Span\n"
+        "    twice = run\n"
+        "    twice()\n"
+        "    later = Span.make()\n"
+        "    later()\n"
+    )
+
+    def test_aliases_and_cls_are_followed(self):
+        from deepthought._scip import scip_pb2
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "pkg").mkdir()
+        (root / "pkg/m.py").write_text(self.SOURCE)
+        head = "scip-python python pkg 1.0 `pkg.m`/"
+        index = scip_pb2.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        doc = index.documents.add(
+            relative_path="pkg/m.py",
+            position_encoding=scip_pb2.UTF8CodeUnitOffsetFromLineStart,
+        )
+        for line, start, end, symbol, roles in (
+            (0, 6, 10, head + "Span#", 1),
+            (2, 8, 12, head + "Span#make().", 1),
+            (2, 13, 16, head + "Span#make().(cls)", 1),
+            (3, 15, 18, head + "Span#make().(cls)", 0),
+            (4, 4, 7, head + "run().", 1),
+            (5, 4, 9, "local 0", 1),
+            (5, 12, 16, head + "Span#", 0),
+            (6, 4, 9, "local 1", 1),
+            (6, 12, 17, "local 0", 0),
+            (7, 4, 9, "local 1", 0),
+            # Rebound: no single target.
+            (8, 4, 9, "local 2", 1),
+            (8, 12, 16, head + "Span#", 0),
+            (9, 4, 9, "local 2", 1),
+            (9, 12, 15, head + "run().", 0),
+            (10, 4, 9, "local 2", 0),
+            # Bound to a call's result, not to a name.
+            (11, 4, 9, "local 3", 1),
+            (11, 12, 16, head + "Span#", 0),
+            (11, 17, 21, head + "Span#make().", 0),
+            (12, 4, 9, "local 3", 0),
+        ):
+            doc.occurrences.add(
+                range=[line, start, end], symbol=symbol, symbol_roles=roles
+            )
+        path = root / "index.scip"
+        path.write_bytes(index.SerializeToString())
+        expected, _ = ground_truth.derive(root, path)
+        span = {("pkg/m.py", 1, "alias")}
+        self.assertEqual(expected[("pkg/m.py", 4, "cls")], span)
+        self.assertEqual(expected[("pkg/m.py", 8, "alias")], span)
+        self.assertEqual({t[2] for t in expected[("pkg/m.py", 11, "twice")]}, {"local"})
+        self.assertEqual({t[2] for t in expected[("pkg/m.py", 13, "later")]}, {"local"})
+
+
+@unittest.skipUnless(READY, "tree-sitter and grammars are required")
 class ImportTruthTests(unittest.TestCase):
     """Module references in a hand-built index give each import's target."""
 

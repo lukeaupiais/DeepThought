@@ -214,6 +214,7 @@ def ingest_scip(
                         value_type=_python_value_type(
                             index.metadata.tool_info.name, native, info
                         ),
+                        implements=_implements(index.metadata.tool_info.name, info),
                     )
                 )
             digest = sha256(doc.SerializeToString(deterministic=True)).hexdigest()
@@ -263,6 +264,18 @@ def ingest_scip(
 # scip-python documents a local variable with the type pyright infers for
 # it, as one fenced block holding the type's qualified name.
 _PYTHON_VALUE_TYPE = re.compile(r"```python\n([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)\n```")
+
+
+def _implements(tool, info):
+    """For scip-go, the symbols ``info`` records an ``is_implementation``
+    relationship to, sorted; else None (other indexers' ingestion output
+    keeps its identity)."""
+    if tool != "scip-go" or info is None:
+        return None
+    found = sorted(
+        {r.symbol for r in info.relationships if r.is_implementation and r.symbol}
+    )
+    return tuple(found) or None
 
 
 def _python_value_type(tool, native, info):
