@@ -616,6 +616,20 @@ and `unknown` when it has not (no type facts for that contract yet: HTTP
 routes, GraphQL fields, message destinations, tables, and gRPC methods with
 clients or handlers outside type-checked Go).
 
+For a database column (`DbColumn`) the change is to the column itself
+(renamed, dropped or retyped). Its providers, the change set, are the
+migration files that declare it and the code whose SQL writes it
+(`WRITES_COLUMN`); the code whose SQL reads it (`READS_COLUMN`) `must_change`,
+and every caller of a reader or writer is `retest`. Paths through the
+column's table are not followed, since they say nothing about the column:
+code that reads only other columns is not affected. Code that reads or
+writes the table where the statement's columns did not all resolve (no
+`columns_resolved` on its READS or WRITES edge: SQL sqlglot does not parse,
+a name that is no column of the table, JPQL, MyBatis, ORM calls) and ORM
+classes mapped to the table are listed under `unresolved_users` (absent when
+there are none): whether they use the column is not known. Foreign keys that
+name the column are not yet followed column by column.
+
 For gRPC methods in any language an index covers, the messages also come
 from SCIP: the GrpcMethod node has protoc's `request_message` and
 `response_message`, and each client's stub call (the CALLS edge from the

@@ -25,10 +25,13 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
     "|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE|CARRIES|USES_TYPE|REFERENCES_FUNCTION|READS_FIELD"
-    "|WRITES_FIELD"
+    "|REFERENCES_TABLE|CARRIES|READS_COLUMN|USES_TYPE|REFERENCES_FUNCTION"
+    "|READS_FIELD|WRITES_FIELD"
 )
-_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
+# What provides a contract: handles a route, publishes to a destination,
+# writes, maps or declares a table or column.
+_PROVIDES = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN|MAPS_TO|DECLARES"
 # A contract's messages, for ``contract`` actions: the declarations named
 # like protoc's request and response types that the signature of each
 # client's stub method names (SIGNATURE_USES, from SCIP), found through the
@@ -49,7 +52,9 @@ _CONTRACT_MESSAGES = (
     "RETURN collect(CASE WHEN r IS NULL THEN null ELSE found END) AS clients } "
     "WITH root, parts, clients, "
     "reduce(acc = [], found IN clients | acc + found) AS messages "
-    "WITH root, parts, messages, root.message_types IS NOT NULL OR ("
+    "WITH root, parts, messages, root.message_types IS NOT NULL "
+    # A column's readers and writers are its column edges, all known.
+    "OR root:DbColumn OR ("
     "size(messages) > 0 AND all(found IN clients WHERE size(found) > 0) "
     "AND all(p IN parts WHERE any(m IN messages WHERE (p)-[:SIGNATURE_USES]->(m)))"
     ") AS known "
@@ -1387,6 +1392,15 @@ class GraphQueryService:
         methods); otherwise ``retest`` when those types are known for the
         contract (its ``message_types``), and ``unknown`` when they are not.
         A caller of a wrapper that hides the messages only re-tests.
+
+        For a database column (``DbColumn``) the providers are the files
+        that declare it and the code that writes it (WRITES_COLUMN); the code
+        that reads it (READS_COLUMN) must change and their callers re-test,
+        since a statement's columns are resolved against the table's known
+        columns. Code that reads or writes the column's table where the
+        statement's columns did not all resolve, and ORM classes mapped to
+        the table, are listed under ``unresolved_users`` (absent when there
+        are none): whether they use the column is not known.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -1396,7 +1410,7 @@ class GraphQueryService:
         found = await self._read(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "MATCH (provider)-[r:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
             "WITH provider, collect(DISTINCT type(r)) AS relations, "
             "collect(DISTINCT r.line) AS lines "
@@ -1423,13 +1437,39 @@ class GraphQueryService:
             }
             for item in found["items"]
         ]
-        # The providers share the output budget with the dependents.
-        while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
-            providers.pop()
+        # A column's table may be read or written, or mapped by an ORM
+        # class, where the columns are not known: those users are listed,
+        # not judged.
+        unknown = await self._read(
+            "MATCH (root:DbColumn {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) "
+            "MATCH (table:DbTable)-[:HAS_COLUMN]->(root) "
+            "MATCH (user)-[r:READS|WRITES|MAPS_TO]->(table) "
+            "WHERE user.repo_url=$repo_url AND user.snapshot_id=$snapshot_id "
+            "AND r.columns_resolved IS NULL "
+            "WITH user, collect(DISTINCT type(r)) AS relations "
+            "RETURN user.qualified_name AS qualified_name, "
+            "coalesce(user.name, user.path) AS name, "
+            "coalesce(user.file_path, user.path) AS file_path, "
+            "user.start_line AS start_line, relations "
+            "ORDER BY file_path, start_line, qualified_name",
+            {"subject": qualified_name},
+            repo_url,
+            snapshot_id,
+            limit=10,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        unresolved = unknown["items"]
+        # Providers and unresolved users share the budget with the dependents.
+        while (providers or unresolved) and max_output_bytes - len(
+            _json([providers, unresolved]).encode()
+        ) < 1200:
+            (unresolved or providers).pop()
         response = await self._impact(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "OPTIONAL MATCH (provider)-[:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "OPTIONAL MATCH (provider)-[:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT provider) AS parts ",
             _IMPACT_BACKWARD,
@@ -1439,7 +1479,7 @@ class GraphQueryService:
             max_depth,
             evidence_types,
             limit,
-            max_output_bytes - len(_json(providers).encode()) - 64,
+            max_output_bytes - len(_json([providers, unresolved]).encode()) - 128,
             timeout,
             offset=offset,
             reverse=_IMPACT_FORWARD,
@@ -1450,6 +1490,11 @@ class GraphQueryService:
         response["providers_truncated"] = found["truncated"] or len(providers) < len(
             found["items"]
         )
+        if unknown["items"] or unknown["truncated"]:
+            response["unresolved_users"] = unresolved
+            response["unresolved_users_truncated"] = unknown["truncated"] or len(
+                unresolved
+            ) < len(unknown["items"])
         return response
 
     async def get_file_impact(
@@ -1589,6 +1634,13 @@ class GraphQueryService:
                 "AND NOT ($exclude_generated AND GENERATED) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
+                # A column's dependents are found through its own edges; a
+                # path through its table says nothing about the column.
+                "AND (NOT root:DbColumn OR none(n IN nodes(path) WHERE n:DbTable)) "
+                # Columns are not code: a writer's other columns (reached
+                # forwards over WRITES_COLUMN) are neither dependents nor
+                # a way to their readers.
+                "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
                 "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
                 "WITH root, messages, known, dependent, target, path, CASE "
