@@ -378,6 +378,27 @@ def call_graph(nodes, calls, aliases=None, name_line_inside=False, regions=()):
     return incoming
 
 
+def enclosing_regions(regions):
+    """{region: {the region around it}} over (file, owner line, first, last)
+    regions, keyed as call_graph keys them.
+
+    A callback inside another (an act(() => ...) in an it(...), an it(...)
+    in a describe(...)) is passed to a call the oracle does not see run, so
+    whether the enclosing one runs it is not ruled on: derive adds these
+    edges to the widened graph only, and a dependent reached only through
+    one is unjudged."""
+    edges = defaultdict(set)
+    for file, owner, first, last in regions:
+        around = [
+            (b - a, line)
+            for f, line, a, b in regions
+            if f == file and a <= first and last <= b and (a, b) != (first, last)
+        ]
+        if around and min(around)[1] != owner:
+            edges[(file, owner)].add((file, min(around)[1]))
+    return dict(edges)
+
+
 def reach(incoming, seed, max_depth):
     """{dependent: depth} by reverse breadth-first search from ``seed``."""
     depth = {seed: 0}
@@ -476,6 +497,7 @@ def derive(
     possible_calls=(),
     initializers=None,
     dispatch=None,
+    nested_regions=False,
 ):
     from ground_truth import read_truth
 
@@ -513,9 +535,12 @@ def derive(
                 possible.setdefault(site, set()).add((*impl, "callable"))
     widened = (
         call_graph(nodes, possible, aliases, language != "python", regions)
-        if possible_calls or dispatch
+        if possible_calls or dispatch or nested_regions
         else incoming
     )
+    if nested_regions:
+        for region, parents in enclosing_regions(regions).items():
+            widened.setdefault(region, set()).update(parents)
     rows, unjudged = [], []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
         reached = reach(incoming, seed, max_depth)
@@ -818,7 +843,8 @@ def main(argv=None):
         "--initializers",
         type=Path,
         help="code outside callables that runs as part of a class "
-        "(JavaMethodSpans.java --initializers): its calls belong to the class",
+        "(JavaMethodSpans.java --initializers): its calls belong to the class; "
+        "or anonymous callbacks (ts_callback_regions.cjs), callers of their own",
     )
     derive_cmd.add_argument(
         "--dispatch",
@@ -828,6 +854,17 @@ def main(argv=None):
         "of an interface method are listed as unjudged",
     )
     args = parser.parse_args(argv)
+    # scip-typescript gives a function inside another a local symbol, so
+    # the truth lists every node to tell those apart from unlisted ones.
+    scripts = args.language in {"typescript", "javascript"}
+    initializers = read_initializers(args.initializers) if args.initializers else None
+    if scripts and initializers:
+        # Anonymous callbacks (tools/ts_callback_regions.cjs) in a file the
+        # call truth covers: elsewhere no call of theirs is known.
+        from ground_truth import read_truth
+
+        indexed = read_truth(args.calls)[1]
+        initializers = {k: v for k, v in initializers.items() if k[0] in indexed}
     rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
         args.calls,
@@ -839,12 +876,17 @@ def main(argv=None):
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
         args.possible_calls,
-        read_initializers(args.initializers) if args.initializers else None,
+        initializers,
         read_dispatch(args.dispatch) if args.dispatch else None,
+        scripts,
     )
-    # scip-typescript gives a function inside another a local symbol, so
-    # the truth lists every node to tell those apart from unlisted ones.
-    scripts = args.language in {"typescript", "javascript"}
+    if scripts and initializers:
+        # The callbacks are callers the truth can name, so an engine
+        # declaration there (a test case) is judged.
+        nodes = {
+            **{(f, ln): (name, a, b) for (f, ln, a, b), name in initializers.items()},
+            **nodes,
+        }
     write(rows, sys.stdout, aliases, nodes if scripts else None, unjudged)
     return 0
 
