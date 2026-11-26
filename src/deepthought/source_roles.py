@@ -8,7 +8,8 @@ and what it is called, not from what it contains:
   ``spec`` or ``testdata`` (which covers Maven and Gradle ``src/test/``), or
   in a .NET test project directory (``Foo.Tests/``, ``Foo.UnitTests/``), or
   named as a test by its language's convention: ``*_test.go``,
-  ``test_*.py``, ``*_test.py``, ``*Test`` and ``*Tests`` Java, Kotlin and C#
+  ``test_*.py``, ``*_test.py``, pytest's ``conftest.py`` (fixtures and
+  hooks), Django's per-app ``tests.py``, ``*Test`` and ``*Tests`` Java, Kotlin and C#
   files, and ``*.test.*`` and ``*.spec.*`` JavaScript and TypeScript files.
   Go's ``testdata`` holds test inputs, so it counts as ``test`` here.
 - ``example``: under a directory named ``example``, ``examples``,
@@ -51,11 +52,15 @@ ROLE_PATTERNS = {
             r".*_test\.go",
             r"(?:.*/)?test_[^/]*\.py",
             r".*_test\.py",
+            r"(?:.*/)?(?:conftest|tests)\.py",
             r"(?:.*/)?[^/]*\.(?:test|spec)\.[cm]?[jt]sx?",
         )
     ),
     "example": _directories(_EXAMPLE_DIRECTORIES),
 }
+# A file a generator wrote, by Linguist's rules on its content (see
+# generated_files); it has no path pattern.
+GENERATED_ROLE = "generated"
 ROLES = frozenset(ROLE_PATTERNS)
 
 
@@ -81,6 +86,7 @@ def exclusion_pattern(roles):
     selected = sorted(set(roles))
     if not selected or not set(selected) <= ROLES:
         raise ValueError(
-            "exclude_roles must be a nonempty subset of " + ", ".join(sorted(ROLES))
+            "exclude_roles must be a nonempty subset of "
+            + ", ".join(sorted(ROLES | {GENERATED_ROLE}))
         )
     return "|".join(f"(?:{ROLE_PATTERNS[role]})" for role in selected)

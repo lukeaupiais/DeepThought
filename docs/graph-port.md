@@ -29,7 +29,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
 | libs/analysis/.../parsers/utils/base/core.py `create_containment_relationships` (parent `CONTAINS` child by `parent_qname`) | deepthought.analysis_tools.tree_sitter + GraphQueryService.get_members/get_owner | Declaration -> CONTAINS -> nested declaration from parse-tree spans under a registered `resolved` rule (see below) |
-| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
+| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.scip_bases + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM from the SCIP reference at each base (`resolved`), else by the call name-binding rules (`name_matched`); `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
@@ -107,8 +107,18 @@ revision with `--snapshot` or use a fresh database.
 
 Tree-sitter extraction records each static import statement as an `Import` fact
 (analysis schema 3): Python `import` and `from ... import`, and TypeScript and
-JavaScript `import ... from` and `export ... from`. Dynamic loads such as `require()`,
-`import()` and `importlib` are not facts here. `deepthought.imports.resolve_imports`
+JavaScript `import ... from` and `export ... from`. A TypeScript or JavaScript
+`import("x")` call (kind `dynamic_import`) and a JavaScript `require("x")` call
+(kind `require`) are facts too, when the specifier is a string literal or a
+template without substitutions: the calls the TypeScript compiler records as
+imports. They bind no names, except a `require()` that initializes an object
+destructuring (`const { a, b: c } = require("x")`), which binds `a` and `c` to
+the module's exports `a` and `b`, as the compiler takes them (aliases of those
+exports). A nested pattern, default value, rest element or computed key binds
+none. It records `require()` in JavaScript files only, so the
+parser does too. Other dynamic loads, such as `importlib`, are not facts here. Calls are numbered
+apart from statements in their IDs, so each statement keeps the ID it had
+before calls were recorded. `deepthought.imports.resolve_imports`
 then matches specifiers against the analyzed files of the same result, without
 reading files, and TreeSitterTool writes File -> IMPORTS -> File for each link
 with the specifier, names, line, import ID and rule:
@@ -118,30 +128,144 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
 | `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
 | `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead. When `pkg/__init__.py` neither declares nor imports `x`, calls and bases read `x` as that module (`x.f()`) |
-| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
-| `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
-| `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
-| `tree-sitter.typescript-path-alias` | resolved | a TypeScript file's bare specifier matching a `compilerOptions.paths` pattern of the nearest `tsconfig.json` (else `jsconfig.json` in the same directory): an exact pattern, else the wildcard pattern with the longest prefix; each target, below `baseUrl` or the config's directory, is tried in TypeScript's order (TypeScript extensions on the file, then the directory's `package.json` `typings`, `types` and `main`, then `index.*`; then the same with JavaScript extensions); the first target that reaches an analyzed file wins. A nearer config without `paths` shadows a farther one; a config that `extends` another without settling `paths` and `baseUrl` itself leaves the specifier unresolved (`path_alias_inherited`), as does one that is not JSON with comments (`script_config_unreadable`); `include`, `exclude`, `references`, `exports` and `baseUrl` without `paths` are not read |
-| `tree-sitter.javascript-path-alias` | pattern_matched | a JavaScript file's bare specifier resolved by the same `paths` lookup; the runtime reaches that file only through a matching bundler or test-runner alias, which is not read |
-| `tree-sitter.script-declaration-source` | pattern_matched | a `paths` lookup that reaches a directory whose `package.json` `typings` or `types` names a declaration file that is not analyzed: the JavaScript file of the same name beside it (`src/index.d.ts` -> `src/index.js`), which the declaration describes by convention |
 | `tree-sitter.go-module-package` | resolved | a Go import path inside the importing file's own module (nearest `go.mod`): the directory at that path below the module root, linked to every non-test file of its package; `main` packages are not importable, and `vendor/`, `replace` and `go.work` are not read |
 
 `tsconfig.json`, `jsconfig.json` and `package.json` files are read as
 configuration facts (File nodes with no IMPORTS of their own) when TypeScript
-or JavaScript is analyzed. A `paths` target that is a `.js` file with a
-`.mjs` or `.cjs` twin beside it is left ambiguous (`module_format_twins`):
-which build runs depends on the loader.
+or JavaScript is analyzed.
 
-Anything else gets no edge. Package specifiers that no `paths` pattern maps,
-Python imports matching several roots, imports beyond the repository
-root, self-imports and modules outside the analyzed files are reported instead:
-each File node lists its `unresolved_imports` and `ambiguous_imports`
-specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
+Anything else gets no edge. Python imports matching several roots, imports
+beyond the repository root, self-imports and modules outside the analyzed files
+are reported instead: each File node lists its `unresolved_imports` and
+`ambiguous_imports` specifiers, and tool metadata counts linked, ambiguous and
+unresolved imports.
+
+JavaScript and TypeScript imports take their target from the TypeScript
+compiler (`deepthought.ts_modules`); no hand rule resolves them. For each
+file, `tsmodules/resolve.js` finds the project the language service would
+use: the nearest `tsconfig.json`, else `jsconfig.json`, directory by
+directory up to the workspace root, whose file list includes it, a solution
+config's `references` followed. It builds a program for each project and
+asks the compiler where every import resolves, with that import's resolution
+mode, so `paths`, `baseUrl`, extensions, index files, `package.json`
+`types`, `typesVersions` and `exports` are the compiler's. Configs above the
+workspace are not read. A file that no project includes, because its
+project excludes it or because the compiler took a file of the same name
+with another extension (`a.js` over `a.jsx`), is resolved with the options
+of the nearest config above it, `allowJs` added, in a program for that
+config's such files, so its `paths` and `baseUrl` still apply. With no
+config above it, it gets the options the language service gives a file
+outside every project (`allowJs`, the latest target). Nothing is
+type-checked or emitted. The compiler is the `typescript` package that the
+pinned scip-typescript installs (`TYPESCRIPT_VERSION`). Any other version,
+or a missing one, stops the run.
+
+The edge has rule `typescript.compiler-module` (`resolved`) and
+`producer: typescript@<version>`. An import resolves to the file itself,
+with symbolic links followed, so a workspace package that is linked into
+`node_modules` (as pnpm and yarn workspaces do) links to its source in the
+repository. When it gets no edge, the reason is one of these:
+
+- `compiler_module_not_found`: nothing resolves, such as a package that is
+  not installed.
+- `compiler_external_module`: the import resolves outside the workspace or
+  into `node_modules`.
+- `compiler_target_not_analyzed`: the import resolves to a file that was not
+  analyzed, such as `.json`.
+- `compiler_no_import`: the parser sees an import that the compiler does
+  not record.
+
+TreeSitterTool also binds JavaScript and TypeScript calls through the
+compiler (`ts_modules.with_compiler_modules`). A call through an import binds
+in the module the compiler resolves that import to, and the compiler says what
+that module exports under the name. It follows `export ... from`,
+`export *`, `export { x }` and `export =` to the declaration. A declaration
+file (`x.d.ts`, `.d.mts`, `.d.cts`) describes the implementation beside it
+with the same stem (`x.js`, `.mjs`, `.cjs`). When the compiler resolves an
+import, or follows a re-export, to such a file and that implementation is
+analyzed, the call binds to what the implementation exports under the name the
+declaration file gives. A call that binds in the module it imports keeps its
+parser rule. One that the compiler follows to another file is
+`typescript.call-compiler-export` (resolved). One that ends in a declaration
+file with no analyzed implementation is `typescript.call-declaration-file`
+(resolved): it names what the call is typed against, not the code that runs.
+The IMPORTS edge still names the file the compiler resolves, declaration file
+included. Where the language rejects a program, as with two `export *` that
+give one name or two exports of one name, the compiler reports an error and
+binds the first or later declaration it keeps; the call follows that binding.
+
+The compiler is required. `analyze_repository` itself never starts a process,
+so its result carries no compiler view: callers attach one with
+`ts_modules.with_compiler_modules(result, root)`, as TreeSitterTool, the
+contract tools and the verification tools do. `resolve_imports`, and so call
+binding, raise `imports.TypeScriptModulesRequired` for a result with
+JavaScript or TypeScript imports and no compiler view, rather than fall back
+to rules of their own.
 
 An IMPORTS edge says which file a statement imports, not where an imported name
 is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
+
+### Imports from the SCIP indexers
+
+In a file a SCIP index covers, an import is resolved as the language's own
+tooling resolves it, and the indexer records that module at the name the
+statement writes. A module the index defines links the importing file to the
+files defining it (IMPORTS); any other module is external and becomes an
+IMPORTS_PACKAGE edge to an ExternalPackage node named with its package and
+version as the index states them (`ecosystem` python, go or npm). The edge
+lists the modules imported. Externally resolved specifiers are listed in the
+File's `external_imports`, not `unresolved_imports`.
+
+- Python: each Python project (a directory with a `pyproject.toml`,
+  `setup.cfg` or requirements file) is indexed from its own directory with its
+  `src`, so the FastAPI template's `backend/app` imports as `app`, and pyright
+  searches those roots, the project's installed dependencies and the standard
+  library. scip-python records the module at each name the statement writes,
+  including the submodules `from a import b` names. Packages read
+  `python-stdlib 3.13` or `pydantic 2.12.5`.
+- Go: the go command's package loading through go.mod, replace directives and
+  the module cache. The link reaches each non-test file whose package clause
+  defines the package and that `go list` compiles on the engine's platform
+  (linux/amd64; a `//go:build windows` file is not linked). Packages read
+  `github.com/go-chi/chi/v5 v5.2.1`, at the version the importing module's
+  go.mod requires (`go mod edit -json`, replace directives applied): scip-go's
+  own form drops `+incompatible` and cuts a pseudo-version to its commit. The
+  standard library is the Go repository's `github.com/golang/go/src` module at
+  the go.mod's Go version (`go1.24`).
+- TypeScript and JavaScript: the TypeScript compiler's module resolution
+  through tsconfig, package.json, node_modules and workspaces. A module is a
+  file, or an ambient module a declaration file declares (`declare module
+  "node:buffer"` in `@types/node`). Packages read `@types/node 25.9.12`.
+
+| Rule | Evidence | Meaning |
+| --- | --- | --- |
+| `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: an installed distribution or the standard library |
+| `scip.go-import-module` | resolved | IMPORTS: a package whose files the index defines, each non-test file of it |
+| `scip.go-import-package` | resolved | IMPORTS_PACKAGE: a package of another module or of the standard library |
+| `scip.typescript-import-module` | resolved | IMPORTS: the file the compiler resolves the specifier to |
+| `scip.typescript-import-package` | resolved | IMPORTS_PACKAGE: a file or ambient module of an npm package |
+
+A covered import with no module occurrence keeps a path rule's links if it has
+them; otherwise it stays unresolved (`scip_no_occurrence`): the tooling found
+no module, for example a dependency that is not installed, a stylesheet, or a
+package's import of itself by name when its build output is missing. Python
+relative imports keep the path rules, because scip-python 0.6.8 names the
+module of `from .models import X` by the written remainder alone (``
+`models`/__init__: ``), which is another project's top-level `models` or
+nothing. A Python from-import of an in-repository package also keeps the path
+rule's links to the submodules it names (`from flask import json`), which the
+index records as attributes of the package. scip-python 0.6.8 also names a
+module's package from the installed distributions' file lists rather than
+from pyright's resolution, so a wheel that ships a top-level `tests` package
+(msal-extensions does) labels the repository's own `tests` as its module. A
+module that the same index defines links to its document instead: pyright
+searched the local roots first and resolved the names to it. Files no index
+covers keep the path rules throughout. Tool metadata counts the indexes'
+decisions by language in `scip_imports` and the packages in
+`external_packages`.
 
 ## Calls
 
@@ -151,9 +275,10 @@ enclosing declaration. In Python, JavaScript and TypeScript (and Go, below), a
 method called on a call's, construction's or element's result, on `super` or
 through an optional chain is recorded too, its receiver written with arguments
 and indexes dropped (`f().g`, `new T().m`, `xs[].m`, `super.m`, `a?.b`,
-`f?.().m`); no name-binding rule reads these, so they stay unlinked unless a
-SCIP index links them. Other calls (`f()()`, `x[0]()`, `(a as T).m()`) are not
-recorded. `deepthought.calls.resolve_calls` matches names only,
+`f?.().m`), and a parenthesized receiver no name describes as `(…)`
+(`(a ? b : c).m()` is `(…).m`, `(a as T).m()` is `(…).m`); no name-binding
+rule reads these, so they stay unlinked unless a SCIP index links them. Other
+calls (`f()()`, `x[0]()`, `` `x`.trim() ``) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
 inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
 covers take their targets from the index instead (below); the original's SCIP
@@ -170,11 +295,38 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
 `tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
 query counts the linked, ambiguous and unresolved calls of a name:
-`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+`get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
-rule. Snapshots written before this change have no such nodes and answer
+rule. Each call site names its `caller`, the function, method or file around
+it (qualified name, name, kind, `file_path`, `start_line`, `end_line` and
+`signature`), and the `source_roles` of that file (`test`, `example`), so an answer about who calls
+a name stops at the enclosing declarations rather than bare lines. Code outside
+every declaration (module-level calls, anonymous callbacks) has its file as
+caller, named `(top level of file)` with no line span and `top_level: true`;
+the call keeps its own line. `get_function_callers`, `get_function_calls`,
+`get_base_types` and `get_subtypes` describe each declaration they return the
+same way, with its `source_roles`. Snapshots written before unlinked calls were stored have no UnresolvedCall nodes and answer
 `unsupported_or_unobserved`. Calls made through another name (an alias, a
 callback, dynamic dispatch) are not counted.
+
+`target` keeps the call sites of one declaration, so a name shared by
+members of other types (a `run` on two classes, `arrayBuffer` on a platform
+type) does not mix their calls in: calls linked to it, and ambiguous calls
+that list it among their candidates. Unresolved calls of the name may be
+calls of it too, so `counts` still counts them; the items leave them out.
+
+Every query about one declaration (`get_call_sites`'s `target`,
+`get_function_callers`, `get_function_calls`, `get_impact`, `get_members`,
+`get_owner`, `get_base_types`, `get_subtypes` and `get_class_hierarchy`)
+takes its qualified name or a place, `file:line` (`src/app.py:42`): the
+declaration named on that line, or else the innermost declaration around
+it, so a line read in the source, a stack trace or a diff names exactly one
+declaration. Qualified names always hold `::`, so the two never clash. More
+than one declaration named on that line (`class P { a() {} b() {} }`) is
+refused as ambiguous, listing their qualified names; a line no declaration
+spans is refused too. A Python declaration's span starts at `def` or `class`, not at its
+decorators, so a decorator line names the enclosing declaration (or none at
+module level), as calls in decorators belong to the enclosing scope.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
 covers are bound from the index (`deepthought.scip_calls.bind_calls`).
@@ -204,36 +356,93 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
 the name), `scip_external` (a symbol defined outside the index),
 `scip_target_not_declaration` (a definition no parsed declaration names, such
 as a variable) or `multiple_declarations` (more than one target, with the
-candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+candidates). The parser's rules are not used for it. Three scip-python 0.6.8
 faults are guarded: in a Python file, a target whose name is not the name
 written at the call, unless an import binds that name to it (the index may
-follow a star re-export to the wrong function), and an external target for
+follow a star re-export to the wrong function), an external target for
 `self.x()` when the enclosing class or a repository base declares `x` (the
-index may name a builtin). Both are `scip_suspect_target`: the parser's link
-stands if it has one, otherwise the call stays unlinked. Files no index covers
+index may name a builtin), and more than one target (the index names a
+function nested in a method by the class alone, `Group#decorator().`, so
+same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
+occurrence for (scip-python skips code it treats as unreachable), are answered
+by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
+language server's go-to-definition at the callee's last name gives the
+declaration, linked as `pyright.call-definition` with `producer:
+pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+`pyright_external` or `pyright_target_not_declaration`. The parser's link is
+never kept over the index. Pyright is required: binding a covered Python file
+without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
+`pyright-langserver` beside it). In a JavaScript or
+TypeScript file, a `scip_external` or `scip_target_not_declaration` call that
+the TypeScript compiler binds
+through an import (`call-imported-name`, `call-module-attribute`,
+`typescript.call-compiler-export`, `typescript.call-declaration-file`) keeps
+the compiler's link. scip-typescript 0.6.2 leaves a package that imports
+itself by name (preact's `compat/` importing `preact`) to `node_modules`, and
+calls those symbols external. The compiler resolves the same import to the
+workspace file the package's `exports` name. scip-typescript also records a
+name destructured from `require()` as a variable of its own, where the
+compiler follows it to the module's export. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
 target file and line, parser target file and line, reason, rule). The
 tool's `call_resolution_by_resolver` metric counts call outcomes separately for
-`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
-(the parser's link kept over a suspect index target) and `tree-sitter` (files
-no index covers).
+`scip` (the index decided, its "nothing here" included), `pyright` (a Python
+call the index named wrongly or missed), `scip_suspect_parser` (the parser's
+link kept over a suspect index target), `typescript` (the compiler's link kept
+over an index target it does not follow) and `tree-sitter` (files no index
+covers).
+
+### Uses besides calls
+
+Code also couples through names it does not call: a type in an annotation,
+conversion or `isinstance`, a function passed as a value (a handler, a
+callback, an entry in a lookup table), a field read or written. In a file a
+SCIP index covers, every reference that is not at a call's name, not in an
+import statement, not a base a class declaration names (its INHERITS_FROM
+edge) and not a declaration's own name (scip-python records a redefinition as
+a reference) becomes a use edge
+(`deepthought.scip_uses`), from the innermost parsed declaration around it
+(or its file), all `resolved`:
+
+| Rule | Edge |
+|---|---|
+| `scip.use-type` | USES_TYPE to a parsed class, struct, interface, type alias or enum |
+| `scip.use-function-value` | REFERENCES_FUNCTION to a parsed function or method named without being called |
+| `scip.use-field-read` | READS_FIELD to a Field |
+| `scip.use-field-write` | WRITES_FIELD to a Field: the reference is the target of an assignment, augmented assignment, `++`/`--`, `del`, or the key of a Go composite literal element (`T{Field: v}`) |
+| `scip.field-definition` | type CONTAINS Field |
+
+Fields are not parsed declarations: each term the index defines on a type
+(`T#name.`) inside a parsed class, struct, interface or enum is a
+`Field`/`Symbol` node of that type (its name `Type.name`). Whether a use
+writes is read from the file's tree-sitter syntax, since the indexers mark
+every reference `ReadAccess` (scip-go, scip-python) or nothing
+(scip-typescript). Uses of one kind from one source to one target are one
+edge with the first site (`line`, `column`) and the number of sites
+(`sites`), the producer and the receipt. A reference to a local variable has
+no declaration to link and adds nothing; a declaration naming itself (a
+recursive reference) neither. `get_impact` follows the four edges backwards,
+and a type contains its fields, so a changed type reaches the readers and
+writers of its fields. On chi (Go) the graph gains 108 fields and 859 use
+edges (1,320 sites), on miniflux 1,596 fields and 10,914 edges (16,493
+sites), on flask 1,119 edges; binding them takes under a second.
 
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
-| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous. An imported name exported again this way follows `js-call-reexport` |
+| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous. In JavaScript and TypeScript the compiler says what a module exports under each name (`typescript.call-compiler-export`) |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`); Python `import a.b.c` also binds `a` and `a.b` to the `__init__.py` of each package on the path |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the package (a name declared twice, also in two files for different platforms, or a `var` with neither type nor value, gives no type). A variable of another file is named by `CallSite.receiver_variable`, and each Go file's `PackageClause.variables` lists its package-level variables with the type their declaration writes or a value `T{...}`, `&T{...}`, `new(T)`, `F()` or `pkg.F()` gives. `pkg.V.M()` follows the variable `V` of the package the file imports as `pkg`. The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array, or of a named slice type: `Definition.underlying_type` holds `[]T` for `type S []T`), `T(e)` (a conversion to the one non-alias type `T` of the package), `f()` where `f := func() T {...}` (the literal's first result). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
-| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. An imported name exported again by a separate `export { f }`, `export { f as g }` or `export default f` (`Import.reexported_as`) is followed as the `export { ... } from` it amounts to, as preact's `compat/src/index.js` does with `import { render } from './render'` and `export { render }`. `export * as ns from`, a namespace import exported again, and cycles are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-super` | Python: `super().m()` written directly in a method of class `C` (not in a function nested in it) to the `m` that `C`'s declared bases declare or inherit, in the method resolution order after `C`; a class reached twice or a base that names no repository class leaves it unresolved (`diamond`, `base_not_resolved`) |
 | `tree-sitter.python-call-self-inherited` | Python: `self.m()` where the class around it declares no `m`, to the `m` its declared bases declare or inherit, in the same order and with the same stops as `tree-sitter.python-call-typed-receiver`; a subclass's override is not followed |
@@ -272,6 +481,33 @@ Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
 8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
 `tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
+### Test cases
+
+JavaScript and TypeScript test runners (Jest, Vitest, Mocha, `node:test`,
+Jasmine, Bun) declare tests by calling a function with a name and a callback,
+so the calls a test makes would otherwise belong to no declaration and answer
+as the whole file. A statement that calls `it`, `test`, `specify`, `bench`,
+`fit`, `xit` or `xtest` (kind `Test`), or `describe`, `suite`, `context`,
+`fdescribe` or `xdescribe` (kind `TestSuite`), optionally through modifiers
+(`only`, `skip`, `todo`, `concurrent`, `sequential`, `fails`, `each`, `for`,
+`skipIf`, `runIf`, with or without arguments: `it.each(rows)("x", fn)`), with
+a string or substitution-free template name first and a function after it,
+is a declaration. Its symbol is the callee as written, without modifier
+arguments, and the name as a JSON string, joined to the enclosing suites
+with `.`: `describe("add").it.each("adds %i")`. No identifier can be written
+that way, so a test case is never a call's target. Its line is the line of
+the call and its span the whole call, so suites contain their cases and the
+calls inside a callback take the test case as their caller; `get_impact` and
+`get_call_sites` then name the test case. The test case's own call (and a
+modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
+with a substitution or with an escape other than a quote or backslash, a call
+whose result is used other than as an array element (`await
+Promise.all([it("a", fa), it("b", fb)])` declares both), and a call through
+another object (`runner.it(...)`) declare nothing. This is a parser rule: listing a runner's tests would load
+the project's test configuration, which runs its code. Python test functions
+and Go `TestX` functions are declarations already; Go `t.Run` closures stay
+inside their test function.
+
 ## Declaration nesting
 
 Each declaration is linked from the innermost other declaration whose span
@@ -305,6 +541,21 @@ the analysis recorded; files that changed in between are listed in the
 `source_context` metric and get no text. Files reused by incremental
 re-indexing get text like parsed ones.
 
+Each Symbol also stores its `signature`: the head of the declaration as
+written, from its decorators or `export` keyword (and the `const`, `let`,
+`var` or Go `type` keyword of a statement that declares only it) to where its
+body starts, such as `export async function g<T>(x: T): Promise<T>` or
+`def f(a: int) -> bool:`. Comments just before the body are not part of it
+(Python's parser keeps a body's leading comments outside its block). A declaration without a body (a type alias, an
+interface member, a Go struct type) is its whole text. It is cut at 5 lines
+or 400 characters, ending with `…`. When decorators would push the declaration past that
+cut, the first decorator is kept, the rest become one `…` line, and the
+declaration's own head follows (`@option('--o0')`, `…`, `def command(ctx, o0):`),
+so a signature always shows the name it declares. With `start_line` and `end_line`, a
+lookup of a declaration can end at the graph without reading the source.
+Queries that return declarations keep it (`search_elements`,
+`find_symbol_by_name`); the steps of a returned path leave it out.
+
 `get_code_context` (CLI `context`, MCP getCodeContext) returns a page of each
 declaration's text: `max_source_characters` (0 to 8,192, default 1,200)
 Unicode code points from `source_offset`, with `source_characters` giving the
@@ -325,6 +576,26 @@ Checked against independent parsers:
 
 The TypeScript check finds each declaration by its UTF-16 name position, so it
 also confirms those positions.
+
+### Generated files
+
+A Tree-sitter File node that a generator wrote carries `generated_by`:
+- `linguist`: GitHub Linguist's rules, run by go-enry's port
+  (`enry.IsGenerated`, `deepthought.generated_files`). They read the file's
+  name and content: generator headers such as "Code generated ... DO NOT
+  EDIT.", protobuf, gRPC and Thrift outputs, minified or bundled JavaScript,
+  source maps and lock files.
+- `gitattributes`: the repository's own `linguist-generated` attribute, read
+  with `git check-attr` when the workspace is in a git work tree.
+
+An unset attribute (`-linguist-generated`) clears the rules' verdict, as it
+does on GitHub. Other files have no `generated_by`.
+
+The rules run in the `genfiles` Go program of the package. Its go.mod and
+go.sum pin go-enry, and its first build downloads that module into the module
+cache. An offline host installs it ahead, from that directory, with
+`GOBIN=<dir on PATH> go install .`, which names it `deepthought-genfiles`.
+`DEEPTHOUGHT_GENFILES` names another build.
 
 ### Indexer symbols and parsed declarations
 
@@ -359,7 +630,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE, USES_DEPENDENCY and REQUESTS, and
+  forwards over HANDLES. A test reaches the code its pytest fixtures call
+  (see "pytest fixtures"), and an endpoint the FastAPI dependencies it
+  injects (see "FastAPI dependencies"). A Go
   interface method DISPATCHES_TO each implementation (see "Interface
   implementations"), so a changed implementation reaches the interface
   method and its callers, but not the other implementations. A route a changed
@@ -382,7 +656,9 @@ the chat model. The port answers from stored edges only:
   route, gRPC method, GraphQL field, message destination or database table.
   The change set is the contract and its providers, the declarations or files
   that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
-  lists under `providers` (at most 10, `providers_truncated` when more).
+  lists under `providers` (at most 10, `providers_truncated` when more),
+  each described as call sites describe their caller, with its `relations`,
+  the sorted `lines` of those edges and its `source_roles`.
   Dependents are then found as for `get_impact`: the code that REQUESTS,
   CONSUMES or READS the contract or, for a table, the tables whose foreign
   keys reference it over REFERENCES_TABLE (direct), and the callers of that code, also
@@ -398,8 +674,12 @@ the chat model. The port answers from stored edges only:
 All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
-its path (type, edge ID, evidence type, rule ID) and the path's evidence,
-which is its weakest edge. When several paths reach a dependent, the one with
+its path (type, edge ID, evidence type, rule ID, the edge's `line`, and the
+declarations it joins, `from` and `to`, described as call sites describe
+their caller) and the path's evidence, which is its weakest edge. The
+dependent itself carries its line span, `signature` and `top_level`, and
+`lines`: the lines of every edge it starts toward the change on any path
+(each call it makes that leads there), sorted. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
 the answer is the same on every run.
 
@@ -420,13 +700,44 @@ messages; it is `retest` otherwise when the contract has `message_types`
 (the types are known, so a wrapper that hides them shields its callers),
 and `unknown` when it has not (no type facts for that contract yet: HTTP
 routes, GraphQL fields, message destinations, tables, and gRPC methods with
-clients or handlers outside type-checked Go). `source_roles` lists `test` and `example`
+clients or handlers outside type-checked Go).
+
+For a database column (`DbColumn`) the change is to the column itself
+(renamed, dropped or retyped). Its providers, the change set, are the
+migration files that declare it and the code whose SQL writes it
+(`WRITES_COLUMN`); the code whose SQL reads it (`READS_COLUMN`) `must_change`,
+and every caller of a reader or writer is `retest`. Paths through the
+column's table are not followed, since they say nothing about the column:
+code that reads only other columns is not affected. Code that reads or
+writes the table where the statement's columns did not all resolve (no
+`columns_resolved` on its READS or WRITES edge: SQL sqlglot does not parse,
+a name that is no column of the table, JPQL, MyBatis, ORM calls) and ORM
+classes mapped to the table are listed under `unresolved_users` (absent when
+there are none): whether they use the column is not known. Foreign keys that
+name the column are not yet followed column by column.
+
+For gRPC methods in any language an index covers, the messages also come
+from SCIP: the GrpcMethod node has protoc's `request_message` and
+`response_message`, and each client's stub call (the CALLS edge from the
+REQUESTS edge's declaration at the same line, to the method as written)
+reaches the generated stub method, whose `SIGNATURE_USES` edges name the
+message declarations (those named like protoc's types; `DeepPartial` or
+`Metadata` beside them are not messages). A declaration whose signature
+names one carries the messages as a `CARRIES_MESSAGE` edge does, and the
+messages are known when every client's stub names one and every provider's
+signature names one too. So a TypeScript client against grpc-tools'
+generated `*_grpc_pb.d.ts` is decided like a Go one (other generators are
+not checked yet); an untyped client (plain JavaScript, a
+`proto-loader` client, Python's generated `*_pb2_grpc.py`, whose stub
+methods are attributes) leaves the method `unknown`. `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
-test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+test file names such as `*_test.go`, `test_*.py`, pytest's `conftest.py`,
+Django's `tests.py`, `FooTest.java`,
 `FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
-unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+unclassified), and `generated` when the dependent's File has `generated_by`
+(see "Generated files"); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
 first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
@@ -503,6 +814,29 @@ one the graph cannot hold as a call (the function assigned as a default
 value in `Hono`'s constructor, now of the wrong type). The compiler side
 covers value uses and type errors; the graph side covers callers past the
 first break, other languages and other services.
+
+### Answers against the working copy
+
+A graph answer describes one snapshot, so after an edit its lines can point at
+code that has since moved. When `GraphQueryService` is given the workspace the
+snapshot came from (`workspace=`; `DEEPTHOUGHT_WORKSPACE` for the CLI and the
+MCP server), every snapshot answer, raw Cypher included, carries `freshness`.
+It covers the files the answer names under `file_path`, `path` or `file`, at
+any depth, also as a raw query's unaliased column such as `f.path`:
+
+- `current`: each named analyzed file still has the bytes the snapshot
+  recorded (`File.file_sha256`);
+- `changed`: `changed_files` were edited and `missing_files` are gone since
+  the snapshot, so re-read those or re-index;
+- `unverified`: the answer names no analyzed file it can read in the
+  workspace. A file whose real path leaves the workspace (a symlink out of it)
+  is not read and not counted.
+
+`files_checked` counts the files compared. At most 500 files are checked and
+20 of each kind are listed per answer; `files_listed_truncated` says when the
+lists were cut. Digests are cached by size and modification time, so an edit
+that keeps both (`cp -p`, an archive restore) reads as unchanged. Without a
+workspace, answers carry no `freshness`.
 
 ## Components
 
@@ -740,9 +1074,29 @@ classes and TypeScript/JavaScript `extends` entries are `extends`, a TypeScript
 class's `implements` entries are `implements`. Only plain or dotted names are
 recorded, without type arguments (`Generic[T]` and `Base<T>` name `Generic`
 and `Base`); keyword arguments such as `metaclass=`, splats and call
-expressions such as mixins are not. `deepthought.inheritance.resolve_supertypes`
-applies the call name-binding rules, so every INHERITS_FROM edge is
-`name_matched`:
+expressions such as mixins are not.
+
+In files a SCIP index covers (Python through scip-python, TypeScript and
+JavaScript through scip-typescript), `deepthought.scip_bases` takes the base
+from the reference the indexer records at the base's last name, as the
+compiler or type checker binds it through imports, package re-exports and
+aliases:
+
+| Rule | Links |
+|---|---|
+| `scip.python-base` | a Python base to the one repository class scip-python references there |
+| `scip.typescript-base` | an `extends` or `implements` entry to the one repository class or interface scip-typescript references there |
+
+Both are `resolved` and carry the indexer as `producer` and its receipt. A
+base the index references outside the repository (installed packages,
+TypeScript's own library) gets no edge and counts as `scip_external`, even
+when a repository class has the same name. In Python, a declaration of
+another name is taken only where an import of the file binds the written name
+to it, since scip-python follows `from m import *` re-exports to wrong
+symbols. Where the index records no reference at the base, or names a
+repository declaration these rules do not take, and in files no index covers,
+`deepthought.inheritance.resolve_supertypes` applies the call name-binding
+rules, whose INHERITS_FROM edges are `name_matched`:
 
 | Rule | Links |
 |---|---|
@@ -758,7 +1112,8 @@ QUALIFIED_NAME` (MCP getBaseTypes and getSubtypes) return direct edges with an
 optional evidence filter, and `get_class_hierarchy` follows them through
 classes and interfaces. The original tool emitted the same relation for names
 its symbol resolver found; it is now limited to these rules and marked with
-its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
+its evidence. The SCIP tool's IMPLEMENTS edges add indirect supertypes and
+overridden members.
 Rust impl blocks and supertraits give `resolved` INHERITS_FROM edges of their
 own (see "Rust impls").
 
@@ -779,6 +1134,10 @@ of Django give identical facts.
 
 ## JavaScript
 
+TypeScript sources are `.ts`, `.tsx`, `.mts` and `.cts` files, declaration
+files (`.d.ts`, `.d.mts`, `.d.cts`) included: the extensions the TypeScript
+compiler reads as TypeScript.
+
 JavaScript and JSX sources (`.js`, `.jsx`, `.mjs`, `.cjs`) are analyzed when
 `javascript` is selected (`--language javascript`, or `languages=` in Python)
 and the `javascript` extra is installed. The language is opt-in, so analyses
@@ -786,8 +1145,8 @@ that select no language keep their Python/TypeScript output byte for byte, and
 TypeScript repositories that ship compiled `.js` next to their sources are not
 analyzed twice by default. Declarations, call sites and call rules are the same
 as for TypeScript. ES module `import ... from` and `export ... from` statements
-are import facts. CommonJS `require()` and dynamic `import()` are not, so a
-CommonJS module has declarations and calls but no IMPORTS edges.
+are import facts, and so are CommonJS `require("x")` and dynamic `import("x")`
+calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
@@ -796,14 +1155,14 @@ expression keeps no declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
-a specifier links only to an analyzed file, by the rules in the imports table
-above. An explicit extension names one file and is `resolved`. An extensionless
-specifier is `pattern_matched`, because whether it resolves depends on the
-bundler or on CommonJS, and Node ES modules reject it.
+a specifier links only to an analyzed file, where the TypeScript compiler
+resolves it (`typescript.compiler-module`, above).
 
-Checked against scip-typescript 0.6.2 indexes (allowJs) of two public npm
-packages with `tools/compare_imports_with_scip.py` and
-`tools/compare_calls_with_scip.py`:
+Before the compiler resolved imports, the parser's own rules were checked
+against scip-typescript 0.6.2 indexes (allowJs) of two public npm packages with
+`tools/compare_imports_with_scip.py` and `tools/compare_calls_with_scip.py`.
+The figures below are from those rules; the ground-truth gate now covers
+preact with the compiler:
 
 | Corpus | Files | IMPORTS file pairs confirmed by SCIP | Linked calls confirmed by SCIP | Contradicted |
 |---|---|---|---|---|
@@ -911,6 +1270,125 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### pytest fixtures
+
+pytest hands a test the fixtures its parameters name, so the test depends on
+them without calling them (`deepthought.pytest_fixtures`). Each test function
+(`test*`), test method (`test*` in a class named `Test*`) and fixture in a
+test module (`test_*.py`, `*_test.py`) or `conftest.py` has a USES_FIXTURE
+edge to each fixture it requests, with the `line` and `name` written:
+
+| Rule | Links |
+|---|---|
+| `pytest.fixture-parameter` | a parameter without a default value (after a method's `self`) to the fixture of that name |
+| `pytest.fixture-usefixtures` | a string in `@pytest.mark.usefixtures(...)` on a test or test class to the fixture of that name |
+| `pytest.fixture-autouse` | a test, at its `def` line, to each `autouse=True` fixture it sees and does not request by name |
+
+A fixture is a function decorated `@pytest.fixture` or
+`@pytest_asyncio.fixture` (or `fixture` imported from either), named by its
+`name=` argument when that is a string. A name is looked up as pytest looks
+it up: the test's class, its module, then `conftest.py` in the module's
+directory and each directory above it, nearest first; a fixture requesting
+its own name gets the one it overrides. A parameter that
+`@pytest.mark.parametrize` on the test or its class gives values directly
+(not `indirect`) requests no fixture. All three rules are `pattern_matched`.
+This is a rule over the source read with Python's `ast`, because pytest's
+own listing (`--fixtures-per-test`) imports the project and runs its
+plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
+`getfixturevalue`, fixtures inherited from a test class's base classes,
+and `python_files` or `python_functions` settings in
+configuration are not read, and neither is a file `ast` cannot parse (see
+"Python versions" below). `get_impact` follows USES_FIXTURE backwards, so
+a change to code a fixture calls reaches every test that requests it.
+
+### FastAPI dependencies
+
+`Depends(get_db)` and `Security(auth)` hand FastAPI a function or class to
+call when an endpoint runs, so the endpoint depends on it without calling it
+(`deepthought.fastapi_dependencies`). Each such use is a USES_DEPENDENCY
+edge to the dependency, with the `line` and UTF-8 byte `column` where it is
+written, its `name`, the `injector` (`Depends` or `Security`), and the
+indexer that resolved it (`producer`, `receipt`):
+
+| Rule | Links |
+|---|---|
+| `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
+
+Both ends come from the scip-python index, so the rule is `resolved`. A
+call written `Depends(...)` or `Security(...)` (or under a name one of them
+is imported `as`) counts only when the index resolves its callee to
+FastAPI's own `fastapi.param_functions` `Depends` or `Security`, or to the
+`fastapi.params` classes of those names. The dependency is the
+first argument or `dependency=`. For a `Depends()` with neither, it is what
+FastAPI calls: the parameter's annotation, or the `T` of
+`Annotated[T, Depends()]`. It is linked only when the index resolves that
+name to exactly one parsed declaration. The declaration that depends on it
+is the function whose parameters or decorators (`dependencies=[...]`) hold
+the call, else the innermost function around the call, else the file (an
+app or router made with `dependencies=[...]`). Python's `ast` reads only that
+placement; FastAPI itself is never imported or run. `get_impact` follows
+USES_DEPENDENCY backwards, so a changed dependency reaches its endpoints.
+
+A type alias of `Annotated[T, Depends(f)]` (`SessionDep = Annotated[Session,
+Depends(get_db)]`, at module, class or function level, or a `type`
+statement) injects `f` wherever a parameter is annotated with it. The index
+resolves the annotation to the alias's definition, and the function holding
+the parameter gets the edge, at the place the alias is written, with `alias`
+set to the `file:line` that defines the alias. The alias line itself is not
+a use.
+
+Not read: a dependency given as an instance (`Security(scheme)` with
+`scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
+at run time (`Depends(make_dependency())`, a loop variable); an alias of an
+alias, or an alias written inside another annotation
+(`Optional[SessionDep]`); files no scip-python index covers; and files `ast`
+cannot parse (see "Python versions" below).
+
+On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
+come through aliases, 21 are on an app or router, and 14 are `Depends()`
+calls of the parameter's type. A text search for `Depends(`/`Security(` with
+a plain name finds 475 sites. The ones not linked are instances (security
+schemes), dependencies built at run time, and examples inside docstrings.
+Samples of 15 direct links and 8 alias links, checked against the source,
+were all correct. On the full-stack-fastapi-template backend (77e550a) 39
+uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
+their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
+injects an instance and is not linked. That template's `app/api/deps.py`
+uses Python 3.14 syntax (`except A, B:`), which the declared Python 3.14
+reads (see below).
+`tools/check_impact.py` matches on every compared seed: 117 of 117 (136
+dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
+`docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
+output budget not compared) over the whole template backend.
+
+### Python versions
+
+The pytest fixture and FastAPI dependency rules read sources with Python's
+`ast`, which parses only the syntax of the interpreter it runs in
+(`deepthought.python_ast_facts`, `deepthought.python_runtime`). So the
+sources are read by the newest Python the repository declares: the first
+entry of each `.python-version` file and each `pyproject.toml`'s
+`requires-python` (virtual environments and `node_modules` are skipped).
+When a declaration admits nothing newer than the running interpreter, the
+running one reads them itself, since newer Pythons parse older syntax.
+Otherwise uv (a pinned dependency of the `python` extra) finds that Python,
+installing a managed CPython when none is present, and the facts are read
+by a script run there that uses only the standard library. The
+`python_interpreter` metric gives the version that read them, the
+declarations, whether it was a managed interpreter, and any errors.
+
+When no declared Python can be obtained (uv missing included), or it fails,
+the running
+interpreter reads the sources, and each reason is a
+`python_interpreter_unavailable` warning. A file the chosen interpreter
+still cannot parse is named in a `python_ast_unparsed: FILE: ...` warning
+and listed with the interpreter version in the `python_ast_unparsed` metric.
+
+On full-stack-fastapi-template (77e550a, `requires-python = ">=3.14,<4.0"`),
+an analysis running under Python 3.13 reads the backend with a uv-managed
+3.14.6. `app/api/deps.py` parses, and all 39 dependency uses and 147 fixture
+uses are found with no warning.
 
 ### Interface implementations
 
@@ -2118,11 +2596,52 @@ bind to its src-layout package. Two of those `src` directories with a
 top-level module or regular package of the same name are both left off, so
 one module name never names two files; namespace packages (no `__init__`)
 merge across them as Python merges them. A project's own directory is not
-added, since pyright already resolves a flat layout from the importing
-file's directory. On haystack-core-integrations (47d359e; `chroma`,
+on the workspace's path; a nested Python project (a `pyproject.toml` or
+`setup.cfg` below the root) whose files import one of its own top-level
+modules by absolute name, as Python's `ast` reads the imports, gets a
+scip-python run of its own instead: from the workspace root with
+`--target-only <project>`, its own directory and `src` first on
+`PYTHONPATH`, then the workspace's roots, and its declared packages
+installed. A service imports its own modules by bare name (`from schemas
+import ...` in src/OrderService) and two services' `schemas` cannot share one
+path; running from the root keeps workspace symbols, since scip-python names
+a file outside `--cwd` with a local symbol. A requirement on a distribution
+the workspace itself builds (flask's examples require `flask`) is not
+installed, so its source is read, and that project's own dependencies are
+installed in its place; the receipt lists it under `provided`. Cross-file
+references (non-local symbols defined in another document): flask
+(49943b5) 3,017 to 3,135, joe0106/fastapi-microservices-orchestrator
+0 to 71, AntonVagabond/OnlineStore 297 to 985, full-stack-fastapi-template
+1,038 to 1,183; its SQLModel table gate stays 64/66. A fixture project that
+never imports itself (poetry's 100 test fixtures) gets no run. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
-from 5,403 to 6,473. scip-go gets
+from 5,403 to 6,473.
+
+A pytest test gets a fixture's value through a parameter without an
+annotation (`def test_x(app): app.route(...)`), which pyright cannot type,
+so scip-python records nothing at `route` or at anything reached from it.
+Each scip-python run whose documents include such tests indexes them a
+second time (`deepthought.fixture_probes`), in a copy of the workspace's
+Python files where each parameter
+that `deepthought.pytest_fixtures` resolves to a module-level fixture defaults to that fixture's value (`def test_x(*,
+app=_f0()):`, with the fixture imported at the end of an earlier line;
+generator and async fixtures through helpers that give what they yield or
+return). Fixtures that request fixtures are rewritten the same way, and the
+fixture decorators are blanked, since pytest's `fixture` hides the function.
+Pyright types a parameter from its default, so the types are the indexer's.
+Every edit is at a line's end or inside a signature, and only global
+symbols outside those spans are added, where the first index has no
+occurrence. Parameters a test assigns, annotated ones, fixtures in classes
+and plugin fixtures (`monkeypatch`) are left alone. The receipt records the
+parameters rewritten and the occurrences added under `fixture_probes`; a
+failed second run is recorded there and the first index is kept. On flask
+(49943b5) the Python calls scip-python left without an occurrence go from
+974 to 165 and the calls it links from 1,210 to 1,650, for about 9% more
+indexing time; httpx gets 90 occurrences. Projects whose fixture parameters
+are annotated (full-stack-fastapi-template) are unchanged.
+
+scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
 `--yarn-workspaces` from the workspace's manifests; `--yarn-workspaces` only
 for a private root package, since Yarn refuses to list the workspaces of
@@ -2170,6 +2689,14 @@ with a reason:
 | `no_go_module` | No `go.mod` in the file's directory or any directory above it |
 | `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+A known scip-python 0.6.8 fault makes one repository time out: its bundled
+pyright builds unions in quadratic time, so a module holding a very large
+tuple literal never finishes (netbox's `extras/data/un_locode.py`, about
+111,000 entries; current pyright reads it in about two seconds). 0.6.8 is the
+latest release, and the engine does not work around it: the run stops at
+`--timeout` and every Python file of that run is `indexer_timeout`, named per
+file.
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
 (outside `vendor` and hidden directories; a `go.mod` below a directory whose
@@ -2349,6 +2876,28 @@ directory, manager, command, lockfile digest and outcome, and the installed
 package count; a failed install gives each covered file
 `warning: dependencies_unavailable`.
 
+scip-go loads each package with `go/packages`, which reads a required module
+from the module cache. A missing module failed a whole module under 0.1.26; 0.2.7
+indexes it but attributes its symbols wrongly. Before
+scip-go runs, each Go module of the workspace has the go command download
+what it needs to build and test its packages (`deepthought.go_dependencies`):
+`go mod download -json` from the module's directory, into a module cache in a
+scratch directory, with `GOWORK=off` and `-modcacherw`. The go command is
+given a copy of the module's `go.mod` and `go.sum` (`-modfile`), so the
+checksums it verifies are the module's and any it adds go to the copy; the
+workspace and the machine's own module cache are left as they were. The go
+command reads its usual settings (`GOPROXY`, `GOPRIVATE`, `GONOSUMDB`), so a
+mirror works, and downloading runs no module's code. A module with
+`vendor/modules.txt` downloads nothing. Modules are downloaded once per
+`index_workspace`, for every scip-go run, platform passes included, and
+scip-go and the go command's package listing then read only that cache, with
+`GOPROXY=off`. Before, scip-go downloaded what it lacked itself, into the
+machine's cache, without a record. The run and receipt record
+`dependencies`: `status` (`none`, `present`, `downloaded`, `partial`,
+`failed`), the `go.sum` digest, the number of modules downloaded and each
+`path@version` that could not be. A partial or failed download gives each of
+the module's files `warning: dependencies_unavailable`, covered or not.
+
 On full-stack-fastapi-template (77e550a), whose only JavaScript lockfile is
 a root `bun.lock`, the install used to be an unlocked `npm install`: 103 of
 386 packages landed at other versions than the lock's. bun now installs all
@@ -2479,6 +3028,27 @@ through a renamed re-export's import name, such as `outward` in the
 guessed. A second compiler pipeline in the engine, pinned to one compiler
 version, costs more than that gap. The compiler stays an offline oracle
 (`tools/typescript_reference_oracle.cjs`).
+
+## Signature types
+
+`deepthought.signature_types` records which types each function's signature
+names, for impact (see "Impact"). A signature is the declaration's span in
+the parse tree up to its `body` (all of it for a declaration without one, such
+as a `.d.ts` method or an interface method): receiver, type parameters,
+parameters with their annotations and defaults, result type, and for a
+function assigned to a variable (`const f = (a: A): B => ...`) the variable's
+annotation too. Every SCIP reference an index records inside that span, other
+than a definition, is read back to the parsed declaration its symbol is
+defined at, as call binding does (see "SCIP references"); a class, interface,
+struct, Go type, type alias, enum, record, trait or union becomes a
+`SIGNATURE_USES` edge from the function to it (`resolved`, rule
+`scip.signature-type-reference`, at the first reference's line and UTF-8
+column). A nested function's signature is its own, not its parent's. String
+annotations (`point: "Point"`) and generic arguments (`Optional[Feature]`,
+`ServerUnaryCall<Point, Feature>`) count, since the indexer resolves them.
+Types declared outside the repository have no parsed declaration and are not
+recorded; files no index covers get no edges. The tree-sitter tool's metrics
+count them as `signature_types`.
 
 ## SCIP implementations
 
@@ -2705,7 +3275,10 @@ which only client requests are read:
   is a name bound once in its file, found through the file's imports
   (relative to its package, else under the nearest enclosing directory that
   holds the module, following re-exports). A router mounted twice gets a
-  route per mount; one never mounted keeps its own prefix. Express mounts
+  route per mount; one never mounted keeps its own prefix. A prefix the code
+  does not fix at the start of the path (`prefix=settings.API_V1_STR`) keeps
+  the route, matched on the rest of its path, and the route records
+  `base_unknown`. Express mounts
   compose the same way: `parent.use([path,] ...routers)` joins the parent's
   prefixes with the path (each path of an array; a name bound to a string
   counts as a path). A mounted router is a name bound once to `express()`,
@@ -2833,6 +3406,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`); a file with no manifest above it, or under a `go.mod` that holds more than one `package main` directory, has no known project and excludes nothing |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
+| `service-contracts.http-path-unknown-base` (`openapi-client-`, `openapi-feign-client-`, `locust-host-`, `oapi-codegen-client-` and `orval-client-` variants as above) | pattern_matched | no candidate fits the request's whole path, and the route is declared under a base written as text the source does not fix (a FastAPI prefix from settings, Go's `baseUrl + "/cart"`, an Express mount path in a variable), so its path is stored without that base. An ASP.NET route on a builder the reader could not follow (an `app` parameter) also has `base_unknown`, but that builder may add nothing, so it does not take part. The request's path fits the route once one or more leading literal segments, taken as that base, are skipped: the fewest skipped segments that fit any route win, the rest of the path must fix some text, and a route with no literal segment (`/{id}`) never takes part. A client calling `/api/v1/items/7` reaches FastAPI's `@router.get("/items/{id}")` under `settings.API_V1_STR`. Not for a request forwarded by a gateway, nor for one with a literal host, which names its server: only a relative path, or one under an unknown base of its own, takes part. Requests to routes of one mount are not yet required to skip the same text, so `/other-service/v1/items/3` reaches a route that `/api/v1/items/7` also reaches |
 
 The URL's path is compared segment by segment with each candidate's
 template, and the method must be accepted. A literal segment equal to a route
@@ -3492,6 +4066,35 @@ reference for count in `payload_types_unresolved`, and nothing is guessed.
 The `graph` command hands the indexes it ingested once to the
 `service-contracts` and `data-contracts` tools as well as `tree-sitter`.
 
+#### Field types
+
+A carried type's fields carry their own types, transitively: the route or
+destination CARRIES each type a field of a carried type holds, with the
+same `direction` and `body_key`, `via` listing the fields followed from
+the directly carried type and `via_field` the last of them. A field is
+written `Owner.field`; a base the type extends, embeds or implements is
+written `Owner(Base)`, its fields being the owner's. The edge's
+`file_path` and `line` are the field's. The chain is followed breadth
+first, so the shortest one is recorded, up to six fields deep; a type
+already carried, directly or through another chain, is not added again,
+which also ends cycles. Each field's type comes from the language's own
+tool:
+
+| Edge | Rule | Evidence | Fires on |
+|---|---|---|---|
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments, inline structs and named non-struct types (`type Labels []Label` carries `Labels` and `Label`); `json:"-,"` names a field "-", which is written; `gofacts` prints each package-level struct's fields from go/types |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.ts-field-type` | resolved | a property or constructor parameter property (not static) of a carried class, interface or object type alias, written with a type naming this declaration, read as handler types are; or a class or interface it extends or implements |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.python-field-type` | resolved | an attribute a carried class annotates in its body (not a `ClassVar`) whose annotation names this class, through the scip-python index as for handler annotations; or a class of the repository it derives from |
+
+Types declared in a library (`time.Time`, `datetime`, a type in
+`node_modules`) are not followed. A field the Go type checker types as an
+interface, a TypeScript property typed `any` or naming nothing the
+compiler resolves, and a Python annotation name with no index reference
+count in `payload_field_types_unresolved`, next to `payload_field_types`
+(the edges added). A Python annotation written as a string (a forward
+reference) is not read. A field read from a type outside the analyzed
+languages (Go, TypeScript and JavaScript, Python) is not followed.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
@@ -3736,6 +4339,24 @@ call and import coverage uses too:
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
   found; for `REQUESTS` also how many were `linked`, `ambiguous` and
   `unresolved`.
+- `unread` and `files_unread`: the sites a reader saw but could not read,
+  and the files holding them: a route or request path, GraphQL field or
+  message destination that is not a literal, a gRPC handler without its
+  declaration, a GraphQL operation that does not parse, a Go file the type
+  checker could not check (counted for both messaging families). An unread
+  site is one where no route, request, field or endpoint could be formed at
+  all; a request whose URL is not literal is still formed, with the unread
+  part as a placeholder, and when it matches no route it is counted in
+  `unresolved`, not `unread`. With
+  `sites` and the `REQUESTS` resolution counts they say how much of what
+  the readers recognised is in the graph. Unread sites of specs and
+  generator configs have no source language and are only in the run's
+  `unread` metric. So are those of gateway configs (nginx `location` blocks,
+  Spring Cloud Gateway, YARP, Ocelot): a gateway route is not an edge of its
+  own but a hop a `REQUESTS` link is resolved through, so a gateway route
+  that is not read shows up as `unresolved` requests behind it. A call no reader recognises (a client the readers
+  do not know, C# gRPC calls through `using static`) is in no count, so
+  `unread: 0` is not a proof that every site is in the graph.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
@@ -3882,6 +4503,36 @@ at run time, so their routes are not read. emqx, fleetyards and
 realworld-react-fsd do not commit orval's output, and tidb-dashboard's
 generated files are server stubs.
 
+
+### OpenAPI TypeScript clients (@hey-api/openapi-ts)
+
+@hey-api/openapi-ts also turns an OpenAPI document into TypeScript functions,
+one per operation, each sending through the client it generates:
+
+```ts
+public static readItem(options: Options<ReadItemData>) {
+  return (options.client ?? client).get({ url: '/api/v1/items/{id}', ...options });
+}
+```
+
+In a file whose header comment says `This file is auto-generated by
+@hey-api/openapi-ts`, a call `<expression>.<method>(config)`, where the method
+is an HTTP method in lower case and `config` is an object literal with a `url`
+key, is an `HttpRequest` with client `hey-api` and that method. So is a call
+`f(OpenAPI, config)` whose `config` has `url` and `method` keys, as its legacy
+clients write `__request(OpenAPI, {method, url, path})`. Each `{parameter}`
+in the URL is filled in at run time, and the base URL is the client's run-time
+configuration, which is not read. Links carry the
+`service-contracts.hey-api-client-*` rules (pattern_matched).
+
+As for orval, this reads the generated file, not the spec: the spec is often
+not committed (fastapi/full-stack-fastapi-template generates it from the
+backend), and running the generator would run the repository's configuration
+code. In full-stack-fastapi-template (`77e550a`) all 23 operations of
+`frontend/src/client/sdk.gen.ts` are read. Each links to the FastAPI route it
+calls through `http-path-unknown-base`, since those routes sit under
+`settings.API_V1_STR`; on main without unknown-base routes they are
+unresolved as `no_route`.
 ### OpenAPI TypeScript clients (openapi-fetch)
 
 openapi-fetch clients are typed by the `paths` that openapi-typescript
@@ -4680,6 +5331,7 @@ component roll-up like HTTP routes and message destinations:
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read by PostgreSQL's own parser (libpg_query, through pglast; `postgres` in the `ddl_readers` metric), else from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed`. Each migration set (see `data-contracts.sql-foreign-key`) is replayed in order: `DROP TABLE` removes a table (`ddl_tables_dropped`), `ALTER TABLE ... RENAME TO` moves it, declared at the rename (`ddl_tables_renamed`), and a table created twice keeps its first declaration. Rollback migrations declare nothing. A drizzle-kit folder is its own set; on lobe-chat the replayed tables equal the last drizzle-kit snapshot's 256 |
 | File -[:DECLARES]-> DbColumn, DbTable -[:HAS_COLUMN]-> DbColumn | `data-contracts.sql-column`, `data-contracts.table-has-column` | resolved | each column of a table read by `data-contracts.sql-create-table`, as a `["DbColumn", "Contract"]` node (`{table}::column::{column}`, named `table.column`). The columns are the `CREATE TABLE` column definitions sqlglot (else PostgreSQL's parser) reads, replayed with the tables through each migration set: `ALTER TABLE ... ADD [COLUMN]` adds one, `DROP COLUMN` removes it, and `RENAME COLUMN` and MySQL's `CHANGE` rename it in place, declared at the rename. An ALTER sqlglot does not parse (`ADD CONSTRAINT ... USING INDEX`, `ALTER COLUMN ... SET STATISTICS`) is read by PostgreSQL's parser. A `DO` block runs with its migration, so the statements its PL/pgSQL body runs, in every branch, are read from libpg_query's PL/pgSQL parse at their own lines; a column change in a function or procedure body is not applied (it runs only if called) and leaves its table unknown, and so does a dynamic `EXECUTE` whose expression holds `ALTER` (for the whole migration set). A table that takes columns from elsewhere (`AS SELECT`, `LIKE`, `INHERITS`, `PARTITION OF`, `OF type`) is not complete. A quoted name keeps its case, as PostgreSQL keeps it, and an unquoted one is folded to lower case; a drop or rename matches the exact name, else the one name equal to it ignoring case. A table whose `CREATE TABLE` neither parser reads, or that an `ALTER TABLE` neither parser reads may change (its words include ADD, DROP, RENAME, CHANGE, MODIFY or COLUMN), gets no columns and no `columns_read` property (`ddl_tables_columns_unknown`, `ddl_alter_unparsed`); an unparsed ALTER whose table cannot be read marks the whole migration set. Tables with `columns_read: true` list every column. On lobe-chat all 256 tables are read (7 by PostgreSQL's parser, whose identity sequence options sqlglot rejects), with 3,598 columns: 3,597 equal drizzle-kit's last snapshot and the extra one, `channel_jobs.delivery_key`, is a column migration 0197 keeps on purpose while the snapshot omits it. On simplebank the 74 columns equal the fields of the `models.go` sqlc writes. On Mattermost's PostgreSQL migrations all 88 tables are read, with the columns its migrations add inside `DO` blocks |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | the SQL rule of the statement (`data-contracts.go-sql-types`, `data-contracts.python-sql`, ...) | as that rule | the columns a SQL statement that code runs names, for the tables of it whose columns are all known (`columns_read`, see `data-contracts.sql-column`). sqlglot reads the statement in the dialect that parsed it and its optimizer (`qualify`, over the replayed columns as the schema) attributes each column reference to a table through aliases, joins, subqueries and common table expressions; a `*` expands to every column. UPDATE, DELETE and INSERT are read as the query their values, conditions and RETURNING make over the target: `SET c =` and an INSERT's column list (every column without one) and `ON CONFLICT ... DO UPDATE SET` write, everything else reads, and `EXCLUDED.c` is the inserted row. Code that may run one of several statements (one per path) uses the columns of each. The statement's READS or WRITES edge to a table carries `columns_resolved: true` when every column reference of the statement that could belong to that table resolved to one of its columns; a name that is no column of the table, a reference sqlglot cannot attribute to one table, a `*` over a table without known columns and a statement sqlglot does not parse leave it off. Counted in the `sql_columns` metric. On simplebank all 20 statements sqlc compiles resolve, with 142 column uses. JPQL, MyBatis and ORM calls name no columns here |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
@@ -5402,6 +6054,38 @@ complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
 
+`describe_snapshot(repo, snapshot_id=...)` (CLI `snapshot`, MCP
+`describeSnapshot`) gives one complete snapshot's own facts: its repository and
+ID, scope, capabilities and analysis status, with one item holding its content
+hash, tool, completion time and commits. Raw Cypher answers leave these out, so
+a reader takes them from here once.
+
+The item's `coverage` lists the snapshot's `EdgeCoverage` nodes, sorted by
+family, protocol and language. TreeSitterTool writes one per analyzed language
+and family, `CALLS` and `IMPORTS` (qualified name
+`<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
+families. Each says whether a deterministic resolver (a compiler-backed SCIP
+index, pyright or the TypeScript compiler, named in `producer` on the edges)
+decided the family's sites. The
+compiler decides a JavaScript or TypeScript import it resolves
+(`typescript.compiler-module`) or leaves unlinked (a `compiler_*` reason), and a
+call bound through its exports (`typescript.*` rules, or a covered call whose
+compiler link stands over the index):
+
+| Field | Meaning |
+|---|---|
+| `status` | `linked` (every file of the language with such sites), `partial` (some), `not_linked` (none), `no_sites` (the language has none) |
+| `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
+| `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
+| `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+
+A file that failed to parse is not counted. Imports in other languages are
+decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
+`no_sites`). An empty
+`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
+lists are; `describeSnapshot` decodes it.
+
 ## Incremental re-indexing
 
 The original updater found changed files from Git history and patched one graph
@@ -5505,6 +6189,13 @@ Snapshots store the evidence type and rule ID, not the rule text. The descriptio
 comes from the rules registered by the installed version, which is why
 `rule_status` is reported. An unknown `edge_id` gives status `not_found`.
 
+Every stored node also carries the label `GraphNode`. It holds the identity
+constraint on (`repo_url`, `snapshot_id`, `qualified_name`) across all node
+kinds and the index that edge writes and whole-snapshot reads match on: Neo4j
+constraints and indexes are per label, and the label set is open. It says
+nothing about the node, so the labels that answers list (nodes returned by
+Cypher, impact dependents, edge endpoints, snapshot diffs) leave it out.
+
 ## Provision and use
 
 ```sh
@@ -5543,7 +6234,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots`, `describeSnapshot` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
@@ -5578,6 +6269,41 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,
+and `analysis_status` when the snapshot's analysis did not wholly succeed
+(`partial`, for example). It does not repeat the repository, snapshot, scope
+and capabilities with every call; `describeSnapshot` (CLI `snapshot`) gives
+them once.
+
+`queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
+or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
+short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`
+(with its kind, such as `class` or `type alias`, unless it is a function or
+method),
+a link as `A (a.go:10) calls B (b.go:4) at line 12` from the verb its type has
+in `RELATIONSHIP_SENTENCES` (`storage/graph/schema.py`), a path as
+`A (a.go:3) calls B (b.go:8) at line 4, which calls C (c.go:2) at line 9`
+(each item placed on its first mention, since a hop's line is in the calling
+item's file), and other values as `name value` under the column name the query
+chose. A column that is null in every row is said once (`signature none`); a
+null in some rows only is left out of those rows. A link's evidence is shown
+only when it is below `resolved` (`[name matched]`, `[pattern matched]`); its
+rule id, a node's qualified name and its storage keys are left out, and JSON
+rows (`format: "json"`, which keep their MCP structured content) still carry
+them. What every row shares is
+said once, repeating leading values become headings, rows that differ only in
+a number merge (`at lines 195, 209`), and rows in test files follow under
+`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot (in text, freshness covers the files of the link ends looked up for the sentences as well as the rows' own); it
+closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
+the link families in the result, for the result's languages and for every
+other analyzed language where the family is not linked (`(none returned)`):
+sites missing from the graph are missing from the result too. Link ends a query did not
+return are looked up, and coverage is read, without journaling either as a
+query. A multi-line value such as `source_code` follows its row as an
+indented block, and a File with `generated_by` is marked `generated`. The byte
+budget applies to the text. `tools/check_result_text.py` runs
+queries in both forms on a dedicated database and reports any fact the text
+lost.
 
 ## Verification and validation
 

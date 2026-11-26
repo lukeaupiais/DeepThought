@@ -33,11 +33,16 @@ def main():
     parser.add_argument("--include", action="append")
     parser.add_argument("--path-prefix", default="")
     args = parser.parse_args()
-    result = deepthought.analyze_repository(
+    from deepthought.ts_modules import with_compiler_modules
+
+    result = with_compiler_modules(
+        deepthought.analyze_repository(
+            args.root,
+            repository_id="comparison",
+            languages=(args.language,),
+            include=tuple(args.include or ("*",)),
+        ),
         args.root,
-        repository_id="comparison",
-        languages=(args.language,),
-        include=tuple(args.include or ("*",)),
     )
     source = deepthought.ingest_scip(
         args.index, repository_id="comparison", path_prefix=args.path_prefix
