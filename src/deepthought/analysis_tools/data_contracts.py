@@ -30,11 +30,13 @@ from ..data_contracts import (
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
-    extract_foreign_key_drops,
+    extract_column_changes,
+    extract_schema_changes,
     extract_foreign_keys,
     is_rollback_migration,
     migration_set,
     replay_foreign_keys,
+    replay_tables,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
@@ -125,12 +127,36 @@ CONTAINS_RULE = register_rule(
         "The repository has this SQL file (or Prisma schema) at this path.",
     )
 )
+DDL_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-column",
+        "resolved",
+        "sqlglot parses the CREATE TABLE statement that declares this column, "
+        "or the ALTER TABLE ... ADD or RENAME COLUMN (MySQL CHANGE) that gives "
+        "it this name, and every ALTER TABLE of the table's migration set, "
+        "replayed in order: a column a later statement drops or renames is "
+        "left out.",
+    )
+)
+
+TABLE_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.table-has-column",
+        "resolved",
+        "The column belongs to the table in the replayed schema (see "
+        "data-contracts.sql-column).",
+    )
+)
+
 DDL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sql-create-table",
         "resolved",
         "The SQL file has a CREATE TABLE statement for this table (temporary "
-        "tables excluded). Tables are told apart by their case-insensitive "
+        "tables excluded), or the ALTER TABLE ... RENAME TO that gives an "
+        "earlier table this name; a table a later file of the same migration "
+        "set drops or renames, or that only a rollback (down) migration "
+        "creates, is left out. Tables are told apart by their case-insensitive "
         "name without schema and their namespace: the module's "
         "spring.datasource.url when its Spring configuration fixes one "
         "persistent database, else the one database that the Compose "
@@ -1192,22 +1218,21 @@ class DataContractTool(AnalysisTool):
             prefix = f"{base}/" if base else ""
             return any(f.startswith(prefix) for f in prisma_read.engines)
 
-        migration_sets = defaultdict(list)
+        migration_sets, table_sets = defaultdict(list), defaultdict(list)
         foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
-        rollbacks = []
+        rollbacks, changes_of, ddl_read = [], {}, []
+        # (migration set, table or None for every table) of an ALTER TABLE
+        # no dialect parses: those tables' columns are not known.
+        columns_unknown, columns_unparsed = set(), []
 
         def read_keys(path, content, folder=None):
             """Queue a SQL file's foreign keys and drops for the replay of
-            its migration set (``folder`` when given); a rollback (down)
-            migration is left out."""
-            if is_rollback_migration(path):
-                rollbacks.append(path)
-                return
+            its migration set (``folder`` when given)."""
             keys, unparsed = extract_foreign_keys(path, content)
-            drops, drops_unparsed = extract_foreign_key_drops(path, content)
-            migration_sets[folder or migration_set(path)].append((path, keys, drops))
+            changes, changes_unparsed = changes_of[path]
+            migration_sets[folder or migration_set(path)].append((path, keys, changes))
             foreign_keys_unparsed.extend(
-                (path, line) for line in sorted({*unparsed, *drops_unparsed})
+                (path, line) for line in sorted({*unparsed, *changes_unparsed})
             )
 
         for path in _sql_files(root, include, exclude):
@@ -1216,10 +1241,25 @@ class DataContractTool(AnalysisTool):
             found = extract_ddl(path, content)
             if found is None:
                 unreadable.append(path)
+            elif is_rollback_migration(path):
+                # A rollback (down) migration is not part of the schema the
+                # migrations build: neither its tables nor its keys are read.
+                rollbacks.append(path)
+                ddl_read.extend(found)
             else:
-                ddl.extend(found)
+                ddl_read.extend(found)
+                changes_of[path] = extract_schema_changes(path, content)
+                column_changes, alters_unparsed = extract_column_changes(path, content)
                 folder = posixpath.dirname(path)
-                if (root / folder / "meta" / "_journal.json").is_file():
+                drizzle = (root / folder / "meta" / "_journal.json").is_file()
+                key = folder if drizzle else migration_set(path)
+                table_sets[key].append(
+                    (path, found, changes_of[path][0] + column_changes)
+                )
+                for line, altered in alters_unparsed:
+                    columns_unknown.add((key, altered))
+                    columns_unparsed.append((path, line))
+                if drizzle:
                     # drizzle-kit's own record of the schema after the last
                     # migration gives the keys (below), not each migration.
                     drizzle_folders.setdefault(folder, []).append((path, content))
@@ -1238,6 +1278,20 @@ class DataContractTool(AnalysisTool):
             drizzle_unread.append(keys)
             for path, content in migrations:
                 read_keys(path, content, folder)
+        tables_dropped = tables_renamed = 0
+        for key, files in sorted(table_sets.items()):
+            tables, dropped, renamed = replay_tables(files)
+            if (key, None) in columns_unknown:
+                tables = [replace(t, columns_read=False) for t in tables]
+            tables = [
+                replace(t, columns_read=False)
+                if (key, t.name) in columns_unknown
+                else t
+                for t in tables
+            ]
+            ddl.extend(tables)
+            tables_dropped += dropped
+            tables_renamed += renamed
         for _, files in sorted(migration_sets.items()):
             keys, dropped, unmatched = replay_foreign_keys(files)
             foreign_keys.extend(keys)
@@ -1326,6 +1380,7 @@ class DataContractTool(AnalysisTool):
 
         definitions = {d.id: d for d in result.definitions}
         tables, nodes, relationships, symbols = {}, [], [], {}
+        column_nodes = {}
 
         def table(path, name):
             key = (scope(path), name)
@@ -1380,7 +1435,9 @@ class DataContractTool(AnalysisTool):
 
         repository_name = f"{repo_url}::repository"
         for path in sorted(
-            {d.file for d in ddl}
+            {d.file for d in ddl_read}
+            | {d.file for d in ddl}
+            | {file for d in ddl if d.columns_read for _, file, _ in d.columns}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
             | {c.file for c in doctrine_mapped}
@@ -1422,6 +1479,51 @@ class DataContractTool(AnalysisTool):
                 DDL_RULE,
                 {"line": item.line, **({"schema": item.schema} if item.schema else {})},
             )
+            if not item.columns_read:
+                continue
+            owner = table(item.file, item.name)
+            tables[(scope(item.file), item.name)].properties["columns_read"] = True
+            for column, file, line in item.columns:
+                name = f"{owner}::column::{column}"
+                column_nodes.setdefault(
+                    name,
+                    NodeData(
+                        ["DbColumn", "Contract"],
+                        {
+                            "qualified_name": name,
+                            "repo_url": repo_url,
+                            "name": f"{item.name}.{column}",
+                            "display_name": f"{item.name}.{column}",
+                            "table": item.name,
+                            "column": column,
+                            "protocol": "sql",
+                            "scope": scope(item.file),
+                        },
+                    ),
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_COLUMN",
+                        ["DbTable", "Contract"],
+                        {"qualified_name": owner, "repo_url": repo_url},
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        _evidence(TABLE_COLUMN_RULE),
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "DECLARES",
+                        ["File"],
+                        {
+                            "qualified_name": f"{repo_url}::{file}::file",
+                            "repo_url": repo_url,
+                        },
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {"line": line, **_evidence(DDL_COLUMN_RULE)},
+                    )
+                )
 
         def foreign_key(file, line, owner, referenced, columns, to, on_delete, rule):
             link(
@@ -3101,6 +3203,7 @@ class DataContractTool(AnalysisTool):
             + files
             + sorted(symbols.values(), key=lambda n: n.properties["qualified_name"])
             + sorted(tables.values(), key=lambda n: n.properties["qualified_name"])
+            + [column_nodes[name] for name in sorted(column_nodes)]
         )
         status = (
             "partial"
@@ -3185,7 +3288,16 @@ class DataContractTool(AnalysisTool):
                     "model_tokens": 0,
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
-                    "ddl_statements": len(ddl),
+                    "ddl_statements": len(ddl_read),
+                    "ddl_tables_dropped": tables_dropped,
+                    "ddl_tables_renamed": tables_renamed,
+                    "ddl_columns": sum(
+                        len(d.columns) for d in set(ddl) if d.columns_read
+                    ),
+                    "ddl_tables_columns_unknown": sum(
+                        1 for d in set(ddl) if not d.columns_read
+                    ),
+                    "ddl_alter_unparsed": len(columns_unparsed),
                     "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
