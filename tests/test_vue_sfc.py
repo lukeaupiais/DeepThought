@@ -17,6 +17,8 @@ from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository
 from deepthought.ts_modules import with_compiler_modules
 
+from typescript_ready import needs_typescript
+
 
 def _available():
     try:
@@ -189,6 +191,11 @@ class ComponentTests(unittest.TestCase):
             coverage.digest,
             hashlib.sha256((Path(self.root) / vue).read_bytes()).hexdigest(),
         )
+
+    @needs_typescript
+    def test_the_contract_tools_accept_the_recorded_digest(self):
+        # The contract tools compare each recorded digest with the file on
+        # disk; a component recorded by its script's digest failed here.
         for tool in (ServiceContractTool, DataContractTool):
             asyncio.run(tool(self.root).analyze("r", languages=["typescript"]))
 
