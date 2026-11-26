@@ -19,6 +19,7 @@ from deepthought.service_contracts.grpc import (
     ProtoIndex,
     ProtoMethod,
 )
+from typescript_ready import needs_typescript
 
 READY = all(
     importlib.util.find_spec(m)
@@ -249,6 +250,7 @@ class ProtoReaderTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class GrpcContractTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -637,6 +639,7 @@ export function run() {
     READY and importlib.util.find_spec("tree_sitter_typescript"),
     "tree-sitter grammars are not installed",
 )
+@needs_typescript
 class GrpcNodeStaticCodegenTests(unittest.TestCase):
     def test_static_service_and_client(self):
         with tempfile.TemporaryDirectory() as directory:

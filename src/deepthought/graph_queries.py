@@ -1335,11 +1335,15 @@ class GraphQueryService:
         response["semantics"] = (
             # The backward relations are listed in `relations`.
             "Dependents reachable backwards over observed `relations`"
-            + (" and forwards over `forward_relations`" if reverse else "")
-            + " edges; each path's evidence is its weakest edge. Direct: may "
-            "need edits; transitive: re-test. Absence does not prove no other "
-            "impact: dynamic dispatch, reflection, unanalyzed files and "
-            "unrecorded relations are not seen."
+            + (
+                " edges and forwards over " + ", ".join(reverse.split("|"))
+                if reverse
+                else ""
+            )
+            + " edges; each path's evidence is its weakest edge. Direct (one "
+            "hop): may need edits; transitive: re-test. " + "Absence does "
+            "not prove that nothing else is affected: dynamic dispatch, "
+            "reflection, unanalyzed files and unrecorded relations are not seen."
         )
         # Results are ordered and a snapshot does not change, so a truncated
         # list continues at `next_offset`.
