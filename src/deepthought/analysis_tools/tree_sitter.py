@@ -10,6 +10,7 @@ output or claim additional languages.
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import subprocess
 import time
 from copy import deepcopy
 
@@ -20,7 +21,7 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from ..generated_files import generated_files
-from .. import scip_calls, ts_modules
+from .. import js_callgraph, scip_calls, ts_modules
 from ..pyright_calls import PyrightDefinitions
 from ..signature_types import signature_types
 from ..scip_calls import ScipReferences, bind_calls
@@ -390,6 +391,17 @@ IMPORT_RULES = {
         ),
     )
 }
+JS_CALL_POINTS_TO_RULE = register_rule(
+    EvidenceRule(
+        js_callgraph.JS_CALL_POINTS_TO,
+        "resolved",
+        "A JavaScript or TypeScript call that no other rule links (through a "
+        "callback, a function taken from an array, map or object, a hook "
+        "registered and run later) links to each parsed function the pinned "
+        "Jelly call graph (a points-to analysis of the repository's own "
+        "files, installed packages left out) says may be called there.",
+    )
+)
 IMPORT_RULES[ts_modules.TYPESCRIPT_COMPILER_MODULE] = register_rule(
     EvidenceRule(
         ts_modules.TYPESCRIPT_COMPILER_MODULE,
@@ -792,6 +804,25 @@ def _bind(result, scip_indexes, root):
         return bind_calls(result, scip_indexes, root)
     with PyrightDefinitions(root) as pyright:
         return bind_calls(result, scip_indexes, root, pyright)
+
+
+def _points_to_calls(result, root, linked):
+    """{"targets": {call site id: declaration ids}, "error": None or why
+    Jelly gave nothing}: the pinned Jelly call graph of the analyzed
+    JavaScript and TypeScript files, for the calls not in ``linked``. The
+    tool is required where there are any."""
+    files = js_callgraph.analyzed_scripts(result)
+    if not files:
+        return {"targets": {}, "error": None}
+    binary = js_callgraph.locate_jelly()
+    try:
+        calls = js_callgraph.points_to_calls(root, files, binary)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        return {"targets": {}, "error": str(error)}
+    return {
+        "targets": js_callgraph.bind_points_to_calls(result, calls, root, linked),
+        "error": None,
+    }
 
 
 def _call_name(callee):
@@ -1657,6 +1688,45 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        # Calls through function values: what Jelly's points-to analysis
+        # says may run where no other rule links the call.
+        points_to = _points_to_calls(
+            result,
+            self.repo_path,
+            {
+                r.call_id
+                for r in binding.resolutions
+                if r.status == "linked" or r.reason in js_callgraph.DECIDED_REASONS
+            },
+        )
+        for site_id, targets in points_to["targets"].items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "points-to",
+                            "producer": js_callgraph.JELLY_TOOL,
+                            **_evidence(JS_CALL_POINTS_TO_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1682,6 +1752,7 @@ class TreeSitterTool(AnalysisTool):
                 f"python_interpreter_unavailable: {error}"
                 for error in (reader.errors if reader else ())
             ]
+            + ([f"jelly_failed: {points_to['error']}"] if points_to["error"] else [])
             if result.status != "failed"
             else [],
             custom_metrics={
@@ -1716,6 +1787,11 @@ class TreeSitterTool(AnalysisTool):
                 "scip_uses": dict(sorted(use_counts.items())),
                 "scip_fields": len(fields),
                 "signature_types": len(named_types),
+                "js_points_to_calls": {
+                    "sites": len(points_to["targets"]),
+                    "edges": sum(len(t) for t in points_to["targets"].values()),
+                    "error": points_to["error"],
+                },
                 "go_implementations": {
                     GO_INTERFACE_RULE.rule_id: len(implementations),
                     SCIP_GO_IMPLEMENTATION_RULE.rule_id: len(recorded.implements),

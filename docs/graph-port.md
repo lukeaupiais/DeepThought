@@ -1181,6 +1181,46 @@ indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
 
+### Calls through function values
+
+Some calls go through a value rather than a declared name: a callback
+parameter, a function taken from an array, a map or an object of plugins, or
+a hook registered and run later. What such a call runs is whatever function
+flows to it. The engine reads that from the pinned Jelly call graph
+(`@cs-au-dk/jelly` 0.13.0, `npm install -g @cs-au-dk/jelly@0.13.0` or
+`DEEPTHOUGHT_JELLY`; `src/deepthought/js_callgraph.py`). Jelly is a static
+points-to analysis of the analyzed JavaScript and TypeScript files (declaration
+files left out). It is required where those languages are analyzed.
+
+Jelly runs with these options:
+
+- `--ignore-dependencies`: the result depends on the repository's files
+  alone, with or without node_modules.
+- `--no-callgraph-external`, `--no-callgraph-native`,
+  `--no-callgraph-implicit` and `--no-callgraph-require`: Jelly reports only
+  calls whose callee value its analysis finds. It reports no callbacks it
+  assumes unanalyzed or native code makes, and no getter, setter or
+  module-load calls.
+
+Each call that no other rule links gets a CALLS edge `jelly.call-points-to`
+(`resolved`, `dispatch: points-to`, `producer: jelly@0.13.0`) to each
+function Jelly finds. A call whose import the TypeScript compiler finds binds
+nothing (`imported_name_not_declared`) gets none. The call must be a parsed
+call site that starts and ends where Jelly's call expression does. The
+function must be a parsed function or method that ends where Jelly's function
+does and holds its start; `const f = () => {}` counts. An anonymous callback
+is not a declaration and adds nothing. A run that fails or reaches its
+900-second limit adds no edges and is a `jelly_failed` warning. The metadata
+counts `js_points_to_calls` (`sites`, `edges`, `error`).
+
+On ky, 971 call sites gain 987 edges. Most are calls of the `ky` instance that
+`createInstance` returns. On preact, 133 sites gain 139 edges: `h` aliased to
+`createElement`, factory-made `suspend` functions and `c.render` on
+components. Jelly takes about 3 seconds on each. Which callbacks Jelly
+attributes to unanalyzed libraries (`expect(fn)`) was checked on preact's
+tests before those options were set: such edges named the library call as the
+caller, so they are left out.
+
 ## Go
 
 Go sources (`.go`) are analyzed when `go` is selected (`--language go`) and the
