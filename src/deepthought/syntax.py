@@ -192,6 +192,29 @@ def extract(
     stack = [(tree.root_node, (), False)]
     while stack:
         node, scope, in_class = stack.pop()
+        test = _js_test_case(node, content) if script else None
+        if test is not None:
+            kind, segment, name_node = test
+            symbol = ".".join((*scope, segment))
+            ordinal = ordinals.get((symbol, kind), 0)
+            ordinals[(symbol, kind)] = ordinal + 1
+            definition = Definition(
+                id=identifier(repository_id, file, symbol, kind, ordinal),
+                file=file,
+                symbol=symbol,
+                kind=kind,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
+            )
+            definitions.append(definition)
+            if nodes is not None:
+                nodes[definition.id] = (node, name_node)
+            stack.extend(
+                (child, (*scope, segment), False) for child in reversed(children(node))
+            )
+            continue
         kind = KINDS.get(node.type)
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
@@ -2887,6 +2910,97 @@ def _js_import_names(node):
 
 
 _SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+# The test runners' (Jest, Vitest, Mocha, node:test, Jasmine, Bun) functions
+# that declare a test case or a group of them, and the modifiers written
+# between the function and its arguments (``it.only``, ``test.each(rows)``,
+# ``it.skipIf(cond)``).
+_JS_TEST_FUNCTIONS = {
+    "it": "Test",
+    "test": "Test",
+    "specify": "Test",
+    "bench": "Test",
+    "fit": "Test",
+    "xit": "Test",
+    "xtest": "Test",
+    "describe": "TestSuite",
+    "suite": "TestSuite",
+    "context": "TestSuite",
+    "fdescribe": "TestSuite",
+    "xdescribe": "TestSuite",
+}
+TEST_KINDS = frozenset(_JS_TEST_FUNCTIONS.values())
+_JS_TEST_MODIFIERS = {
+    "only",
+    "skip",
+    "todo",
+    "concurrent",
+    "sequential",
+    "fails",
+    "each",
+    "for",
+    "skipIf",
+    "runIf",
+}
+_JS_CALLBACKS = {"arrow_function", "function_expression", "function"}
+_JS_QUOTE_ESCAPES = {"\\'", '\\"', "\\`", "\\\\"}
+
+
+def _js_test_case(node, content):
+    """(kind, segment, name node) for a statement that declares a test case
+    or a suite: ``it("renders", () => ...)``, ``describe.each(rows)("x", fn)``.
+    The callee is one of the runners' bare functions, optionally with
+    modifiers; the first argument is a string without substitutions and a
+    later one a function. The segment is the callee as written, without
+    modifier arguments, and the name as a JSON string (``it("renders")``),
+    which no identifier can be, so a test case is never a name's target."""
+    if node.type != "call_expression" or node.parent is None:
+        return None
+    if node.parent.type != "expression_statement":
+        return None
+    arguments = node.child_by_field_name("arguments")
+    function = node.child_by_field_name("function")
+    if arguments is None or function is None or arguments.type != "arguments":
+        return None
+    parts = []
+    while True:
+        if function.type == "call_expression":
+            # A modifier taking arguments: `.each(rows)`, `.skipIf(cond)`.
+            function = function.child_by_field_name("function")
+            if function is None or function.type != "member_expression":
+                return None
+            continue
+        if function.type == "member_expression":
+            modifier = function.child_by_field_name("property")
+            if modifier is None or _text(modifier, content) not in _JS_TEST_MODIFIERS:
+                return None
+            parts.append(_text(modifier, content))
+            function = function.child_by_field_name("object")
+            if function is None:
+                return None
+            continue
+        break
+    kind = _JS_TEST_FUNCTIONS.get(_text(function, content))
+    if kind is None:
+        return None
+    values = arguments.named_children
+    if len(values) < 2 or not any(v.type in _JS_CALLBACKS for v in values[1:]):
+        return None
+    title = values[0]
+    if title.type not in {"string", "template_string"}:
+        return None
+    name = []
+    for part in title.named_children:
+        text = _text(part, content)
+        if part.type == "string_fragment":
+            name.append(text)
+        elif part.type == "escape_sequence" and text in _JS_QUOTE_ESCAPES:
+            name.append(text[1])
+        else:
+            # A substitution or another escape: the name is not written out.
+            return None
+    name = "".join(name)
+    callee = ".".join((_text(function, content), *reversed(parts)))
+    return kind, f"{callee}({json.dumps(name, ensure_ascii=False)})", title
 
 
 def _js_default_names(root, content):
@@ -5148,7 +5262,12 @@ def _receiver_chain_callee(node, content):
             return None if head is None else f"{head}[]"
         if node.type in {"parenthesized_expression", "non_null_expression"}:
             inner = [c for c in node.named_children if c.type != "comment"]
-            return chain(inner[0]) if len(inner) == 1 else None
+            head = chain(inner[0]) if len(inner) == 1 else None
+            if head is None and node.type == "parenthesized_expression":
+                # `(a ? b : c).m()`, `(x as T).m()`: a receiver no name
+                # describes. Only an index can link the call.
+                return "(…)"
+            return head
         return None
 
     if node is None or node.type not in _SCRIPT_CHAIN:
@@ -5281,6 +5400,7 @@ def extract_call_sites(
         reverse=True,
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
+    tests = {d.id for d in definitions if d.file == file and d.kind in TEST_KINDS}
     python = tree.root_node.type == "module"
     java = tree.root_node.type == "program"
     go = not rust and any(
@@ -5354,7 +5474,16 @@ def extract_call_sites(
                 start = (node.start_point.row + 1, node.start_point.column)
                 end = (node.end_point.row + 1, node.end_point.column)
                 # Latest-starting enclosing span is the innermost declaration.
-                caller = next((i for s, e, i in spans if s <= start and end <= e), None)
+                # A test case's own call (`it("x", fn)`, and `it.each(rows)`
+                # in `it.each(rows)("x", fn)`) is not inside it.
+                caller = next(
+                    (
+                        i
+                        for s, e, i in spans
+                        if s <= start and end <= e and not (i in tests and s == start)
+                    ),
+                    None,
+                )
                 ordinal = ordinals.get(callee, 0)
                 ordinals[callee] = ordinal + 1
                 sites.append(
@@ -6022,6 +6151,70 @@ def extract_cargo_manifest(
 _SOURCE_WRAPPERS = {"decorated_definition", "export_statement", "template_declaration"}
 
 
+# Statements whose keyword belongs to the one declaration they hold.
+_SINGLE_DECLARATIONS = {
+    "lexical_declaration",
+    "variable_declaration",
+    "type_declaration",
+}
+# A signature keeps at most this many lines and characters of the head.
+_SIGNATURE_LINES = 5
+_SIGNATURE_CHARACTERS = 400
+
+
+def _declaration_body(node):
+    """The block a declaration's head ends at: its ``body`` field, or that of
+    the function a variable or field holds (``const f = () => {}``); None
+    for a declaration with no body, whose whole text is its head."""
+    body = node.child_by_field_name("body")
+    if body is not None:
+        return body
+    value = node.child_by_field_name("value")
+    if value is not None and value.child_by_field_name("body") is not None:
+        return value.child_by_field_name("body")
+    return None
+
+
+def _end_before_comments(node):
+    """Where a declaration ends, without the comments its node ends with."""
+    children = node.children
+    while children and children[-1].type == "comment":
+        children = children[:-1]
+    return children[-1].end_byte if children else node.end_byte
+
+
+def _head_end(body):
+    """Where a declaration's head ends: before its body, and before the
+    comments the parser puts ahead of it (Python keeps a body's leading
+    comments outside its block)."""
+    before = body.prev_sibling
+    while before is not None and before.type == "comment":
+        before = before.prev_sibling
+    return before.end_byte if before is not None else body.start_byte
+
+
+def _signature(head, own=0):
+    """A declaration's head as written, from its decorators or ``export`` to
+    where its body starts, trailing space removed, bounded to
+    ``_SIGNATURE_LINES`` lines and ``_SIGNATURE_CHARACTERS`` characters (a
+    cut head ends with ``…``). ``own`` is where the declaration itself starts
+    after its decorators: when those would push it past the bound, the first
+    decorator is kept, the others become a ``…`` line, and the declaration
+    follows, so a head always shows the name it declares."""
+    text = head.rstrip()
+    prefix = text[:own]
+    if prefix.count("\n") >= 2 and (
+        text.count("\n") >= _SIGNATURE_LINES or len(text) > _SIGNATURE_CHARACTERS
+    ):
+        first = prefix.split("\n", 1)[0].rstrip()
+        text = first + "\n…\n" + text[own:]
+    lines = text.split("\n")
+    cut = "\n".join(lines[:_SIGNATURE_LINES])
+    if len(cut) > _SIGNATURE_CHARACTERS:
+        cut = cut[:_SIGNATURE_CHARACTERS]
+    return cut if cut == text else cut.rstrip() + "…"
+
+
 def _columns(line: bytes, column: int):
     prefix = line[:column].decode("utf-8")
     return {
@@ -6063,12 +6256,39 @@ def declaration_sources(
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():
+        body = _declaration_body(node)
+        # Without a body the head ends at the declaration's last part; a line
+        # comment after it (``type R = [A, B] // ...``) is not part of it.
+        end = _end_before_comments(node)
+        declared = node.start_byte
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
+        # The head includes TypeScript's ``declare`` and the keyword of a
+        # statement that declares only this (``const f = ...``, Go's
+        # ``type R struct``); comments in the statement are not declarations.
+        start = node
+        while start.parent is not None and (
+            start.parent.type in _SOURCE_WRAPPERS
+            or start.parent.type == "ambient_declaration"
+            or (
+                start.parent.type in _SINGLE_DECLARATIONS
+                and sum(c.type != "comment" for c in start.parent.named_children) == 1
+            )
+        ):
+            start = start.parent
+        start_byte = start.start_byte
+        head = content[
+            start_byte : _head_end(body) if body is not None else end
+        ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
         sources[definition_id] = {
+            # Where the declaration starts after its decorators, in characters.
+            "signature": _signature(
+                head,
+                len(content[start_byte:declared].decode("utf-8")),
+            ),
             "source_code": text,
             "source_sha256": sha256(text.encode()).hexdigest(),
             "source_start_line": node.start_point.row + 1,

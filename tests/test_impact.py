@@ -209,6 +209,53 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         for item in impact["items"]:
             self.assertTrue(all(len(e["edge_id"]) == 64 for e in item["edges"]))
             self.assertTrue(all(e["rule_id"] for e in item["edges"]))
+        # Each dependent carries its line span, signature and the lines of
+        # its own calls toward the change; each step of its path names the
+        # declarations it joins and the line of the call.
+        top = next(i for i in impact["items"] if i["element"]["name"] == "top")
+        self.assertEqual(
+            (
+                top["element"]["start_line"],
+                top["element"]["end_line"],
+                top["element"]["signature"],
+                top["element"]["top_level"],
+                top["lines"],
+            ),
+            (12, 13, "def top():", False, [13]),
+        )
+        self.assertEqual(
+            [
+                (e["from"]["name"], e["line"], e["to"]["name"], e["to"]["start_line"])
+                for e in top["edges"]
+            ],
+            [("top", 13, "use", 9), ("use", 10, "helper", 5)],
+        )
+        # A dependent calling the change several times lists each line once,
+        # in order.
+        repeated, snapshot2, names2 = await self.write(
+            TreeSitterTool,
+            {
+                "lib.py": "def helper():\n    return 1\n",
+                "use.py": "from lib import helper\n\ndef many():\n"
+                + "".join("    helper()\n" for _ in range(6))
+                + "    helper()\n    helper()\n",
+            },
+            "tree-sitter",
+        )
+        many = await self.service.get_impact(
+            names2["helper"], repeated, snapshot_id=snapshot2
+        )
+        self.assertEqual(
+            [(i["element"]["name"], i["lines"]) for i in many["items"]],
+            [("many", list(range(4, 12)))],
+        )
+        module = next(i for i in impact["items"] if i["depth"] == 3)
+        self.assertTrue(module["element"]["top_level"])
+        self.assertEqual(module["lines"], [15])
+        self.assertEqual(
+            [(e["from"]["name"], e["from"]["top_level"]) for e in module["edges"]][0],
+            ("(top level of file)", True),
+        )
         shallow = await self.service.get_impact(
             names["helper"], repo, snapshot_id=snapshot, max_depth=1
         )
@@ -440,9 +487,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages, whole["items"])
         # A byte budget that cuts the list leaves the rest to the next page.
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=2048
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=4096
         )
         self.assertTrue(small["truncated"])
+        self.assertTrue(small["items"])
         self.assertEqual(small["next_offset"], small["returned"])
         rest = await self.service.get_impact(
             names["helper"],
@@ -762,6 +810,45 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             [("StatsController.latest", ["HANDLES"])],
         )
         self.assertFalse(impact["providers_truncated"])
+        # Providers are named as declarations, with the lines of their
+        # edges to the contract; clients carry the lines of their requests.
+        self.assertEqual(
+            [
+                (
+                    p["kind"],
+                    p["file_path"],
+                    p["start_line"],
+                    p["end_line"],
+                    p["signature"],
+                    p["top_level"],
+                    p["lines"],
+                    p["source_roles"],
+                )
+                for p in impact["providers"]
+            ],
+            [
+                (
+                    "Method",
+                    "stats/src/main/java/s/StatsController.java",
+                    6,
+                    7,
+                    '@GetMapping("/latest")\n  public String latest()',
+                    False,
+                    [6],
+                    [],
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                (i["element"]["name"], i["element"]["signature"], i["lines"])
+                for i in impact["items"]
+            ],
+            [
+                ("StatsReader.read", "public String read()", [5]),
+                ("StatsReader.twice", "public String twice()", [6]),
+            ],
+        )
         self.assertEqual(
             [
                 (row[0], row[1], row[3], item["impact"])
