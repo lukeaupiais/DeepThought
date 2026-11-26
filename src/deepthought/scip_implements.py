@@ -14,14 +14,15 @@ declaration to link to.
 The method-set rule of ``deepthought.go_interfaces`` stands where scip-go
 records nothing it could: for types of files no scip-go index covers, for
 interfaces declared inside a function (scip-go takes only package-level
-types), and, for scip-go 0.2.7, where the interface's package has in-package
-tests and the type is in another package: scip-go then reads the interface
-from the package's test variant, whose named types are not the ones the
-type's methods are written with, and records no implementation (see
-``method_set_stands``).
+types), for a type and an interface indexed by separate scip-go runs (the
+pass over directories ``./...`` skips, such as testdata), and, for scip-go 0.2.7, where the type and the interface are in
+different packages and either package has in-package tests: scip-go then
+reads that package's declarations from its test variant, whose named types
+are not the ones the other package's signatures name, and records no
+implementation (see ``method_set_stands``).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import posixpath
 import re
 
@@ -45,6 +46,8 @@ class ScipImplementations:
     producers: dict
     # Directories of covered Go packages with in-package test files.
     tested: frozenset[str] = frozenset()
+    # Receipt digest of the scip-go index covering each covered file.
+    runs: dict = field(default_factory=dict)
 
     def method_set_stands(self, type_, interface) -> bool:
         """Whether the method-set rule's (type, interface) pair stands:
@@ -53,8 +56,10 @@ class ScipImplementations:
             return True
         if "." in interface.symbol:
             return True  # Declared inside a function.
-        directory = posixpath.dirname(interface.file)
-        return directory in self.tested and posixpath.dirname(type_.file) != directory
+        if self.runs.get(type_.file) != self.runs.get(interface.file):
+            return True  # Indexed by separate scip-go runs, which see neither.
+        directories = {posixpath.dirname(f) for f in (type_.file, interface.file)}
+        return len(directories) == 2 and bool(directories & self.tested)
 
 
 def bind_implementations(result, references: ScipReferences) -> ScipImplementations:
@@ -107,6 +112,7 @@ def bind_implementations(result, references: ScipReferences) -> ScipImplementati
         frozenset(covered),
         producers,
         _tested(covered, references.lines),
+        {file: references.covering[file].receipt for file in covered},
     )
 
 

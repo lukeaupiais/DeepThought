@@ -1319,12 +1319,17 @@ loses none. An interface declared outside the repository (`io.Reader`,
 The method-set rule below stands only where scip-go records nothing it
 could: for types of files no scip-go index covers; for interfaces declared
 inside a function (scip-go reads only package-level types; miniflux's
-`acceptEncoding.sizer`); and where the interface's package has in-package
-`_test.go` files and the type is in another package. scip-go 0.2.7 then reads
-the interface from the package's test variant, whose named types are not the
-ones the other package's methods are written with, and `types.Implements`
-fails: on simplebank, `mockdb.MockStore` is recorded for no interface,
-though `var _ db.Store = (*mockdb.MockStore)(nil)` compiles. A type in that
+`acceptEncoding.sizer`); for a type and an interface indexed by separate
+scip-go runs (packages in directories `./...` skips, such as `testdata`, get a
+pass of their own); and where the type and the interface are in
+different packages and either package has in-package `_test.go` files.
+scip-go 0.2.7 then reads that package's declarations from its test variant,
+whose named types are not the ones the other package's signatures name, and
+`types.Implements` fails: on simplebank, `mockdb.MockStore` is recorded for
+no interface, though `var _ db.Store = (*mockdb.MockStore)(nil)` compiles,
+and on grpc-go `grpc.Server` is recorded for none of the four interfaces of
+other packages it implements. On grpc-go scip-go adds 363 implementations
+and 243 dispatches, and on sqlc 1 implementation, with none lost. A type in that
 case that relies on promoted methods is missed by both.
 
 Elsewhere `deepthought.go_interfaces` compares method sets
