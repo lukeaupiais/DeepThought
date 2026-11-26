@@ -54,6 +54,9 @@ class TsFacts:
     # declarations of the named types each carries; None names the classes
     # and interfaces it extends or implements.
     fields: dict = field(default_factory=dict)
+    # [(file, {generator, ...})]: the protobuf types generated code
+    # declares (``protoFacts`` in tsfacts/main.js).
+    protos: list = field(default_factory=list)
 
 
 def _cache_directory():
@@ -138,6 +141,9 @@ def collect(root, files, defines=(), *, timeout=1800):
         )
     for line in run.stdout.splitlines():
         item = json.loads(line)
+        if "proto" in item:
+            facts.protos.append((item["file"], item["proto"]))
+            continue
         if "error" in item:
             facts.rejected_configs.append(item["error"])
         elif "failures" in item:
