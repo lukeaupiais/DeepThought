@@ -695,8 +695,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                         "No analyzed file path contains 'web/App.vue': no .vue file"
                         " is analyzed in this snapshot (analyzed: .py); search the"
                         " source for it.",
-                        "'Child' is declared (1 declaration(s) by that name), so the"
-                        " query's other conditions matched nothing.",
+                        "'Child' is declared at src/a.py:4, with 0 calls to it.",
                         "Nothing named 'missing_fn' is declared in the analyzed files.",
                     ],
                 )
@@ -709,6 +708,49 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     text.splitlines()[:2], ["No results.", raw["why_empty"][0]]
                 )
+                # When everything the query looks for is in the graph, the
+                # other conditions are what matched nothing. A plain word
+                # ('nope') may be a property value: named only when declared.
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol {name: 'helper', file_path: 'src/a.py'})"
+                    "<-[:CALLS]-(c {name: 'nope'}) RETURN c",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    raw["why_empty"],
+                    [
+                        "'src/a.py' is analyzed (src/a.py).",
+                        "'helper' is declared at src/a.py:12, with 1 call to it.",
+                        "Everything above is in the graph, so the query's other"
+                        " conditions (links, properties, line numbers) matched"
+                        " nothing.",
+                    ],
+                )
+                # A parameter the query never uses is not looked for, and an
+                # unknown label or relationship type is named.
+                raw = await service.query_cypher(
+                    "MATCH (s:Nope)-[:CALLS]->(t:Symbol) RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(len(raw["why_empty"]), 1)
+                self.assertTrue(
+                    raw["why_empty"][0].startswith("The graph has no label 'Nope' ("),
+                    raw["why_empty"],
+                )
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol) WHERE s.language = 'cobol' RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertNotIn("why_empty", raw)
                 # A UNION whose parts return different columns names the fix.
                 with self.assertRaisesRegex(ValueError, "same aliases"):
                     await service.query_cypher(

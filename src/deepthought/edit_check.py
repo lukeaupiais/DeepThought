@@ -875,14 +875,14 @@ def _declarations(root, file, cache):
     if file in cache:
         return cache[file]
     from .engine import _source_language
-    from .syntax import LANGUAGES, extract, make_parser, parse_source
+    from .syntax import LANGUAGES, extract, make_parser, parse_source, script_source
 
     found = []
     language = _source_language(file, tuple(LANGUAGES))
     if language is not None:
-        suffix = PurePosixPath(file).suffix
         try:
-            content = (Path(root) / file).read_bytes()
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(file, (Path(root) / file).read_bytes())
             tree = parse_source(
                 make_parser(language, suffix), language, suffix, content
             )
