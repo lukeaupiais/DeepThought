@@ -263,6 +263,9 @@ func main() {
 	shop := chi.NewRouter()
 	shop.Get("/items", List)
 	r.Mount("/shop", shop)
+	token := http.HandlerFunc(List)
+	r.Post("/token", token.ServeHTTP)
+	r.Method(http.MethodPut, "/token", auth(token))
 	http.ListenAndServe(":8080", r)
 }
 
@@ -327,9 +330,9 @@ class ChiRouterTests(unittest.TestCase):
                 # With keeps the router; Route joins its prefix.
                 (19, "chi", ("POST",), "/api/orders", False, "List"),
                 (21, "chi", ("DELETE",), "/api/orders/{id:[0-9]+}", False, "List"),
-                # Method is (method, path, handler); a wrapped handler is not
-                # anchored.
-                (22, "chi", ("PUT",), "/api/orders/{id:[0-9]+}", False, None),
+                # Method is (method, path, handler); a function converted
+                # to http.HandlerFunc is the handler.
+                (22, "chi", ("PUT",), "/api/orders/{id:[0-9]+}", False, "List"),
                 # Group keeps the prefix; HandleFunc takes any method, and a
                 # trailing * matches the rest of the path.
                 (25, "chi", ("*",), "/api/files/{*}", False, "List"),
@@ -337,6 +340,10 @@ class ChiRouterTests(unittest.TestCase):
                 (29, "chi", ("PATCH",), "/admin/users", False, "List"),
                 # Mount gives a router held in a variable its prefix.
                 (31, "chi", ("GET",), "/shop/items", False, "List"),
+                # The ServeHTTP of a variable holding such a conversion is
+                # its function; one a middleware wraps is not anchored.
+                (34, "chi", ("POST",), "/token", False, "List"),
+                (35, "chi", ("PUT",), "/token", False, None),
             ],
         )
 

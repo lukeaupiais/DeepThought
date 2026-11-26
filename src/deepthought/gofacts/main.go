@@ -557,12 +557,97 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	}
 	// The function an argument names; for a call that passes no function
 	// value, the function it calls, which returns the handler (a factory).
+	// The module function a conversion to a func type wraps
+	// (http.HandlerFunc(a.Token)), else nil.
+	converted := func(e ast.Expr) *types.Func {
+		call, ok := ast.Unparen(e).(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 || !info.Types[call.Fun].IsType() {
+			return nil
+		}
+		if _, ok := info.Types[call.Fun].Type.Underlying().(*types.Signature); !ok {
+			return nil
+		}
+		return called(call.Args[0])
+	}
+	// Variables assigned only such conversions of one function
+	// (token := http.HandlerFunc(a.Token)), to the function.
+	wrapping := map[types.Object]*types.Func{}
+	reassigned := map[types.Object]bool{}
+	bind := func(name ast.Expr, value ast.Expr) {
+		id, ok := ast.Unparen(name).(*ast.Ident)
+		if !ok {
+			return
+		}
+		obj := info.Defs[id]
+		if obj == nil {
+			obj = info.Uses[id]
+		}
+		if obj == nil {
+			return
+		}
+		fn := converted(value)
+		if previous, seen := wrapping[obj]; fn == nil || (seen && previous != fn) {
+			reassigned[obj] = true
+		}
+		wrapping[obj] = fn
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					bind(n.Lhs[i], n.Rhs[i])
+				}
+			} else {
+				for _, left := range n.Lhs {
+					bind(left, nil)
+				}
+			}
+		case *ast.ValueSpec:
+			for i, name := range n.Names {
+				if i < len(n.Values) {
+					bind(name, n.Values[i])
+				}
+			}
+		}
+		return true
+	})
+	wrapped := func(id *ast.Ident) *types.Func {
+		obj := info.Uses[id]
+		if obj == nil || reassigned[obj] {
+			return nil
+		}
+		return wrapping[obj]
+	}
 	function := func(arg ast.Expr) string {
 		arg = ast.Unparen(arg)
+		// A function converted to a handler type, directly, through a
+		// variable holding the conversion, or through that variable's
+		// ServeHTTP method value (token.ServeHTTP).
+		if fn := converted(arg); fn != nil {
+			return functionRef(fn)
+		}
+		if selector, ok := arg.(*ast.SelectorExpr); ok && selector.Sel.Name == "ServeHTTP" {
+			if id, ok := ast.Unparen(selector.X).(*ast.Ident); ok {
+				if fn := wrapped(id); fn != nil {
+					return functionRef(fn)
+				}
+			}
+		}
+		if id, ok := arg.(*ast.Ident); ok {
+			if fn := wrapped(id); fn != nil {
+				return functionRef(fn)
+			}
+		}
 		if call, ok := arg.(*ast.CallExpr); ok {
+			// A call given a function (or a value of a func type such as
+			// http.HandlerFunc) wraps it, as a middleware does: what runs
+			// is not known.
 			for _, inner := range call.Args {
-				if _, ok := info.TypeOf(inner).(*types.Signature); ok {
-					return ""
+				if t := info.TypeOf(inner); t != nil {
+					if _, ok := t.Underlying().(*types.Signature); ok {
+						return ""
+					}
 				}
 			}
 			arg = call.Fun
