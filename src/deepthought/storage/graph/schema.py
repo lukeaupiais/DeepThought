@@ -57,6 +57,7 @@ RELATIONSHIP_SENTENCES = {
     "DISPATCHES_TO": "can dispatch to",
     "HAS_UNRESOLVED_CALL": "makes",
     "IMPORTS": "imports",
+    "IMPORTS_PACKAGE": "imports the external package",
     "INHERITS_FROM": "inherits from",
     "IMPLEMENTS": "implements",
     "REFERENCES": "refers to",
