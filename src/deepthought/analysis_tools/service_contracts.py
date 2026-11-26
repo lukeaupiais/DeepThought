@@ -40,6 +40,7 @@ from ..service_contracts.deployed import (
 )
 from ..service_contracts.folding import compiler_values
 from ..service_contracts.go_payloads import handler_payloads
+from ..service_contracts import go_routes as go_routes_module
 from ..service_contracts import python_payloads
 from ..scip_calls import ScipReferences
 from ..service_contracts.gateways import (
@@ -108,7 +109,6 @@ from ..service_contracts.web import (
     axios_imports,
     express_routers,
     extract_web,
-    go_router_calls,
     nest_settings,
     python_routers,
 )
@@ -297,6 +297,45 @@ PYTHON_PAYLOAD_RULES = {
     ),
 }
 
+# A field of a carried type carries its own type: the edge from the same
+# route or destination is marked with the fields followed (``via``).
+FIELD_TYPE_RULES = {
+    "go": register_rule(
+        EvidenceRule(
+            "service-contracts.go-field-type",
+            "resolved",
+            "A type this route or message destination carries has an exported "
+            'or embedded field (not tagged json:"-") whose type holds this '
+            "type of the module, through pointers, slices, arrays, maps, "
+            "channels, type arguments and inline structs; the Go type checker "
+            "gives the field's type and its declaration.",
+        )
+    ),
+    "typescript": register_rule(
+        EvidenceRule(
+            "service-contracts.ts-field-type",
+            "resolved",
+            "A type this route or message destination carries (a class, an "
+            "interface or an object type alias) has a property, or a "
+            "constructor parameter property, written with a type that names "
+            "this declaration, or extends or implements it; the TypeScript "
+            "compiler resolves the names, through arrays, unions, type "
+            "arguments and inline object types.",
+        )
+    ),
+    "python": register_rule(
+        EvidenceRule(
+            "service-contracts.python-field-type",
+            "resolved",
+            "A class this route or message destination carries annotates an "
+            "attribute in its body (not a ClassVar) with a type that names "
+            "this class, or derives from it; a scip-python index resolves "
+            "each name, and subscripts are read through (list[T], "
+            "Optional[T], Annotated[T, ...] give T).",
+        )
+    ),
+}
+
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -402,11 +441,17 @@ ROUTE_RULES = {
             "service-contracts.gin-route",
             "pattern_matched",
             "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Handle or Match "
-            "call on a Gin router (from gin.Default or gin.New, a parameter or "
-            "struct field typed *gin.Engine, or a Group of one) in a file "
-            "importing github.com/gin-gonic/gin declares this path; Group "
-            "prefixes are joined, and a group passed in adds an unknown base "
-            "assumed to add no segments.",
+            "call on a Gin Engine, RouterGroup, IRouter or IRoutes declares "
+            "this path, the handler last; Group joins its prefix and Use "
+            "keeps it. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "echo": register_rule(
@@ -414,11 +459,16 @@ ROUTE_RULES = {
             "service-contracts.echo-route",
             "pattern_matched",
             "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Add or Match call "
-            "on an Echo router (from echo.New, a parameter or struct field "
-            "typed *echo.Echo, or a Group of one) in a file importing "
-            "github.com/labstack/echo declares this path; Group prefixes are "
-            "joined, and a group passed in adds an unknown base assumed to "
-            "add no segments.",
+            "on an Echo or echo Group declares this path, the handler first; "
+            "Group joins its prefix. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "chi": register_rule(
@@ -426,13 +476,37 @@ ROUTE_RULES = {
             "service-contracts.chi-route",
             "pattern_matched",
             "A Get/Post/Put/Patch/Delete/Head/Options/Connect/Trace, Method, "
-            "MethodFunc, Handle or HandleFunc call on a chi router (from "
-            "chi.NewRouter or chi.NewMux, a parameter or struct field typed "
-            "*chi.Mux, a With of one, or the chi.Router parameter of a "
-            "function literal passed to Route or Group) in a file importing "
-            "github.com/go-chi/chi declares this path; Route prefixes are "
-            "joined, and a chi.Router passed in adds an unknown base assumed "
-            "to add no segments.",
+            "MethodFunc, Handle or HandleFunc call on a chi Mux or Router "
+            "declares this path; Route joins its prefix (for the router it "
+            "returns and its func literal's), With and Group keep it. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
+        )
+    ),
+    "fiber": register_rule(
+        EvidenceRule(
+            "service-contracts.fiber-route",
+            "pattern_matched",
+            "A Get/Head/Post/Put/Delete/Connect/Options/Trace/Patch, All or "
+            "Add call on a Fiber App, Group or Router (v2: the handler last; "
+            "v3: the handler first), or a verb of the Register a v3 "
+            "Route(path) returns, declares this path; Group and v3 Route join "
+            "their prefix, and v2 Route joins it for its func literal's "
+            "router. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "grpc-http-annotation": register_rule(
@@ -1183,6 +1257,7 @@ NON_SITE_RULES = frozenset(
     | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
     | {rule.rule_id for rules in SENT_PAYLOAD_RULES.values() for rule in rules.values()}
     | {_GO_KAFKA_VALUE_RULE.rule_id}
+    | {rule.rule_id for rule in FIELD_TYPE_RULES.values()}
 )
 
 
@@ -1952,9 +2027,12 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
 
 def _go_messaging_facts(root, sources):
     """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
-    calls}) from the Go type checker: the first for the Go sources that
-    import a broker client, the last for those whose HTTP handlers may
-    carry payloads (``_GO_HTTP_PAYLOAD_IMPORTS``); reason is
+    calls}, (GoRoutes, unread), GoStructs) from the Go type checker: the
+    first for the Go sources that import a broker client, the third for
+    those whose HTTP handlers may carry payloads
+    (``_GO_HTTP_PAYLOAD_IMPORTS``), the fourth the routes of gin, Echo, chi
+    and Fiber routers (``go_routes``), the last the module's struct types;
+    reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
@@ -1969,11 +2047,29 @@ def _go_messaging_facts(root, sources):
         and c.file.endswith(".go")
         and any(marker in content for marker in _GO_HTTP_PAYLOAD_IMPORTS)
     ]
-    if not files and not handlers:
-        return {}, {}, {}
+    # Routes: every Go file when one imports a router package, since a
+    # router travels through the module's own functions and fields.
+    routing = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go" and c.file.endswith(".go")
+    ]
+    routers = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and any(
+            f'"{package}"'.encode() in content
+            for package in go_routes_module.ROUTER_PACKAGES
+        )
+    ]
+    if not routers:
+        routing = []
+    if not files and not handlers and not routing:
+        return {}, {}, {}, ([], []), ()
     facts = go_facts.collect(
         root,
-        sorted({*files, *handlers}),
+        sorted({*files, *handlers, *routing}),
         list(_go_modules(root, sources).values()),
     )
     calls, literals = defaultdict(list), defaultdict(list)
@@ -1991,7 +2087,162 @@ def _go_messaging_facts(root, sources):
             reason = None
         found[file] = (calls[file], literals[file], reason)
     handler_calls = {file: calls[file] for file in handlers}
-    return found, go_facts.gopath_report(facts), handler_calls
+    routes = go_routes_module.GoRouters(facts).routes() if routing else ([], [])
+    # A file importing a router package that the type checker could not
+    # read: its routes, if any, are not known.
+    routes[1].extend(
+        (file, 1, f"not_type_checked:{facts.uncovered[file]}")
+        for file in routers
+        if file in facts.uncovered
+    )
+    return found, go_facts.gopath_report(facts), handler_calls, routes, facts.structs
+
+
+_FIELD_DEPTH = 6
+
+
+def _carry_field_types(
+    roots,
+    edges,
+    definitions,
+    declaration,
+    go_structs,
+    ts_fields,
+    python_index,
+    symbol_node,
+    repo_url,
+    relationships,
+):
+    """Add a CARRIES edge from each route or destination to the types the
+    fields of the types it carries hold, transitively (breadth first, so
+    the shortest chain of fields is the one recorded, up to _FIELD_DEPTH
+    fields deep); a type it already carries is not added again, which also
+    cuts cycles. Library types have no declaration in the repository and
+    are not followed. Returns (edges added, field types not resolved)."""
+    go_by_name = defaultdict(list)
+    for struct in go_structs:
+        go_by_name[(struct.file, struct.name)].append(struct)
+    ts_by_name = defaultdict(list)
+    for (file, name, line), fields in (ts_fields or {}).items():
+        ts_by_name[(file, name)].append((line, fields))
+    python = []
+    memo = {}
+
+    def fields_of(definition):
+        """[(field or None, file, line, declaration ids, unresolved)], and
+        the language, of a type declaration."""
+        if definition.id in memo:
+            return memo[definition.id]
+        name = definition.symbol.rsplit(".", 1)[-1]
+
+        def within(line):
+            return definition.line <= line <= definition.end_line
+
+        found, language = [], None
+        if definition.file.endswith(".go"):
+            language = "go"
+            for struct in go_by_name.get((definition.file, name), ()):
+                if not within(struct.line):
+                    continue
+                for field in struct.fields:
+                    ids = [declaration(f, n, line) for f, line, n in field.types]
+                    found.append(
+                        (
+                            field.name,
+                            definition.file,
+                            field.line,
+                            [i for i in ids if i is not None],
+                            int(field.interface),
+                        )
+                    )
+        elif definition.file.endswith((".py", ".pyi")):
+            language = "python"
+            if not python:
+                python.append(python_index())
+            references, trees = python[0]
+            if definition.file in trees:
+                for field, line, classes, unresolved in python_payloads.class_fields(
+                    references, trees, definition
+                ):
+                    found.append(
+                        (
+                            field,
+                            definition.file,
+                            line,
+                            [c.id for c in classes],
+                            unresolved,
+                        )
+                    )
+        else:
+            language = "typescript"
+            for line, fields in ts_by_name.get((definition.file, name), ()):
+                if not within(line):
+                    continue
+                for field, at, types, unresolved in fields:
+                    ids = [declaration(f, n, at_line) for f, n, at_line, _ in types]
+                    found.append(
+                        (
+                            field,
+                            definition.file,
+                            at,
+                            [i for i in ids if i is not None],
+                            unresolved,
+                        )
+                    )
+        memo[definition.id] = (found, language)
+        return memo[definition.id]
+
+    added, unresolved_total = 0, 0
+    counted = set()
+    for labels, name, direction, root_id, key in roots:
+        queue = [(root_id, ())]
+        while queue:
+            current, via = queue.pop(0)
+            definition = definitions.get(current)
+            if definition is None or len(via) >= _FIELD_DEPTH:
+                continue
+            fields, language = fields_of(definition)
+            owner = definition.symbol.rsplit(".", 1)[-1]
+            for field, file, line, ids, unresolved in fields:
+                if unresolved and (current, field, line) not in counted:
+                    counted.add((current, field, line))
+                    unresolved_total += unresolved
+                for target_id in ids:
+                    target = definitions.get(target_id)
+                    if target is None:
+                        continue
+                    hop = (
+                        f"{owner}.{field}"
+                        if field is not None
+                        else f"{owner}({target.symbol.rsplit('.', 1)[-1]})"
+                    )
+                    edge = (name, target_id, direction, key)
+                    if edge in edges:
+                        continue
+                    edges.add(edge)
+                    path = (*via, hop)
+                    queue.append((target_id, path))
+                    target_labels, target_name = symbol_node(target_id)
+                    added += 1
+                    relationships.append(
+                        RelationshipData(
+                            "CARRIES",
+                            labels,
+                            {"qualified_name": name, "repo_url": repo_url},
+                            target_labels,
+                            {"qualified_name": target_name, "repo_url": repo_url},
+                            {
+                                "direction": direction,
+                                **({"body_key": key} if key else {}),
+                                "via_field": hop,
+                                "via": list(path),
+                                "file_path": file,
+                                "line": line,
+                                **_evidence(FIELD_TYPE_RULES[language]),
+                            },
+                        )
+                    )
+    return added, unresolved_total
 
 
 def _declaration_node(tree, definition):
@@ -2083,50 +2334,6 @@ def _go_grpc_carriers(root, sources, grpc, definitions):
             carried = sorted(t for t in signature.types if t in messages[key])
             carriers.append((found[0], key, carried))
     return messages, carriers
-
-
-def _go_router_mounts(root, sources):
-    """{package directory: {(function, parameter index): prefixes}}: the Gin
-    and Echo routers each function's router parameters receive from calls
-    in the repository, followed through up to four levels of such calls."""
-    modules = _go_modules(root, sources)
-    files = [
-        (c.file, content, tree)
-        for c, content, tree in sources
-        if c.language == "go"
-        and (b"gin-gonic/gin" in content or b"labstack/echo" in content)
-    ]
-
-    def directory(file, callee):
-        package, name = callee
-        if not package:
-            return PurePosixPath(file).parent.as_posix(), name
-        for module, folder in modules.items():
-            if package == module or package.startswith(module + "/"):
-                rest = package[len(module) :].lstrip("/")
-                joined = PurePosixPath(folder or ".") / rest if rest else folder
-                return PurePosixPath(joined or ".").as_posix(), name
-        return None
-
-    mounts = {}
-    for _ in range(4):
-        found = {}
-        for file, content, tree in files:
-            own = mounts.get(PurePosixPath(file).parent.as_posix())
-            for callee, index, prefixes in go_router_calls(tree, content, own):
-                target = directory(file, callee)
-                if target is None:
-                    continue
-                key = (target[1], index)
-                found.setdefault(target[0], {}).setdefault(key, set()).update(prefixes)
-        found = {
-            d: {k: tuple(sorted(v)) for k, v in keys.items()}
-            for d, keys in found.items()
-        }
-        if found == mounts:
-            break
-        mounts = found
-    return mounts
 
 
 def _php_wrapper_calls(sources):
@@ -2522,8 +2729,37 @@ class ServiceContractTool(AnalysisTool):
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
-        go_mounts = _go_router_mounts(root, sources)
-        go_messaging, go_gopath, go_handler_calls = _go_messaging_facts(root, sources)
+        (
+            go_messaging,
+            go_gopath,
+            go_handler_calls,
+            (go_found_routes, go_route_unread),
+            go_structs,
+        ) = _go_messaging_facts(root, sources)
+        # Go handler declarations by (file, line) of their name.
+        go_declarations = defaultdict(list)
+        for definition in result.definitions:
+            if definition.file.endswith(".go") and definition.kind in (
+                "Function",
+                "Method",
+            ):
+                go_declarations[(definition.file, definition.line)].append(
+                    definition.id
+                )
+        go_routes = defaultdict(dict)
+        for route in go_found_routes:
+            handler = None
+            if route.handler is not None:
+                ids = go_declarations.get(route.handler[1:3], [])
+                handler = ids[0] if len(ids) == 1 else None
+            go_routes[route.file][(route.line, route.column, route.method)] = (
+                route,
+                handler,
+            )
+        unread.extend(
+            Unread(file, line, "route", reason)
+            for file, line, reason in go_route_unread
+        )
         next_apps = next_projects(
             root,
             [
@@ -2662,9 +2898,8 @@ class ServiceContractTool(AnalysisTool):
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
-                    mounts=python_mounts.get(coverage.file)
-                    if coverage.language != "go"
-                    else go_mounts.get(coverage.file.rpartition("/")[0] or "."),
+                    mounts=python_mounts.get(coverage.file),
+                    go_routes=go_routes.get(coverage.file, {}),
                     externals=(
                         scripts.externals(coverage.file)
                         if scripts is not None
@@ -3084,11 +3319,14 @@ class ServiceContractTool(AnalysisTool):
         carried_edges = set()
         payload_unresolved = 0
 
+        carried_roots = []
+
         def carry(labels, name, file, line, direction, definition_id, rule, key=None):
             nonlocal carried
             if (name, definition_id, direction, key) in carried_edges:
                 return
             carried_edges.add((name, definition_id, direction, key))
+            carried_roots.append((labels, name, direction, definition_id, key))
             target_labels, target = symbol_node(definition_id)
             carried += 1
             relationships.append(
@@ -3695,6 +3933,25 @@ class ServiceContractTool(AnalysisTool):
                 )
             )
         nodes.extend(topics[name] for name in sorted(topics))
+        field_carried, field_unresolved = _carry_field_types(
+            carried_roots,
+            carried_edges,
+            definitions,
+            declaration,
+            go_structs,
+            None if scripts is None else scripts.compiler.fields,
+            lambda: (
+                ScipReferences(result, scip_indexes, root),
+                {
+                    c.file: (content, tree)
+                    for c, content, tree in sources
+                    if c.language == "python"
+                },
+            ),
+            symbol_node,
+            repo_url,
+            relationships,
+        )
         unread_counts = {}
         for item in unread:
             key = f"{item.kind}:{item.reason}"
@@ -3811,6 +4068,8 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "payload_types": carried,
                 "payload_types_unresolved": payload_unresolved,
+                "payload_field_types": field_carried,
+                "payload_field_types_unresolved": field_unresolved,
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 **({"go_gopath_packages": go_gopath} if go_gopath else {}),
