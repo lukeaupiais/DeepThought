@@ -1392,8 +1392,37 @@ uses are found with no warning.
 
 ### Interface implementations
 
-Nothing in Go declares that a type implements an interface, so
-`deepthought.go_interfaces` compares method sets
+Nothing in Go declares that a type implements an interface. scip-go, which
+type-checks each package, records the answer as `is_implementation`
+relationships on the symbols of named types and methods (ingested as
+`Definition.implements`), and `deepthought.scip_implements` links them
+(`scip.go-implementation`, `resolved`, with the indexer and receipt as
+`producer` and `receipt`): a struct or other named type IMPLEMENTS an
+interface, and an interface method DISPATCHES_TO the method, when both are
+declarations of the analyzed files. The type checker's method sets count
+pointer receivers, promoted methods and embedded interfaces, so on chi this
+adds 7 implementations (`middleware.WrapResponseWriter` by its five writers,
+`LogFormatter`) and 5 dispatches that comparing method sets misses, and
+loses none. An interface declared outside the repository (`io.Reader`,
+`error`) has no declaration to link to.
+
+The method-set rule below stands only where scip-go records nothing it
+could: for types of files no scip-go index covers; for interfaces declared
+inside a function (scip-go reads only package-level types; miniflux's
+`acceptEncoding.sizer`); for a type and an interface indexed by separate
+scip-go runs (packages in directories `./...` skips, such as `testdata`, get a
+pass of their own); and where the type and the interface are in
+different packages and either package has in-package `_test.go` files.
+scip-go 0.2.7 then reads that package's declarations from its test variant,
+whose named types are not the ones the other package's signatures name, and
+`types.Implements` fails: on simplebank, `mockdb.MockStore` is recorded for
+no interface, though `var _ db.Store = (*mockdb.MockStore)(nil)` compiles,
+and on grpc-go `grpc.Server` is recorded for none of the four interfaces of
+other packages it implements. On grpc-go scip-go adds 363 implementations
+and 243 dispatches, and on sqlc 1 implementation, with none lost. A type in that
+case that relies on promoted methods is missed by both.
+
+Elsewhere `deepthought.go_interfaces` compares method sets
 (`tree-sitter.go-interface-method-set`, `name_matched`). Each Go function,
 method and interface method records `Definition.signature`, its parameter and
 result types without names (`(string,[]byte)(error)`, `...T` for a variadic
@@ -3991,7 +4020,7 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
-| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser`, or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
@@ -4030,7 +4059,9 @@ declaration's position, which is the tree-sitter Symbol the edge ends at.
 A decoder or encoder held in a variable counts when the handler assigns
 it once from `json.NewDecoder(r.Body)` or `json.NewEncoder(w)`. Calls in
 functions the handler calls are not followed, and a type declared in a
-library (`gin.H`, `map[string]any`) gives no edge.
+library (`gin.H`, `map[string]any`) gives no edge. A value whose static type is an
+interface (a body bound into an `any`) holds a type that is not known and
+counts in `payload_types_unresolved`.
 
 For Python, the scip-python index of the run (`ScipReferences`) resolves
 every name written in a FastAPI handler's annotations, so a model imported
@@ -5409,6 +5440,8 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository. Not used in files a scip-typescript index covers, where `drizzle-scip` reads each use; there it runs only where the index records no symbol, or only a local one, at the method (it could not type the call), and the metric `drizzle_scip` counts those as `index_unresolved` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-scip` | resolved | each use in a file a scip-typescript index covers whose method the index resolves to drizzle-orm (`from` and the joins READS, `insert`, `update` and `delete` WRITES, a relational query's `findMany`/`findFirst` READS), at the method's name; the table is the definition the index gives for the written name (the argument, the property of `schema.users` or the `db.query` key), matched to a variable holding a Drizzle table (`drizzle-table`), so imports, aliases, re-exports, `export *` and workspace packages are followed by the TypeScript checker. A method of another library (`cache.from(users)`) gives no edge. The metric `drizzle_scip` counts `linked`, `no_scip_index`, `index_unresolved`, `not_drizzle` and `not_a_table` |
+| Symbol\|File -[:READS_COLUMN]-> DbColumn | `data-contracts.drizzle-scip-column-read` | resolved | a reference a scip-typescript index resolves to a property of a Drizzle table's columns object: `users.email`, `eq(users.id, x)`, or a selected row's `row.email` (Drizzle's inferred row types keep the property). The property's column is its builder's name argument (`text("email_address")`), else the name a helper builder it calls gives (`createdAt: createdAt()`, the helper found through the index and returning `timestamptz("created_at")...`), else its key; it must be a column of the table (`data-contracts.sql-column`), else it is counted `not_a_table_column` (a `casing` option, a column the migrations do not create). Columns spread into the table (`...timestamps`, `...softDeleteColumns()`) are found through the index too. A property such a spread shares between tables is attributed by the access's receiver (`posts.updatedAt`); a row's (`row.updatedAt`) names no one table, so it gives no edge, is counted `reads_unattributed`, and every column of that property gets `reads_unattributed: true`, which puts its tables' users under contract impact's `unresolved_users`. Counted in `drizzle_columns` |
+| Symbol\|File -[:WRITES_COLUMN]-> / -[:READS_COLUMN]-> DbColumn | `data-contracts.drizzle-column-key` | pattern_matched | a key of the objects an insert's `values` (one or an array), an update's `set` or `onConflictDoUpdate`'s `set` writes, or of a relational query's `columns` reads, on a use `data-contracts.drizzle-scip` resolves to a table: Drizzle types those objects by the table's column keys, and the index records the keys as new properties, not references. The use's READS or WRITES edge carries `columns_resolved: true` when its table's columns are all mapped (no unresolved spread, a migration-known column set) and every key names a column of it; an object built elsewhere (`values(rows)`), a spread, an unknown key, or a relational query with an object `where`/`orderBy` or `extras` leave it off |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.script-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `query`, `execute`, `raw`, `prepare`, `exec`, `run`, `all`, `get`, `each` or a pg-promise query method, in a JavaScript or TypeScript file importing a Node SQL driver (`pg`, `mysql`, `mysql2`, `mariadb`, `sqlite3`, `better-sqlite3`, `mssql`, `oracledb`, `@libsql/client`, ...) or `knex`: a literal, a template string or `+` concatenation (unfixed parts dropped), or pg's `{ text }` config. Tagged templates (`sql\`...\``) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |

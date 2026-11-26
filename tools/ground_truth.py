@@ -1080,6 +1080,9 @@ def score_knex_tables(labels, workspace, examples=10):
     )
 
 
+_TABLE_EDGES = frozenset({"READS", "WRITES", "DECLARES"})
+
+
 def score_go_sql_tables(labels, workspace, examples=10):
     """SQL that Go code runs, against labels from sqlc's own analysis
     (tools/sqlc_table_labels.py) or read by hand, per line: see
@@ -1191,11 +1194,13 @@ def score_line_tables(
     for r in output.relationships:
         if not str(r.properties.get("rule_id", "")).startswith(rule_prefix):
             continue
+        # Only table edges: the labels give each line's tables, and column
+        # edges (READS_COLUMN, WRITES_COLUMN) are scored on their own.
+        if r.type not in _TABLE_EDGES:
+            continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
-        # Column edges (READS_COLUMN, WRITES_COLUMN) are scored on their
-        # own; the labels give each line's tables.
-        if source is None or target is None or "DbColumn" in target.labels:
+        if source is None or target is None:
             continue
         path = source.properties.get("file_path") or source.properties.get("path")
         table = r.properties.get("table") or target.properties.get("name")
