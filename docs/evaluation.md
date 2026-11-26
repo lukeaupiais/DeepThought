@@ -35,6 +35,13 @@ match. A foreign graph in the database is rejected before import. A missing
 connection never silently selects raw JSON. No target clone, build or execution
 occurs; public Git revision and source hashes remain required.
 
+For the tree-sitter tool, the pinned SCIP indexers (`deepthought indexers`)
+first run over the workspace for the scenario's languages, as every graph
+import does, and the tool binds calls from their indexes. A selected file left
+without an index by a missing, failing or wrong-version indexer stops the
+preparation. The provenance records each run's indexer, version, status and
+receipt digest, and the selected files the indexers did not include.
+
 Preparation writes:
 
 - `baseline.actor.json`: task, selected source and shared answer instructions.

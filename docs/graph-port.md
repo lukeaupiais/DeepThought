@@ -171,11 +171,38 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
 `tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
 query counts the linked, ambiguous and unresolved calls of a name:
-`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+`get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
-rule. Snapshots written before this change have no such nodes and answer
+rule. Each call site names its `caller`, the function, method or file around
+it (qualified name, name, kind, `file_path`, `start_line`, `end_line` and
+`signature`), and the `source_roles` of that file (`test`, `example`), so an answer about who calls
+a name stops at the enclosing declarations rather than bare lines. Code outside
+every declaration (module-level calls, anonymous callbacks) has its file as
+caller, named `(top level of file)` with no line span and `top_level: true`;
+the call keeps its own line. `get_function_callers`, `get_function_calls`,
+`get_base_types` and `get_subtypes` describe each declaration they return the
+same way, with its `source_roles`. Snapshots written before unlinked calls were stored have no UnresolvedCall nodes and answer
 `unsupported_or_unobserved`. Calls made through another name (an alias, a
 callback, dynamic dispatch) are not counted.
+
+`target` keeps the call sites of one declaration, so a name shared by
+members of other types (a `run` on two classes, `arrayBuffer` on a platform
+type) does not mix their calls in: calls linked to it, and ambiguous calls
+that list it among their candidates. Unresolved calls of the name may be
+calls of it too, so `counts` still counts them; the items leave them out.
+
+Every query about one declaration (`get_call_sites`'s `target`,
+`get_function_callers`, `get_function_calls`, `get_impact`, `get_members`,
+`get_owner`, `get_base_types`, `get_subtypes` and `get_class_hierarchy`)
+takes its qualified name or a place, `file:line` (`src/app.py:42`): the
+declaration named on that line, or else the innermost declaration around
+it, so a line read in the source, a stack trace or a diff names exactly one
+declaration. Qualified names always hold `::`, so the two never clash. More
+than one declaration named on that line (`class P { a() {} b() {} }`) is
+refused as ambiguous, listing their qualified names; a line no declaration
+spans is refused too. A Python declaration's span starts at `def` or `class`, not at its
+decorators, so a decorator line names the enclosing declaration (or none at
+module level), as calls in decorators belong to the enclosing scope.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
 covers are bound from the index (`deepthought.scip_calls.bind_calls`).
@@ -293,8 +320,9 @@ calls inside a callback take the test case as their caller; `get_impact` and
 `get_call_sites` then name the test case. The test case's own call (and a
 modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
 with a substitution or with an escape other than a quote or backslash, a call
-whose result is used, and a call through another object (`runner.it(...)`)
-declare nothing. This is a parser rule: listing a runner's tests would load
+whose result is used other than as an array element (`await
+Promise.all([it("a", fa), it("b", fb)])` declares both), and a call through
+another object (`runner.it(...)`) declare nothing. This is a parser rule: listing a runner's tests would load
 the project's test configuration, which runs its code. Python test functions
 and Go `TestX` functions are declarations already; Go `t.Run` closures stay
 inside their test function.
@@ -331,6 +359,21 @@ file again and stores text only if the file's sha256 still equals the digest
 the analysis recorded; files that changed in between are listed in the
 `source_context` metric and get no text. Files reused by incremental
 re-indexing get text like parsed ones.
+
+Each Symbol also stores its `signature`: the head of the declaration as
+written, from its decorators or `export` keyword (and the `const`, `let`,
+`var` or Go `type` keyword of a statement that declares only it) to where its
+body starts, such as `export async function g<T>(x: T): Promise<T>` or
+`def f(a: int) -> bool:`. Comments just before the body are not part of it
+(Python's parser keeps a body's leading comments outside its block). A declaration without a body (a type alias, an
+interface member, a Go struct type) is its whole text. It is cut at 5 lines
+or 400 characters, ending with `…`. When decorators would push the declaration past that
+cut, the first decorator is kept, the rest become one `…` line, and the
+declaration's own head follows (`@option('--o0')`, `…`, `def command(ctx, o0):`),
+so a signature always shows the name it declares. With `start_line` and `end_line`, a
+lookup of a declaration can end at the graph without reading the source.
+Queries that return declarations keep it (`search_elements`,
+`find_symbol_by_name`); the steps of a returned path leave it out.
 
 `get_code_context` (CLI `context`, MCP getCodeContext) returns a page of each
 declaration's text: `max_source_characters` (0 to 8,192, default 1,200)
@@ -412,7 +455,9 @@ the chat model. The port answers from stored edges only:
   route, gRPC method, GraphQL field, message destination or database table.
   The change set is the contract and its providers, the declarations or files
   that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
-  lists under `providers` (at most 10, `providers_truncated` when more).
+  lists under `providers` (at most 10, `providers_truncated` when more),
+  each described as call sites describe their caller, with its `relations`,
+  the sorted `lines` of those edges and its `source_roles`.
   Dependents are then found as for `get_impact`: the code that REQUESTS,
   CONSUMES or READS the contract or, for a table, the tables whose foreign
   keys reference it over REFERENCES_TABLE (direct), and the callers of that code, also
@@ -428,8 +473,12 @@ the chat model. The port answers from stored edges only:
 All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
-its path (type, edge ID, evidence type, rule ID) and the path's evidence,
-which is its weakest edge. When several paths reach a dependent, the one with
+its path (type, edge ID, evidence type, rule ID, the edge's `line`, and the
+declarations it joins, `from` and `to`, described as call sites describe
+their caller) and the path's evidence, which is its weakest edge. The
+dependent itself carries its line span, `signature` and `top_level`, and
+`lines`: the lines of every edge it starts toward the change on any path
+(each call it makes that leads there), sorted. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
 the answer is the same on every run.
 
@@ -993,9 +1042,8 @@ own listing (`--fixtures-per-test`) imports the project and runs its
 plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
 `getfixturevalue`, fixtures inherited from a test class's base classes,
 and `python_files` or `python_functions` settings in
-configuration are not read, and neither is a file the running Python's
-`ast` cannot parse; each such file is named in the analysis warnings
-(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
+configuration are not read, and neither is a file `ast` cannot parse (see
+"Python versions" below). `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
 
 ### FastAPI dependencies
@@ -1011,9 +1059,11 @@ indexer that resolved it (`producer`, `receipt`):
 |---|---|
 | `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
 
-Both ends come from the scip-python index, so the rule is `resolved`. The
-call counts only when the index resolves its callee to FastAPI's own
-`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+Both ends come from the scip-python index, so the rule is `resolved`. A
+call written `Depends(...)` or `Security(...)` (or under a name one of them
+is imported `as`) counts only when the index resolves its callee to
+FastAPI's own `fastapi.param_functions` `Depends` or `Security`, or to the
+`fastapi.params` classes of those names. The dependency is the
 first argument or `dependency=`. For a `Depends()` with neither, it is what
 FastAPI calls: the parameter's annotation, or the `T` of
 `Annotated[T, Depends()]`. It is linked only when the index resolves that
@@ -1036,12 +1086,8 @@ Not read: a dependency given as an instance (`Security(scheme)` with
 `scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
 at run time (`Depends(make_dependency())`, a loop variable); an alias of an
 alias, or an alias written inside another annotation
-(`Optional[SessionDep]`); files no scip-python index covers; and files the
-running Python's `ast` cannot parse, such as Python 3.14's
-`except A, B:` read by an older interpreter. Each such file is named in the
-analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
-interpreter version, in the `python_ast_unparsed` metric; the same applies to
-pytest fixtures.
+(`Optional[SessionDep]`); files no scip-python index covers; and files `ast`
+cannot parse (see "Python versions" below).
 
 On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
 come through aliases, 21 are on an app or router, and 14 are `Depends()`
@@ -1053,13 +1099,40 @@ were all correct. On the full-stack-fastapi-template backend (77e550a) 39
 uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
 their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
 injects an instance and is not linked. That template's `app/api/deps.py`
-uses Python 3.14 syntax, so this was measured with its one `except A, B:`
-line parenthesised; under an older interpreter the aliases there are not
-read.
+uses Python 3.14 syntax (`except A, B:`), which the declared Python 3.14
+reads (see below).
 `tools/check_impact.py` matches on every compared seed: 117 of 117 (136
 dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
+
+### Python versions
+
+The pytest fixture and FastAPI dependency rules read sources with Python's
+`ast`, which parses only the syntax of the interpreter it runs in
+(`deepthought.python_ast_facts`, `deepthought.python_runtime`). So the
+sources are read by the newest Python the repository declares: the first
+entry of each `.python-version` file and each `pyproject.toml`'s
+`requires-python` (virtual environments and `node_modules` are skipped).
+When a declaration admits nothing newer than the running interpreter, the
+running one reads them itself, since newer Pythons parse older syntax.
+Otherwise uv (a pinned dependency of the `python` extra) finds that Python,
+installing a managed CPython when none is present, and the facts are read
+by a script run there that uses only the standard library. The
+`python_interpreter` metric gives the version that read them, the
+declarations, whether it was a managed interpreter, and any errors.
+
+When no declared Python can be obtained (uv missing included), or it fails,
+the running
+interpreter reads the sources, and each reason is a
+`python_interpreter_unavailable` warning. A file the chosen interpreter
+still cannot parse is named in a `python_ast_unparsed: FILE: ...` warning
+and listed with the interpreter version in the `python_ast_unparsed` metric.
+
+On full-stack-fastapi-template (77e550a, `requires-python = ">=3.14,<4.0"`),
+an analysis running under Python 3.13 reads the backend with a uv-managed
+3.14.6. `app/api/deps.py` parses, and all 39 dependency uses and 147 fixture
+uses are found with no warning.
 
 ### Interface implementations
 
@@ -3569,7 +3642,7 @@ link to their mutations, and `subscribeWebPush` is
 
 ### Payload types
 
-A route or message destination CARRIES the types its handler writes for
+A route or message destination CARRIES the types its handler, or a producer, writes for
 what goes over it, so a change to such a type reaches the contract and,
 through it, the clients that must change with it (`get_impact` follows
 CARRIES backwards):
@@ -3584,6 +3657,8 @@ CARRIES backwards):
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-client-data-type` | resolved | the value a NestJS `ClientProxy` sends with `send(pattern, data)` or `emit(pattern, data)`: the type written where `data`'s name is declared, else the compiler's type of it, and the types of an object or array literal's members (`{ shipment, audit }` carries both) |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.kafkajs-message-value-type` | resolved | the value a kafkajs producer's `send()` message serializes: `JSON.stringify(x)` as a `value` written anywhere in `messages` (an array, or `rs.map((r) => ({ value: ... }))`), directly or inside `Buffer.from(...)`; x's types as for `nestjs-client-data-type`, with an array method's callback parameter and `rs[0]` carrying what `rs` carries. A value written another way, or typed `any`, counts in `payload_types_unresolved` |
 
 The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
 name written in such a type, through imports, re-exports and the project's
@@ -5592,6 +5667,32 @@ complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
 
+`describe_snapshot(repo, snapshot_id=...)` (CLI `snapshot`, MCP
+`describeSnapshot`) gives one complete snapshot's own facts: its repository and
+ID, scope, capabilities and analysis status, with one item holding its content
+hash, tool, completion time and commits. Raw Cypher answers leave these out, so
+a reader takes them from here once.
+
+The item's `coverage` lists the snapshot's `EdgeCoverage` nodes, sorted by
+family, protocol and language. TreeSitterTool writes one per analyzed language
+and family, `CALLS` and `IMPORTS` (qualified name
+`<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
+families. Each says whether a deterministic resolver (a compiler-backed SCIP
+index or pyright, named in `producer` on the edges) decided the family's sites:
+
+| Field | Meaning |
+|---|---|
+| `status` | `linked` (every file of the language with such sites), `partial` (some), `not_linked` (none), `no_sites` (the language has none) |
+| `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
+| `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
+| `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+
+A file that failed to parse is not counted. Every import is decided by the
+parser's rules here, so `IMPORTS` is `not_linked` (or `no_sites`). An empty
+`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
+lists are; `describeSnapshot` decodes it.
+
 ## Incremental re-indexing
 
 The original updater found changed files from Git history and patched one graph
@@ -5733,7 +5834,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots`, `describeSnapshot` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
@@ -5768,6 +5869,11 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,
+and `analysis_status` when the snapshot's analysis did not wholly succeed
+(`partial`, for example). It does not repeat the repository, snapshot, scope
+and capabilities with every call; `describeSnapshot` (CLI `snapshot`) gives
+them once.
 
 `queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
 or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
