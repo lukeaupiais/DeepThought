@@ -159,7 +159,12 @@ def create_server():
     Roles = list[Literal["test", "example"]] | None
     ContractKind = (
         Literal[
-            "DbTable", "GraphqlField", "GrpcMethod", "HttpRoute", "MessageDestination"
+            "DbColumn",
+            "DbTable",
+            "GraphqlField",
+            "GrpcMethod",
+            "HttpRoute",
+            "MessageDestination",
         ]
         | None
     )
@@ -211,6 +216,7 @@ def create_server():
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
         offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
         exclude_roles: Roles = None,
+        change: Literal["signature", "behaviour"] = "signature",
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
@@ -225,6 +231,9 @@ def create_server():
         declaration itself, so a signature change may need an edit there) or
         ``transitive`` (re-test it); ``source_roles`` marks tests and
         examples, and ``exclude_roles`` leaves those roles out before paging.
+        Each dependent's ``action`` says what the ``change`` needs of it: for
+        a ``signature`` change, ``must_change`` at depth 1 and ``retest``
+        deeper; for a ``behaviour`` change (body only), ``retest``.
 
         ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it.
         """
@@ -237,6 +246,7 @@ def create_server():
             limit=max_elements,
             offset=offset,
             exclude_roles=exclude_roles,
+            change=change,
         )
 
     @server.tool()
@@ -280,7 +290,12 @@ def create_server():
         ``providers`` lists the handlers, publishers, writers and mappings of
         the contract (searchContracts finds it). Dependents are the code that
         requests, consumes or reads it, then their callers, also across
-        services, as for getImpact.
+        services, as for getImpact. Each dependent's ``action`` is
+        ``must_change`` when it uses the contract directly or only through
+        declarations whose parameter or result types carry the contract's
+        messages (so it builds or reads them), ``retest`` when it reaches
+        the contract through a wrapper that hides them, and ``unknown`` when
+        the contract's message types are not known.
         """
         return await ctx.request_context.lifespan_context.get_contract_impact(
             qualified_name,
