@@ -24,6 +24,7 @@ example a dependency that is not installed.
 
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 
 from .imports import PYTHON_FROM_IMPORT_SUBMODULE, ImportLink, ImportResolution
 from .scip_calls import _IndexView, _key, _Lines, _to_utf8
@@ -64,8 +65,6 @@ def bind_python_imports(result, indexes, root, paths=None):
     ``paths`` are the path rules' resolutions by import id, whose submodule
     links an in-repository from-import keeps."""
     paths = paths or {}
-    from pathlib import Path
-
     lines = _Lines(Path(root))
     covering, shared_by_indexer, by_line = {}, {}, defaultdict(list)
     for index, receipt in indexes:
