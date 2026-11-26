@@ -271,7 +271,9 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("app/aliases.py", 1, "resolved", ["USES_TYPE"]),
                 ("b", 1, "resolved", ["USES_DEPENDENCY"]),
                 ("c", 1, "resolved", ["USES_DEPENDENCY"]),
-                ("d", 1, "resolved", ["USES_DEPENDENCY"]),
+                # d also names Params as a parameter type; both links are
+                # resolved and one hop, so the first by edge identity shows.
+                ("d", 1, "resolved", ["USES_TYPE"]),
                 ("f", 1, "resolved", ["USES_DEPENDENCY"]),
             ],
         )
