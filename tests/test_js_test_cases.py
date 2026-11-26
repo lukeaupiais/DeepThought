@@ -34,6 +34,7 @@ describe("add", () => {
   it("adds", () => add(4, 4));
 });
 test("top", () => add(5, 5));
+await Promise.all([it("a", () => add(6, 6)), it("b", () => add(7, 7))]);
 """
 
 NOT_TESTS = """\
@@ -91,9 +92,11 @@ class TestCaseTests(unittest.TestCase):
                 'describe("add").it("adds")',
                 'describe("add").it("adds")',
                 'test("top")',
+                'it("a")',
+                'it("b")',
             ],
         )
-        self.assertEqual([k for k, _ in symbols], ["TestSuite"] + ["Test"] * 7)
+        self.assertEqual([k for k, _ in symbols], ["TestSuite"] + ["Test"] * 9)
         # Each spans its whole call, from the line naming it.
         spans = {(s, line, end) for _, s, line, _, end, _ in found}
         self.assertIn(('describe("add")', 4, 19), spans)
@@ -122,6 +125,17 @@ class TestCaseTests(unittest.TestCase):
         self.assertEqual(callers[("add", 9)], 'describe("add").it.each("adds %i")')
         self.assertEqual(callers[("add", 12)], 'describe("add").test.skipIf("skips")')
         self.assertEqual(callers[("add", 20)], 'test("top")')
+        # A test case can be an element of a list of them.
+        self.assertEqual(
+            [
+                symbols.get(site.caller_id)
+                for site in sorted(result.call_sites, key=lambda c: c.column)
+                if site.file == "add.test.ts"
+                and site.line == 21
+                and site.callee == "add"
+            ],
+            ['it("a")', 'it("b")'],
+        )
         # A test case's own call, and its modifiers' calls, are its parent's.
         self.assertEqual(callers[("it", 5)], 'describe("add")')
         self.assertEqual(callers[("it.each", 8)], 'describe("add")')

@@ -7,11 +7,9 @@ It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
 
-import ast
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
-import sys
 import time
 from copy import deepcopy
 
@@ -23,8 +21,11 @@ from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
 from ..scip_calls import ScipReferences, bind_calls
+from ..edge_coverage import edge_coverage
 from ..fastapi_dependencies import dependency_uses
-from ..pytest_fixtures import fixture_uses
+from ..pytest_fixtures import FixtureUse
+from ..python_ast_facts import ast_facts
+from ..python_runtime import read_ast_facts
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -958,21 +959,30 @@ class TreeSitterTool(AnalysisTool):
             for c in result.coverage
             if c.language == "python"
         }
-        # The pytest and FastAPI rules read Python's ast, which skips a file
-        # this interpreter cannot parse (such as newer syntax): say which.
-        unparsed = {}
-        for file, text in sorted(python_files.items()):
-            try:
-                ast.parse(text)
-            except (SyntaxError, ValueError) as error:
-                unparsed[file] = str(error)
-        interpreter = "{}.{}".format(*sys.version_info[:2])
+        # The pytest and FastAPI rules read Python's ast, in the newest
+        # Python the repository declares; a file it still cannot parse is
+        # reported.
+        if python_files:
+            facts, reader = read_ast_facts(self.repo_path, python_files)
+        else:
+            facts, reader = ast_facts({}), None
+        interpreter = ".".join(facts["python"].split(".")[:2])
+        unparsed = facts["unparsed"]
         by_line = {
             (d.file, d.line): d
             for d in result.definitions
             if d.kind in {"Function", "Method", "Class"}
         }
-        for use in fixture_uses(python_files):
+        for use in (
+            FixtureUse(
+                **{
+                    **f,
+                    "consumer": tuple(f["consumer"]),
+                    "fixture": tuple(f["fixture"]),
+                }
+            )
+            for f in facts["fixtures"]
+        ):
             consumer = by_line.get(use.consumer)
             fixture = by_line.get(use.fixture)
             if consumer is None or fixture is None:
@@ -999,7 +1009,7 @@ class TreeSitterTool(AnalysisTool):
             )
         # Endpoints and routers depend on the FastAPI dependencies they inject.
         references = ScipReferences(result, scip_indexes, self.repo_path)
-        for use in dependency_uses(python_files, references):
+        for use in dependency_uses(facts["dependencies"], references):
             file, line = use.consumer
             if line is None:
                 source = (["File"], files[file])
@@ -1257,6 +1267,38 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
+        # Which families a deterministic resolver linked, per language.
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                {key: value[0] for key, value in binding.producers.items()},
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                # Every import is decided by the parser's rules.
+                {},
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1277,6 +1319,10 @@ class TreeSitterTool(AnalysisTool):
                 f"parse it ({error}), so no pytest fixture or FastAPI dependency "
                 "is read from it"
                 for file, error in unparsed.items()
+            ]
+            + [
+                f"python_interpreter_unavailable: {error}"
+                for error in (reader.errors if reader else ())
             ]
             if result.status != "failed"
             else [],
@@ -1303,6 +1349,12 @@ class TreeSitterTool(AnalysisTool):
                 "python_ast_unparsed": {
                     "python": interpreter,
                     "files": sorted(unparsed),
+                },
+                "python_interpreter": {
+                    "version": facts["python"],
+                    "declared": list(reader.declared) if reader else [],
+                    "managed": bool(reader and reader.executable),
+                    "errors": list(reader.errors) if reader else [],
                 },
                 "source_context": {
                     "declarations": len(sources),
