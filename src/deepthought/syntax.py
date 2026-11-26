@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -5260,7 +5264,12 @@ def _receiver_chain_callee(node, content):
             return None if head is None else f"{head}[]"
         if node.type in {"parenthesized_expression", "non_null_expression"}:
             inner = [c for c in node.named_children if c.type != "comment"]
-            return chain(inner[0]) if len(inner) == 1 else None
+            head = chain(inner[0]) if len(inner) == 1 else None
+            if head is None and node.type == "parenthesized_expression":
+                # `(a ? b : c).m()`, `(x as T).m()`: a receiver no name
+                # describes. Only an index can link the call.
+                return "(…)"
+            return head
         return None
 
     if node is None or node.type not in _SCRIPT_CHAIN:
@@ -5399,9 +5408,7 @@ def extract_call_sites(
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    script = file.endswith(
-        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
-    )
+    script = file.endswith((*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0]))
     sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
