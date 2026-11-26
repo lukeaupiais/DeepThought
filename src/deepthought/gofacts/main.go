@@ -74,6 +74,9 @@ type argument struct {
 	Strings [][]string   `json:"strings,omitempty"`
 	Result  *resultField `json:"result,omitempty"`
 	Type    *namedType   `json:"type,omitempty"`
+	// The argument's static type is an interface: what it holds at run
+	// time is not known.
+	Interface bool `json:"interface,omitempty"`
 }
 
 type element struct {
@@ -440,6 +443,26 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 					}
 				}
 			}
+		} else {
+			// b after b, err := json.Marshal(v), through conversions
+			// (sarama.ByteEncoder(b), []byte(s)): the call whose result
+			// the variable holds, with no field.
+			inner := ast.Unparen(arg)
+			for {
+				call, ok := inner.(*ast.CallExpr)
+				if !ok || len(call.Args) != 1 || !info.Types[call.Fun].IsType() {
+					break
+				}
+				inner = ast.Unparen(call.Args[0])
+			}
+			if id, ok := inner.(*ast.Ident); ok {
+				if v, ok := info.Uses[id].(*types.Var); ok {
+					if r, ok := results[v]; ok {
+						_, line, column := where(r.call.Pos())
+						a.Result = &resultField{line, column, r.index, ""}
+					}
+				}
+			}
 		}
 		return a
 	}
@@ -485,6 +508,26 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return true
+		}
+		// encoding/json's Marshal and MarshalIndent: the named type of the
+		// value serialized, which a message whose body they make carries.
+		if function, ok := info.Uses[selector.Sel].(*types.Func); ok && len(call.Args) >= 1 {
+			if pkg := function.Pkg(); pkg != nil && pkg.Path() == "encoding/json" &&
+				(function.Name() == "Marshal" || function.Name() == "MarshalIndent") {
+				f, line, column := where(call.Pos())
+				// encoding/json serializes the dynamic type of an interface
+				// value, which the static type does not give.
+				value := argument{Type: named(info.TypeOf(call.Args[0]))}
+				if t := info.TypeOf(call.Args[0]); t != nil && types.IsInterface(t) {
+					value = argument{Interface: true}
+				}
+				emit(fact{
+					Kind: "call", File: f, Line: line, Column: column,
+					Method: function.Name(), Declared: "encoding/json",
+					Arguments: []argument{value},
+				})
+				return true
+			}
 		}
 		selection := info.Selections[selector]
 		if selection == nil || selection.Kind() != types.MethodVal {
