@@ -66,7 +66,7 @@ from ..service_contracts.graphql import (
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.model import HttpRequest, HttpRoute, Unread
 from ..service_contracts.listeners import kratos_ports
-from ..service_contracts.protoc import route_path
+from ..service_contracts.protoc import python_descriptors, route_path
 from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
@@ -1287,6 +1287,17 @@ PROTO_GO_TYPE_RULE = register_rule(
         "from the type of that full name in the repository's .proto files.",
     )
 )
+PROTO_PY_MODULE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.python-generated-proto-module",
+        "resolved",
+        "A Python module passes a bytes literal to AddSerializedFile of a "
+        "descriptor pool, or as serialized_pb to FileDescriptor, imported "
+        "from google.protobuf (protoc's Python generator, read with Python's "
+        "ast); protobuf decodes it, and the module is generated from each "
+        "message or enum of that full name in the repository's .proto files.",
+    )
+)
 PROTO_RPC_MESSAGE_RULE = register_rule(
     EvidenceRule(
         "service-contracts.grpc-method-message",
@@ -1308,6 +1319,7 @@ NON_SITE_RULES = frozenset(
         PROTO_FIELD_TYPE_RULE.rule_id,
         PROTO_RPC_MESSAGE_RULE.rule_id,
         PROTO_GO_TYPE_RULE.rule_id,
+        PROTO_PY_MODULE_RULE.rule_id,
     }
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
@@ -2615,13 +2627,15 @@ def _proto_type_graph(
     go_proto_files=(),
     declaration=None,
     symbol_node=None,
+    python_modules=(),
 ):
     """ProtoMessage, ProtoField and ProtoEnum nodes of the compiled .proto
     files, and the rpcs' request and response messages (CARRIES). Copies of
     one type (a .proto vendored into each service) are one node declared in
     each copy; when the copies' fields disagree, the node says so and has no
     fields. The Go types protoc-gen-go generates for them are GENERATED_FROM
-    them. Returns the numbers of CARRIES and GENERATED_FROM edges written."""
+    them, and so are the Python modules protoc generates. Returns the
+    numbers of CARRIES and GENERATED_FROM edges written."""
     from deepthought.service_contracts.protoc import ProtoMessage
 
     def key(item):
@@ -2791,6 +2805,25 @@ def _proto_type_graph(
                 PROTO_GO_TYPE_RULE,
                 {"file_path": file, "line": line},
             )
+    # Python: a module protoc's Python generator writes registers its
+    # file's serialized descriptor; the module is generated from each type
+    # that descriptor declares.
+    from deepthought.service_contracts.protoc import declared_types
+
+    for file, descriptors in python_modules:
+        for serialized in descriptors:
+            for kind, full_name in declared_types(serialized):
+                if (kind, full_name) not in copies or (file, full_name) in seen:
+                    continue
+                seen.add((file, full_name))
+                generated += 1
+                edge(
+                    "GENERATED_FROM",
+                    *file_node(file),
+                    labels[kind],
+                    qualified(kind, full_name),
+                    PROTO_PY_MODULE_RULE,
+                )
     return carried, generated
 
 
@@ -4103,6 +4136,12 @@ class ServiceContractTool(AnalysisTool):
             go_proto_files,
             declaration,
             symbol_node,
+            [
+                (c.file, python_descriptors(content.decode("utf-8", "replace")))
+                for c, content, _ in sources
+                if c.language == "python"
+                and (b"AddSerializedFile(" in content or b"serialized_pb=" in content)
+            ],
         )
         for handler in grpc.handlers:
             labels, source = symbol_node(handler.handler_id)

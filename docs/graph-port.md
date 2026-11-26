@@ -4826,8 +4826,17 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   generated to (`go_package` often names another import path than the
   directory the code is committed in). A type links only when a compiled
   `.proto` file of the repository declares its full name. The
-  `proto_generated_types` metric counts the links. Python `_pb2` modules
-  and TypeScript declarations are not linked yet.
+  `proto_generated_types` metric counts the links.
+- **Generated Python modules.** A module that protoc's Python generator
+  writes registers its file's serialized descriptor: a bytes literal passed
+  to `AddSerializedFile` of a descriptor pool (protobuf 3.20 and later), or
+  as `serialized_pb` to `FileDescriptor` (earlier), on a name the module
+  imports from `google.protobuf`, read with Python's `ast`. protobuf
+  decodes it, and the module's File is `GENERATED_FROM` each message and
+  enum of that descriptor that the repository's `.proto` files declare
+  (rule `service-contracts.python-generated-proto-module`, resolved). The
+  classes are built at import time, so no class declaration links. Generated
+  TypeScript and JavaScript are not linked yet.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
