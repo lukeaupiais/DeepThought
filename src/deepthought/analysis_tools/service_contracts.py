@@ -113,7 +113,7 @@ from ..service_contracts.web import (
     nest_settings,
     python_routers,
 )
-from ..syntax import identifier, make_parser
+from ..syntax import identifier, make_parser, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -1249,11 +1249,53 @@ CARRIES_MESSAGE_RULE = register_rule(
     )
 )
 
+PROTO_FILE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-file",
+        "resolved",
+        "protoc (grpcio-tools) compiles the repository's .proto file at this path.",
+    )
+)
+PROTO_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-type",
+        "resolved",
+        "protoc's descriptor of a compiled .proto file declares this message "
+        "or enum type (DECLARES), a nested type inside its message (CONTAINS) "
+        "and each field of a message (HAS_FIELD) with its number, type, "
+        "label, map key, oneof and JSON name. Map entry messages are their "
+        "field's map, not a type.",
+    )
+)
+PROTO_FIELD_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-field-type",
+        "resolved",
+        "protoc resolves the message or enum type a field (a map field: its "
+        "value) holds to a type of a compiled .proto file of the repository.",
+    )
+)
+PROTO_RPC_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.grpc-method-message",
+        "resolved",
+        "protoc resolves an rpc's request (input_type) or response "
+        "(output_type) to a message of a compiled .proto file of the "
+        "repository; every copy of the rpc agrees.",
+    )
+)
+
 # Rules of this tool's edges that are not contract sites (HANDLES,
 # REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
 # Contract coverage counts sites only, so these may be resolved.
 NON_SITE_RULES = frozenset(
-    {CARRIES_MESSAGE_RULE.rule_id}
+    {
+        CARRIES_MESSAGE_RULE.rule_id,
+        PROTO_FILE_RULE.rule_id,
+        PROTO_TYPE_RULE.rule_id,
+        PROTO_FIELD_TYPE_RULE.rule_id,
+        PROTO_RPC_MESSAGE_RULE.rule_id,
+    }
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
@@ -2339,6 +2381,26 @@ def _go_grpc_carriers(root, sources, grpc, definitions):
     return messages, carriers
 
 
+def _go_func_literal(tree, line, column):
+    """The func literal whose first parameter's name is written at ``line``
+    (1-based) and ``column`` (0-based, bytes), else None."""
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "func_literal":
+            parameters = node.child_by_field_name("parameters")
+            first = None if parameters is None else parameters.named_children
+            if first and first[0].type == "parameter_declaration":
+                names = first[0].children_by_field_name("name")
+                if names and (
+                    names[0].start_point.row + 1,
+                    names[0].start_point.column,
+                ) == (line, column):
+                    return node
+        stack.extend(node.children)
+    return None
+
+
 def _php_wrapper_calls(sources):
     """{file: {method start byte: [("file:line", positional, named)]}}: the
     calls of PHP methods, through ``$this->m(...)`` in the class or a trait
@@ -2512,6 +2574,154 @@ def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
+def _proto_type_graph(repo_url, grpc, grpc_names, file_node, nodes, relationships):
+    """ProtoMessage, ProtoField and ProtoEnum nodes of the compiled .proto
+    files, and the rpcs' request and response messages (CARRIES). Copies of
+    one type (a .proto vendored into each service) are one node declared in
+    each copy; when the copies' fields disagree, the node says so and has no
+    fields. Returns the number of CARRIES edges written."""
+    from deepthought.service_contracts.protoc import ProtoMessage
+
+    def key(item):
+        return "message" if isinstance(item, ProtoMessage) else "enum"
+
+    def qualified(kind, full_name):
+        return f"{repo_url}::proto::{kind}::{full_name}"
+
+    copies = defaultdict(list)
+    for item in grpc.proto_types:
+        copies[(key(item), item.full_name)].append(item)
+    labels = {"message": ["ProtoMessage"], "enum": ["ProtoEnum"]}
+
+    def edge(kind, source_labels, source, target_labels, target, rule, extra=None):
+        relationships.append(
+            RelationshipData(
+                kind,
+                source_labels,
+                {"qualified_name": source, "repo_url": repo_url},
+                target_labels,
+                {"qualified_name": target, "repo_url": repo_url},
+                {**(extra or {}), **_evidence(rule)},
+            )
+        )
+
+    def signature(item):
+        if key(item) == "enum":
+            return tuple((n, v) for n, v, _ in item.values)
+        return tuple(
+            (f.name, f.number, f.type, f.kind, f.label, f.map_key, f.oneof)
+            for f in item.fields
+        )
+
+    for (kind, full_name), declared in sorted(copies.items()):
+        declared.sort(key=lambda item: (item.file, item.line))
+        first = declared[0]
+        name = qualified(kind, full_name)
+        agree = len({signature(item) for item in declared}) == 1
+        properties = {
+            "qualified_name": name,
+            "repo_url": repo_url,
+            "name": full_name.rsplit(".", 1)[-1],
+            "display_name": full_name,
+            "full_name": full_name,
+            "package": first.package,
+            "file_path": first.file,
+            "line": first.line,
+            "declared_in": [f"{item.file}:{item.line}" for item in declared],
+            **({"parent": first.parent} if first.parent else {}),
+        }
+        if kind == "enum" and agree:
+            properties["values"] = [f"{n}={v}" for n, v, _ in first.values]
+        if not agree:
+            properties["copies_disagree"] = True
+        nodes.append(NodeData(labels[kind], properties))
+        for item in declared:
+            if item.parent is None:
+                edge(
+                    "DECLARES",
+                    *file_node(item.file),
+                    labels[kind],
+                    name,
+                    PROTO_TYPE_RULE,
+                    {"line": item.line},
+                )
+        if first.parent is not None:
+            edge(
+                "CONTAINS",
+                ["ProtoMessage"],
+                qualified("message", first.parent),
+                labels[kind],
+                name,
+                PROTO_TYPE_RULE,
+            )
+        if kind != "message" or not agree:
+            continue
+        for field in first.fields:
+            field_name = f"{name}::field::{field.name}"
+            nodes.append(
+                NodeData(
+                    ["ProtoField"],
+                    {
+                        "qualified_name": field_name,
+                        "repo_url": repo_url,
+                        "name": field.name,
+                        "display_name": f"{full_name}.{field.name}",
+                        "message": full_name,
+                        "number": field.number,
+                        "type": field.type,
+                        "type_kind": field.kind,
+                        "json_name": field.json_name,
+                        "file_path": first.file,
+                        "line": field.line,
+                        **({"label": field.label} if field.label else {}),
+                        **({"map_key": field.map_key} if field.map_key else {}),
+                        **({"oneof": field.oneof} if field.oneof else {}),
+                        **({"deprecated": True} if field.deprecated else {}),
+                    },
+                )
+            )
+            edge(
+                "HAS_FIELD",
+                ["ProtoMessage"],
+                name,
+                ["ProtoField"],
+                field_name,
+                PROTO_TYPE_RULE,
+                {"number": field.number},
+            )
+            if field.kind != "scalar" and (field.kind, field.type) in copies:
+                edge(
+                    "USES_TYPE",
+                    ["ProtoField"],
+                    field_name,
+                    labels[field.kind],
+                    qualified(field.kind, field.type),
+                    PROTO_FIELD_TYPE_RULE,
+                )
+    carried = 0
+    for (service, method), declared in sorted(grpc.index.methods.items()):
+        for direction, values in (
+            ("request", {m.request for m in declared}),
+            ("response", {m.response for m in declared}),
+        ):
+            if len(values) != 1 or None in values:
+                continue
+            message = values.pop()
+            if ("message", message) not in copies:
+                continue
+            carried += 1
+            edge(
+                "CARRIES",
+                ["GrpcMethod", "Contract"],
+                grpc_names[(service, method)],
+                ["ProtoMessage"],
+                qualified("message", message),
+                PROTO_RPC_MESSAGE_RULE,
+                {"direction": direction},
+            )
+    return carried
+
+
 @register_tool
 class ServiceContractTool(AnalysisTool):
     def __init__(self, repo_path):
@@ -2619,8 +2829,9 @@ class ServiceContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(coverage.file, content)
             grpc_sources.append((coverage.file, coverage.language, content))
-            suffix = "." + coverage.file.rsplit(".", 1)[-1]
             key = (coverage.language, suffix if suffix == ".tsx" else "")
             if key not in parsers:
                 parsers[key] = make_parser(coverage.language, suffix)
@@ -2752,7 +2963,12 @@ class ServiceContractTool(AnalysisTool):
                     definition.id
                 )
         go_routes = defaultdict(dict)
+        # The first parameter of each Go route's func literal handler, by the
+        # (file, line, column) of the route call.
+        go_literals = {}
         for route in go_found_routes:
+            if route.literal is not None and route.literal[1] == route.file:
+                go_literals[(route.file, route.line, route.column)] = route.literal
             handler = None
             if route.handler is not None:
                 ids = go_declarations.get(route.handler[1:3], [])
@@ -3223,6 +3439,34 @@ class ServiceContractTool(AnalysisTool):
                         _evidence(GRAPHQL_DOCUMENT_RULE),
                     )
                 )
+            if path not in files and grpc.proto_readers.get(path) == "protoc":
+                # A .proto file protoc reads: the repository contains it.
+                qualified = f"{repo_url}::{path}::file"
+                files[path] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": qualified,
+                        "repo_url": repo_url,
+                        "path": path,
+                        "file_path": path,
+                        "name": path,
+                        "language": "protobuf",
+                        "file_sha256": grpc.proto_files[path],
+                    },
+                )
+                relationships.append(
+                    RelationshipData(
+                        "CONTAINS",
+                        ["Repository"],
+                        {
+                            "qualified_name": f"{repo_url}::repository",
+                            "repo_url": repo_url,
+                        },
+                        ["File"],
+                        {"qualified_name": qualified, "repo_url": repo_url},
+                        _evidence(PROTO_FILE_RULE),
+                    )
+                )
             if path not in files:
                 coverage = languages_by_file[path]
                 files[path] = NodeData(
@@ -3388,16 +3632,31 @@ class ServiceContractTool(AnalysisTool):
             handler = (
                 None if route.handler_id is None else definitions.get(route.handler_id)
             )
-            if handler is None:
+            literal = go_literals.get((route.file, route.line, route.column))
+            if handler is not None:
+                file = handler.file
+            elif literal is not None:
+                file = route.file
+            else:
                 continue
-            calls = go_handler_calls.get(handler.file)
-            tree, content = trees.get(handler.file, (None, None))
+            calls = go_handler_calls.get(file)
+            tree, content = trees.get(file, (None, None))
             if not calls or tree is None:
                 continue
-            function = _declaration_node(tree, handler)
-            if function is None:
-                continue
-            inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
+            if handler is not None:
+                function = _declaration_node(tree, handler)
+                if function is None:
+                    continue
+                inside = [
+                    c for c in calls if handler.line <= c.line <= handler.end_line
+                ]
+            else:
+                function = _go_func_literal(tree, literal[2], literal[3])
+                if function is None:
+                    continue
+                start = (function.start_point.row + 1, function.start_point.column)
+                end = (function.end_point.row + 1, function.end_point.column)
+                inside = [c for c in calls if start <= (c.line, c.column) < end]
             for direction, sent, where in handler_payloads(function, content, inside):
                 if sent is None:
                     payload_unresolved += 1  # an interface value
@@ -3761,6 +4020,9 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        proto_carried = _proto_type_graph(
+            repo_url, grpc, grpc_names, file_node, nodes, relationships
+        )
         for handler in grpc.handlers:
             labels, source = symbol_node(handler.handler_id)
             relationships.append(
@@ -4089,6 +4351,10 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
                 "grpc_methods_with_message_types": len(grpc_messages),
                 "grpc_message_carriers": len(grpc_carriers),
+                "proto_types": dict(
+                    sorted(Counter(type(t).__name__ for t in grpc.proto_types).items())
+                ),
+                "grpc_proto_message_edges": proto_carried,
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())

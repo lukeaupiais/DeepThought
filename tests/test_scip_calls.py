@@ -1249,7 +1249,13 @@ class ScipCallTests(unittest.TestCase):
                 "files_linked": 2,
                 "linked": 5,
                 "ambiguous": 0,
-                "unresolved": 4,
+                "unresolved": 3,
+                "external": 1,
+                "unresolved_reasons": {
+                    "imported_name_not_declared": 1,
+                    "scip_no_occurrence": 1,
+                    "scip_target_not_declaration": 1,
+                },
             },
         )
         # The TypeScript compiler resolved every import.

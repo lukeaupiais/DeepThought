@@ -801,6 +801,19 @@ and the report is then not `complete`; files in other languages are listed in
 `unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
 run, 2 invalid input or a diff that does not apply.
 
+`edit_check.check_working_copy` checks edits already made in place: the
+diff is the working copy against its git HEAD commit, new files included
+(`git add -A` into a scratch index, so the repository's own index is not
+touched; `node_modules` is left out), and the unedited side is the working
+copy with that diff taken out again. A work tree whose git directory is
+elsewhere is read with `git_dir=`. The MCP server serves both as `checkEdit`
+when it has a workspace (`DEEPTHOUGHT_WORKSPACE`, with
+`DEEPTHOUGHT_WORKSPACE_GIT_DIR` for a separate git directory): with no diff it
+checks the working copy's edits, with one it checks that proposed edit on top
+of the working copy as it is now. An agent that edits files directly no longer
+has to write a diff of its own edits, which never applies to the files it
+already changed.
+
 Independent checks against compiler-derived call truth (verification): a
 parameter added to chi's `NewRouter` breaks 115 of 115 call sites (67 in the
 package and its tests, 48 in middleware), to ky's `cancelBody` 12 of 12, and
@@ -1221,6 +1234,59 @@ attributes to unanalyzed libraries (`expect(fn)`) was checked on preact's
 tests before those options were set: such edges named the library call as the
 caller, so they are left out.
 
+### NestJS injection
+
+A call `this.p.m()` in a class whose constructor parameter property `p`
+NestJS injects reaches whatever class the module's providers bind to `p`'s
+token. Before this, such a call linked only to the interface or abstract
+method it names, so "who calls" the method the application actually runs
+came back empty. The TypeScript compiler (`tsmodules/resolve.js`, in the same
+programs as module resolution) reads:
+
+- the token of each parameter property: the argument of its
+  `@Inject(token)` (`Inject` imported from `@nestjs/common`; the import is
+  read, so the package need not be installed), or else the class its type
+  names (an interface names none, as in Nest's `design:paramtypes`);
+- each class provider `{provide: token, useClass: C}` written anywhere in
+  the program, including in arrays spread into a module's `providers`.
+
+Tokens and classes are the symbols the checker resolves the names to
+(imports, re-exports and a `const`/`interface` pair of one name followed),
+never their spelling. Each such call then gets a CALLS edge
+`typescript.call-nest-injected-provider` (`resolved`, `dispatch:
+nest-injection`, `producer: typescript@<version>`) to `m` declared by each
+provided class, or inherited through `extends`. This edge sits beside the
+call's own link. A token bound in two modules to two classes links to both.
+`useValue`, `useFactory` and `useExisting` providers, parameters that are
+not properties, and properties assigned in the constructor body are not
+read. The tool metadata counts `nest_injected_calls` (`sites`, `edges`).
+On immich's server, 254 injected properties are bound and 603 call sites
+gain an edge, each to one class.
+
+### Vue single-file components
+
+A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
+is its script. Vue's own parser, `@vue/compiler-sfc` 3.5.45 (the parser Vue's
+build tools and language tools use; `npm install -g @vue/compiler-sfc@3.5.45`,
+or `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its package directory), finds the
+`<script>` and `<script setup>` blocks and their `lang`
+(`src/deepthought/vue_sfc.py`, `vuesfc/blocks.js`). Every byte outside those
+blocks is blanked, line breaks kept, so every line and column of a fact is the
+component's own. The source is read as TypeScript, or as TSX when a block is
+`lang="tsx"` or `"jsx"`. The template and styles are not read, and a block
+written with `src` has no content in the component. The package is required
+when a workspace has a component: a missing or different version is an error,
+not an empty result.
+
+The TypeScript compiler reads the same script as a file `X.vue.ts` (or
+`X.vue.tsx`) beside the component, as Vue's language tools once did, and a
+config's `include` matches components. Its own resolver then resolves
+`import Comp from "./Comp.vue"` and aliases (`@/components/Comp.vue`) to the
+component, and resolves the component's own imports with the options of the
+config that includes it. Every path the compiler writes names the component.
+scip-typescript does not index components, so their calls are bound as in any
+file no index covers.
+
 ## Go
 
 Go sources (`.go`) are analyzed when `go` is selected (`--language go`) and the
@@ -1484,6 +1550,38 @@ tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
 interface, and each interface method DISPATCHES_TO the type's method, so
 impact reaches the callers of an interface method from a changed
 implementation (see "Impact").
+
+Each call through an interface method or a function value also gets the
+targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
+call graph (`callgraph@v0.31.0 -algo=vta -test`, run per package offline from
+the module cache, `deepthought.go_callgraph`) gives, for each dynamic call
+site, the functions and methods that variable type analysis says may run
+there. Each becomes a CALLS edge from the caller with rule `go.call-vta`,
+`dispatch: vta` and `producer: callgraph@v0.31.0`; the site is the parsed
+call whose callee's last name ends at the call's opening parenthesis, and the
+target the parsed function or method of the callee's name whose span holds
+the callee's position. Calls of function values (handlers, callbacks) are
+linked this way only. The tool is required where the analyzed files include a
+`go.mod`: a missing binary, or one not built from x/tools v0.31.0 (`go
+version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
+package of an analyzed Go file is its own program, loaded with its tests,
+since a Go binary is one main package or one package's tests and what they
+import: values of two programs never meet, so a type of one example's main
+package cannot reach a call in another package's tests. VTA follows values
+through every function of a program, code nothing calls included, so each
+package is also run with `-algo=rta` (rapid type analysis from the program's
+main or its tests) and only the edges both report are kept: on chi this drops
+the example handlers' writes into the Compress middleware, which no example
+installs. A library package with neither a main nor tests has nothing to
+reach it from and keeps the VTA edges; any other RTA failure fails the
+package. Packages are named
+one by one, so directories `./...` skips (`_examples/`) are included;
+`testdata` is not. A package the tool cannot load (a dependency missing from
+the module cache, a type error) yields no edges and is reported in the
+warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
+`failed_packages`). The
+method-set DISPATCHES_TO edges above stay until impact is switched to these
+per-site edges.
 
 Nothing is guessed. An interface is left out when an embedded element is a
 type constraint, another module's or a third-party interface, or names no one
@@ -3875,8 +3973,8 @@ linked by the usual HTTP resolution:
   read against the site root.
 
 A path that is not literal is `route:path_not_literal`. Scripts inside HTML
-pages and `.vue` files are not parsed, so clients written there are not
-found.
+pages are not parsed, so clients written there are not found; the script
+blocks of `.vue` components are read (Vue single-file components, above).
 
 Results on 15 repositories (13 cloned for this slice, plus the
 apssouza22/java-microservice corpus):
@@ -4060,7 +4158,7 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
-| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler (a declared function or method, or a func literal written as the route's handler argument, found by the position of its first parameter that the type checker gives) decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
@@ -4686,6 +4784,34 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   reflection test inputs, and Prisma's gRPC example names an rpc and a
   message `Post`, which protoc rejects (protobuf.js loads it at run time),
   so that example's 14 server links are no longer drawn.
+- **Messages, fields and enums.** Each `.proto` file protoc compiles is a
+  `File` node (`language` `protobuf`, `file_sha256`; the Repository
+  `CONTAINS` it, rule `service-contracts.proto-file`), and the message and
+  enum types its descriptor declares are nodes: `ProtoMessage`
+  (`{repo}::proto::message::{full name}`), `ProtoEnum`
+  (`{repo}::proto::enum::{full name}`, with `values` as `NAME=number`) and,
+  for each field of a message, `ProtoField`
+  (`{message}::field::{name}`) with `number`, `type` (a scalar's name, or
+  the full name of the message or enum it holds), `type_kind` (`scalar`,
+  `message` or `enum`), `label` (`repeated`, `optional`, `required`),
+  `map_key` (a `map<k, v>` field: `type` is the value's), `oneof`,
+  `json_name`, `deprecated` and the line of the field. Edges, all
+  `resolved` from the descriptor (rule `service-contracts.proto-type`
+  unless named): the File `DECLARES` each top-level type; a message
+  `CONTAINS` its nested types and `HAS_FIELD` each field; a field
+  `USES_TYPE` the message or enum it holds when a compiled file of the
+  repository declares it (rule `service-contracts.proto-field-type`;
+  well-known types such as `google.protobuf.Timestamp` stay a name in
+  `type`); and a `GrpcMethod` `CARRIES` its request and response messages
+  with `direction` `request` or `response` (rule
+  `service-contracts.grpc-method-message`). Like methods, the copies of one
+  type that services vendor are one node with every copy in `declared_in`
+  and a `DECLARES` from each file; when the copies' fields or values
+  disagree the node has `copies_disagree` and no fields. Map entry messages
+  are their field's map, not types. The `proto_types` metric counts the
+  types read and `grpc_proto_message_edges` the `CARRIES` edges. The
+  generated code of each message (protoc-gen-go structs, `_pb2` classes,
+  TypeScript declarations) is not linked to it yet.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
@@ -6134,13 +6260,21 @@ compiler link stands over the index):
 | `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
 | `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
 | `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
-| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome; `unresolved` leaves out `external` sites |
+| `external` | sites a resolver placed outside the repository (`scip_external`, `pyright_external`, `compiler_external_module`): library and standard-library calls and imports. They are decided, and link to nothing here by design |
+| `unresolved_reasons` | the reasons of the ambiguous and unresolved sites, by count (`unknown` when none was recorded), so a gap in the repository's own code (`scip_target_not_declaration`, `receiver_type_unknown`, ...) can be told apart from a site the index has no symbol for (`scip_no_occurrence`, which includes Go builtins such as `len`) |
+
+`linked` therefore means that every site of the family was decided by a
+deterministic resolver: linked to its declaration here, placed outside the
+repository, or left unlinked for the reason it gives. It does not mean
+`unresolved` is 0; read `unresolved_reasons` for what is left.
 
 A file that failed to parse is not counted. Imports in other languages are
 decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
 `no_sites`). An empty
-`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
-lists are; `describeSnapshot` decodes it.
+`resolver` list and the `unresolved_reasons` object are stored as JSON text
+(`_dt_json_fields`) as other empty lists and objects are; `describeSnapshot`
+decodes them.
 
 ## Incremental re-indexing
 
@@ -6308,6 +6442,22 @@ the selected complete repository/revision. It rejects procedures, administration
 updates and multiple statements, checks the Neo4j EXPLAIN read-only query type,
 bounds transaction time/result rows/serialized bytes, and always rolls back.
 These restrictions are intentional; it is not unrestricted Neo4j administration.
+
+The keyword check reads only the query's own clauses: quoted text, comments,
+property keys (`s.set`, `{use: ...}`), parameters and the variables the query
+binds (`r AS call`, `(set)`) are blanked first, so a read that names a variable
+`call` is not refused. The EXPLAIN plan is also refused when any operator is a
+procedure call or LOAD CSV, which the query type alone does not show. A read
+the database times out is tried once more: the first reads after a start run on
+a cold page cache, and the MCP server reads the whole graph once at startup to
+warm it without making the first question wait.
+
+An empty answer says why where it can, from the paths and code names the query
+looks for (quoted literals and string parameters): `why_empty` in JSON, lines
+under "No results." in text. A path no analyzed file has is named, with
+whether the working copy has it and, when no file of its kind is analyzed at
+all (`.vue`, `.proto`), the kinds that are; a code name that is declared says
+the query's other conditions matched nothing, and one that is not says so.
 
 **Database privileges or a read-only database configuration must enforce read-only
 access for untrusted agents. Driver read routing is not access control.** See the
