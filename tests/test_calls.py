@@ -23,6 +23,7 @@ from deepthought.calls import (
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     CALL_TS_COMPILER_EXPORT,
+    CALL_TS_EXPORT_CONFLICT,
     PYTHON_CALL_SELF_INHERITED,
     PYTHON_CALL_ATTRIBUTE_RECEIVER,
     PYTHON_CALL_RESULT_RECEIVER,
@@ -1229,6 +1230,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "  route(p: string) { return this }\n"
                     "  hidden() {}\n"
                     "  shared() {}\n"
+                    "  shadow() {}\n"
                     "}\n"
                 ),
                 "app.ts": (
@@ -1236,6 +1238,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "import { Ext } from 'external';\n"
                     "export class App extends Base {\n"
                     "  hidden = () => 1;\n"
+                    "  shadow = 1;\n"
                     "  constructor(private shared: number, n: number) { super() }\n"
                     "  run() {}\n"
                     "  static make() {}\n"
@@ -1257,7 +1260,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "app.route('/'); app.run();\n"  # 5
                     "function f(a: App, b?: Base, g: Map<string, App>, s: Shape) {\n"
                     "  a.route('x'); b.route('y'); g.get('k'); s.area();\n"  # 7
-                    "  a.hidden(); a.shared(); a.make(); a.missing();\n"  # 8
+                    "  a.hidden(); a.shared(); a.make(); a.missing(); a.shadow();\n"  # 8
                     "}\n"
                     "let w: Wrapped = new Wrapped(); w.go();\n"  # 10
                     "const m = new Merged(); m.a();\n"  # 11
@@ -1291,6 +1294,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (7, "b.route", "base.ts::Base.route"),
             (15, "local.own", "main.ts::h.App.own"),
             (21, "st.get", "app.ts::Store.get"),
+            # A field holding a function is a method.
+            (8, "a.hidden", "app.ts::App.hidden"),
             # An interface declares the method signature called.
             (7, "s.area", "main.ts::Shape.area"),
         ):
@@ -1301,7 +1306,7 @@ class TypeScriptCallTests(unittest.TestCase):
                 )
         for line, callee, reason in (
             # A field hides the method App inherits.
-            (8, "a.hidden", "field_not_method"),
+            (8, "a.shadow", "field_not_method"),
             (8, "a.shared", "field_not_method"),
             # A static method is not an instance's.
             (8, "a.make", "not_declared_on_type"),
@@ -1333,7 +1338,7 @@ class TypeScriptCallTests(unittest.TestCase):
             ("unresolved", None, None, "attribute_call"),
         )
         apps = {d.symbol: d.properties for d in result.definitions}
-        self.assertEqual(apps["App"], ("hidden", "shared"))
+        self.assertEqual(apps["App"], ("hidden", "shadow", "shared"))
         self.assertIsNone(apps["Base"])
         self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
         # Unset fields are left out of artifacts.
@@ -1520,9 +1525,10 @@ class TypeScriptCallTests(unittest.TestCase):
         found = links(result)
         for line, callee, target, rule in (
             (5, "a.route", "base.ts::Hono.route", CALL_JS_TYPED_RECEIVER),
-            (5, "help", "base.ts::helper", CALL_IMPORTED_NAME),
+            # base.ts exports `help` twice, which the language rejects.
+            (5, "help", "base.ts::helper", CALL_TS_EXPORT_CONFLICT),
             (5, "HonoBase", "base.ts::Hono", CALL_IMPORTED_NAME),
-            (6, "m.help", "base.ts::helper", CALL_MODULE_ATTRIBUTE),
+            (6, "m.help", "base.ts::helper", CALL_TS_EXPORT_CONFLICT),
             (6, "HonoBase.make", "base.ts::Hono.make", CALL_JS_STATIC_METHOD),
             (6, "again", "base.ts::helper", CALL_IMPORTED_NAME),
         ):
@@ -1533,7 +1539,8 @@ class TypeScriptCallTests(unittest.TestCase):
         # A name declared and also exported for another declaration is an
         # error the compiler reports; it binds the later export clause.
         self.assertEqual(
-            found[("main.ts", 6, "both")][:2], ("linked", "base.ts::other")
+            found[("main.ts", 6, "both")],
+            ("linked", "base.ts::other", CALL_TS_EXPORT_CONFLICT, None),
         )
         # relay.ts imports `helper`, which base.ts exports only under other
         # names, so the compiler binds nothing for `relayed`.
@@ -1587,17 +1594,17 @@ class TypeScriptCallTests(unittest.TestCase):
             "typescript",
         )
         found = links(result)
-        for callee, target in (
-            ("render", "src/render.ts::render"),
-            ("r", "src/render.ts::render"),
-            ("hydrate", "src/render.ts::hydrate"),
-            ("dflt", "src/render.ts::render"),
-            ("idx.render", "src/render.ts::render"),
+        for callee, target, rule in (
+            # src/index.ts exports `render` twice, which the language rejects.
+            ("render", "src/render.ts::render", CALL_TS_EXPORT_CONFLICT),
+            ("r", "src/render.ts::render", CALL_TS_COMPILER_EXPORT),
+            ("hydrate", "src/render.ts::hydrate", CALL_TS_COMPILER_EXPORT),
+            ("dflt", "src/render.ts::render", CALL_TS_COMPILER_EXPORT),
+            ("idx.render", "src/render.ts::render", CALL_TS_EXPORT_CONFLICT),
         ):
             with self.subTest(callee=callee):
                 self.assertEqual(
-                    found[("main.ts", 4, callee)],
-                    ("linked", target, CALL_TS_COMPILER_EXPORT, None),
+                    found[("main.ts", 4, callee)], ("linked", target, rule, None)
                 )
         # A namespace exported again is not followed, and an import that is
         # not exported again exports nothing.
@@ -2444,3 +2451,53 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(PYTHON_READY, "Provision the python extra")
+class CallEdgePositionTests(unittest.TestCase):
+    def test_call_edges_sit_where_the_callee_name_is_written(self):
+        import asyncio
+
+        from deepthought.analysis_tools import TreeSitterTool
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "main.py").write_text(
+                "class C:\n"
+                "    def helper(self):\n"
+                "        return self\n"
+                "    def run(self):\n"
+                "        (self\n"
+                "            .helper()\n"  # 6
+                "            .helper())\n"  # 7
+                "        obj.attr.missing(\n"  # 8
+                "            1)\n"
+                "        (obj\n"
+                "            .nothing())\n"  # 11
+            )
+            output = asyncio.run(TreeSitterTool(Path(directory)).analyze("r"))
+        linked = sorted(
+            (r.properties["line"], r.properties["column"])
+            for r in output.relationships
+            if r.type == "CALLS"
+        )
+        # A chain over several lines: each call at its own `.helper`, not at
+        # the `(self` where the chain starts.
+        self.assertEqual(linked[:2], [(6, 13), (7, 13)])
+        unlinked = [
+            (n.properties["line"], n.properties["column"], n.properties["end_line"])
+            for n in output.nodes
+            if "UnresolvedCall" in n.labels
+        ]
+        # The name `missing`, after its receiver; the call still ends on 9.
+        self.assertIn((8, 17, 9), unlinked)
+        self.assertIn((11, 13, 11), unlinked)
+        self.assertEqual(
+            sorted(
+                r.properties["line"]
+                for r in output.relationships
+                if r.type == "HAS_UNRESOLVED_CALL"
+            ),
+            # The second `.helper()` is linked too: pyright types the first
+            # one's result as C.
+            [8, 11],
+        )

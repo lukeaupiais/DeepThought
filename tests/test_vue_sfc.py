@@ -2,6 +2,7 @@
 (deepthought.vue_sfc)."""
 
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import tempfile
 import unittest
 
 from deepthought import vue_sfc
+from deepthought.analysis_tools.data_contracts import DataContractTool
+from deepthought.analysis_tools.service_contracts import ServiceContractTool
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository
 from deepthought.ts_modules import with_compiler_modules
@@ -175,6 +178,19 @@ class ComponentTests(unittest.TestCase):
             sorted((i.specifier, i.line) for i in result.imports if i.file == vue),
             [("@/helper", 11), ("vue", 10)],
         )
+
+    def test_a_component_is_recorded_by_the_digest_of_its_file(self):
+        # The digest is the file's, not its script's: the contract tools
+        # compare it with the file on disk to find files changed meanwhile.
+        result = analyze_repository(self.root, repository_id="r")
+        vue = "src/components/Greeting.vue"
+        (coverage,) = [c for c in result.coverage if c.file == vue]
+        self.assertEqual(
+            coverage.digest,
+            hashlib.sha256((Path(self.root) / vue).read_bytes()).hexdigest(),
+        )
+        for tool in (ServiceContractTool, DataContractTool):
+            asyncio.run(tool(self.root).analyze("r", languages=["typescript"]))
 
     @unittest.skipUnless(
         os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT")
