@@ -1200,8 +1200,9 @@ Some calls go through a value rather than a declared name: a callback
 parameter, a function taken from an array, a map or an object of plugins, or
 a hook registered and run later. What such a call runs is whatever function
 flows to it. The engine reads that from the pinned Jelly call graph
-(`@cs-au-dk/jelly` 0.13.0, `npm install -g @cs-au-dk/jelly@0.13.0` or
-`DEEPTHOUGHT_JELLY`; `src/deepthought/js_callgraph.py`). Jelly is a static
+(`@cs-au-dk/jelly` 0.13.0: `DEEPTHOUGHT_JELLY`, else `jelly` on PATH at that
+version, else the engine installs it itself, see "Pinned tools" below;
+`src/deepthought/js_callgraph.py`). Jelly is a static
 points-to analysis of the analyzed JavaScript and TypeScript files (declaration
 files left out). It is required where those languages are analyzed.
 
@@ -1263,12 +1264,28 @@ read. The tool metadata counts `nest_injected_calls` (`sites`, `edges`).
 On immich's server, 254 injected properties are bound and 603 call sites
 gain an edge, each to one class.
 
+### Pinned tools
+
+The engine installs the pinned tools it runs when they are not configured or
+installed at the pinned version: `@vue/compiler-sfc` 3.5.45 and
+`@cs-au-dk/jelly` 0.13.0 with `npm install --ignore-scripts`, and x/tools
+`callgraph` v0.31.0 with `go install` (`GOFLAGS` cleared, so the analysis
+environment's `-mod=readonly` does not reach it), into `<cache>/tools`
+(`src/deepthought/tool_provisioning.py`). The cache is `$DEEPTHOUGHT_CACHE`,
+else `$XDG_CACHE_HOME/deepthought`, else `~/.cache/deepthought`. An install
+goes into a scratch directory and is renamed into place, so concurrent runs
+never see half of one, and a second run reuses it. A tool named by its
+environment variable is used as named and never replaced. When an install
+cannot run (no npm or go on PATH, no network, a failed install), the run
+fails with the installer's error: no tool is skipped.
+
 ### Vue single-file components
 
 A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
 is its script. Vue's own parser, `@vue/compiler-sfc` 3.5.45 (the parser Vue's
-build tools and language tools use; `npm install -g @vue/compiler-sfc@3.5.45`,
-or `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its package directory), finds the
+build tools and language tools use: `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its
+package directory, else the global package beside node at that version, else
+the engine installs it itself, see "Pinned tools" above), finds the
 `<script>` and `<script setup>` blocks and their `lang`
 (`src/deepthought/vue_sfc.py`, `vuesfc/blocks.js`). Every byte outside those
 blocks is blanked, line breaks kept, so every line and column of a fact is the
@@ -1562,8 +1579,10 @@ call whose callee's last name ends at the call's opening parenthesis, and the
 target the parsed function or method of the callee's name whose span holds
 the callee's position. Calls of function values (handlers, callbacks) are
 linked this way only. The tool is required where the analyzed files include a
-`go.mod`: a missing binary, or one not built from x/tools v0.31.0 (`go
-version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
+`go.mod`. `$DEEPTHOUGHT_GO_CALLGRAPH` names it, else `callgraph` on PATH if
+built from x/tools v0.31.0 (`go version -m`), else the engine builds it itself
+(see "Pinned tools" under JavaScript); a binary it cannot have, or one not
+built from that version, fails the run. Each
 package of an analyzed Go file is its own program, loaded with its tests,
 since a Go binary is one main package or one package's tests and what they
 import: values of two programs never meet, so a type of one example's main
