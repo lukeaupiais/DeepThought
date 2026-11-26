@@ -3053,7 +3053,21 @@ repository of separate packages with no lockfile (grpc-node's `packages/*`)
 gets each package's dependencies. Every install also runs with
 `npm_config_script_shell` set to `true`: npm 10.9 runs a `file:`
 dependency's `prepare` script even with `--ignore-scripts`, and a shell
-that does nothing keeps it from running. On grpc-node (ca7f83f) the
+that does nothing keeps it from running. After a directory installs, each
+package its package.json declares that ships no declarations (no `types`
+or `typings`, no `types` export condition, no `index.d.ts`) and has no
+`@types` package installed gets its DefinitelyTyped package, as the
+TypeScript language server's automatic type acquisition gives one: the
+pinned `types-registry` 0.1.794 (installed into the engine's cache) says
+which packages DefinitelyTyped has and the exact version tagged `ts6.0`
+(else `latest`); those are installed with npm, scripts off, into a scratch
+prefix and moved into `node_modules` where nothing of that name is. The
+install records them under `types`; a failed acquisition makes the run
+`partial`, so its files carry `dependencies_unavailable`. Without it a
+plain JavaScript Express or koa-router app has no library symbol at any
+route call: node-express-boilerplate then gets 15 Express route methods
+resolved in the index (0 before), koa-knex-realworld 19 koa-router ones (0
+before). On grpc-node (ca7f83f) the
 `grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
 tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
 files `indexer_failed`; now every file is covered. A directory without a
