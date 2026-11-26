@@ -476,3 +476,44 @@ def route_path(template):
         return "/".join(parts)
 
     return _VARIABLE.sub(expand, template)
+
+
+def flattened_types(serialized, enums, messages):
+    """The fully qualified names of the enum and message types a serialized
+    FileDescriptorProto declares, in the order protobuf-go's TypeBuilder
+    lists their Go types (GoTypes): the file's enums, then its messages, in
+    protobuf-go's flattened ordering (top-level declarations first, then,
+    for each message in depth-first order, the enums or messages nested
+    directly in it). Map entry messages are listed too; their Go type is
+    nil. None when the descriptor does not parse or does not declare
+    ``enums`` enums and ``messages`` messages."""
+    from google.protobuf import descriptor_pb2
+    from google.protobuf.message import DecodeError
+
+    descriptor = descriptor_pb2.FileDescriptorProto()
+    try:
+        descriptor.ParseFromString(serialized)
+    except DecodeError:
+        return None
+    prefix = descriptor.package
+
+    def named(parent, name):
+        return f"{parent}.{name}" if parent else name
+
+    walk = []
+
+    def visit(items, parent):
+        for item in items:
+            full = named(parent, item.name)
+            walk.append((item, full))
+            visit(item.nested_type, full)
+
+    visit(descriptor.message_type, prefix)
+    found_enums = [named(prefix, e.name) for e in descriptor.enum_type]
+    found_messages = [named(prefix, m.name) for m in descriptor.message_type]
+    for item, full in walk:
+        found_enums.extend(named(full, e.name) for e in item.enum_type)
+        found_messages.extend(named(full, m.name) for m in item.nested_type)
+    if len(found_enums) != enums or len(found_messages) != messages:
+        return None
+    return found_enums + found_messages
