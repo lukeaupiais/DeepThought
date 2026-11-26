@@ -1181,6 +1181,30 @@ indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
 
+### Vue single-file components
+
+A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
+is its script. Vue's own parser, `@vue/compiler-sfc` 3.5.45 (the parser Vue's
+build tools and language tools use; `npm install -g @vue/compiler-sfc@3.5.45`,
+or `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its package directory), finds the
+`<script>` and `<script setup>` blocks and their `lang`
+(`src/deepthought/vue_sfc.py`, `vuesfc/blocks.js`). Every byte outside those
+blocks is blanked, line breaks kept, so every line and column of a fact is the
+component's own. The source is read as TypeScript, or as TSX when a block is
+`lang="tsx"` or `"jsx"`. The template and styles are not read, and a block
+written with `src` has no content in the component. The package is required
+when a workspace has a component: a missing or different version is an error,
+not an empty result.
+
+The TypeScript compiler reads the same script as a file `X.vue.ts` (or
+`X.vue.tsx`) beside the component, as Vue's language tools once did, and a
+config's `include` matches components. Its own resolver then resolves
+`import Comp from "./Comp.vue"` and aliases (`@/components/Comp.vue`) to the
+component, and resolves the component's own imports with the options of the
+config that includes it. Every path the compiler writes names the component.
+scip-typescript does not index components, so their calls are bound as in any
+file no index covers.
+
 ## Go
 
 Go sources (`.go`) are analyzed when `go` is selected (`--language go`) and the
@@ -3806,8 +3830,8 @@ linked by the usual HTTP resolution:
   read against the site root.
 
 A path that is not literal is `route:path_not_literal`. Scripts inside HTML
-pages and `.vue` files are not parsed, so clients written there are not
-found.
+pages are not parsed, so clients written there are not found; the script
+blocks of `.vue` components are read (Vue single-file components, above).
 
 Results on 15 repositories (13 cloned for this slice, plus the
 apssouza22/java-microservice corpus):

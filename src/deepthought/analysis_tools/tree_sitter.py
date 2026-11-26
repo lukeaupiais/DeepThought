@@ -39,6 +39,7 @@ from ..syntax import (
     declaration_sources,
     make_parser,
     parse_source,
+    script_source,
 )
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -427,6 +428,8 @@ def _declaration_sources(root, result):
         if content is None or sha256(content).hexdigest() != item.digest:
             changed.append(item.file)
             continue
+        # A Vue component is read as its script blocks.
+        suffix, content = script_source(item.file, content)
         key = (item.language, suffix)
         if key not in parsers:
             parsers[key] = make_parser(item.language, suffix)

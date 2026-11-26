@@ -2,7 +2,13 @@
 // files (deepthought.ts_modules). Nothing is type-checked or emitted.
 //
 // argv: path of the pinned typescript package's lib/typescript.js.
-// stdin: {"root": absolute workspace, "files": [workspace-relative paths]}.
+// stdin: {"root": absolute workspace, "files": [workspace-relative paths],
+//         "components": {workspace-relative .vue path: {"text", "jsx"}}}.
+// A Vue single-file component is read as its script (``text``, every byte
+// outside its script blocks blanked; deepthought.vue_sfc): the program holds
+// it as the TypeScript (or, with ``jsx``, TSX) file ``X.vue.ts`` beside it,
+// so the compiler's own resolver resolves ``./X.vue`` and aliases to it, as
+// Vue's language tools do. Every path written out names the component.
 // stdout: one JSON object per line, per import the compiler records in a
 // file (import, export ... from, side-effect import, import(), require() in
 // JavaScript, import x = require()), with the file's project:
@@ -28,19 +34,63 @@ const canonical = (p) => path.resolve(p);
 const parsed = new Map();
 const out = [];
 
+// The script of each component, by the path of the file the program reads
+// it as (X.vue.ts or X.vue.tsx).
+const scripts = new Map();
+const scriptOf = new Map(); // component path -> script path
+for (const [relative, component] of Object.entries(input.components || {})) {
+  const file = canonical(path.join(root, relative));
+  const script = file + (component.jsx ? ".tsx" : ".ts");
+  scripts.set(script, component.text);
+  scriptOf.set(file, script);
+}
+// The path a file the program reads names: a component for its script,
+// else the file itself, symbolic links resolved.
+const real = (file) =>
+  scripts.has(file) ? file.slice(0, file.lastIndexOf(".")) : fs.realpathSync(file);
+const named = (file) => (scripts.has(file) ? real(file) : file);
+const relativeName = (file) =>
+  path.relative(root, named(file)).split(path.sep).join("/");
+// Config includes match components (as Vue's language tools declare them).
+const EXTRA_EXTENSIONS = [
+  { extension: ".vue", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred },
+];
+
+function hostFor(options) {
+  const host = ts.createCompilerHost(options);
+  const { fileExists, readFile, realpath } = host;
+  host.fileExists = (file) => scripts.has(canonical(file)) || fileExists(file);
+  host.readFile = (file) => {
+    const script = scripts.get(canonical(file));
+    return script === undefined ? readFile(file) : script;
+  };
+  host.realpath = (file) =>
+    scripts.has(canonical(file)) ? file : realpath ? realpath(file) : file;
+  return host;
+}
+
 function parse(config) {
   if (!parsed.has(config)) {
     const host = {
       ...ts.sys,
       onUnRecoverableConfigFileDiagnostic: () => {},
     };
-    const result = ts.getParsedCommandLineOfConfigFile(config, {}, host);
+    const result = ts.getParsedCommandLineOfConfigFile(
+      config,
+      {},
+      host,
+      undefined,
+      undefined,
+      EXTRA_EXTENSIONS,
+    );
     // An unreadable config fails the run.
     parsed.set(config, {
       config,
       options: result.options,
       references: result.projectReferences || [],
-      files: new Set(result.fileNames.map(canonical)),
+      files: new Set(
+        result.fileNames.map(canonical).map((f) => scriptOf.get(f) || f),
+      ),
     });
   }
   return parsed.get(config);
@@ -108,7 +158,7 @@ function implementationOf(file) {
 }
 
 function relativeTo(file) {
-  return path.relative(root, fs.realpathSync(file)).split(path.sep).join("/");
+  return path.relative(root, real(file)).split(path.sep).join("/");
 }
 
 function exportsOf(checker, source) {
@@ -123,7 +173,7 @@ function exportsOf(checker, source) {
   if (!module) return;
   for (const exported of checker.getExportsOfModule(module)) {
     const row = {
-      module: path.relative(root, source.fileName).split(path.sep).join("/"),
+      module: relativeName(source.fileName),
       name: ts.symbolName(exported),
     };
     let symbol = exported;
@@ -180,7 +230,8 @@ const INFERRED = {
 };
 const groups = new Map();
 for (const relative of input.files) {
-  const file = canonical(path.join(root, relative));
+  const component = canonical(path.join(root, relative));
+  const file = scriptOf.get(component) || component;
   const project = projectOf(file);
   // A file no config includes (excluded, or left out for a file of the same
   // name with another extension) gets the options of the nearest config,
@@ -206,7 +257,11 @@ for (const key of [...groups.keys()].sort()) {
   // References are not passed: they would redirect imports of a referenced
   // project to its built declarations, where the language service reads its
   // sources, as here.
-  const program = ts.createProgram({ rootNames: files, options });
+  const program = ts.createProgram({
+    rootNames: files,
+    options,
+    host: hostFor(options),
+  });
   const checker = program.getTypeChecker();
   for (const file of files.slice().sort()) {
     const source = program.getSourceFile(file);
@@ -222,11 +277,11 @@ for (const key of [...groups.keys()].sort()) {
       const start = source.getLineAndCharacterOfPosition(literal.getStart(source));
       out.push(
         JSON.stringify({
-          file: path.relative(root, file).split(path.sep).join("/"),
+          file: relativeName(file),
           line: start.line,
           character: start.character,
           specifier: literal.text,
-          resolved: module ? fs.realpathSync(module.resolvedFileName) : null,
+          resolved: module ? real(canonical(module.resolvedFileName)) : null,
           project: project
             ? path.relative(root, project.config).split(path.sep).join("/")
             : null,

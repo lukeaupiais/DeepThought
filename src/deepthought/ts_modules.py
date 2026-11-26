@@ -168,7 +168,13 @@ def compiler_modules(root, files, environ=None, timeout=1800):
     root = Path(root).resolve()
     completed = subprocess.run(
         [node, str(_HELPER), typescript],
-        input=json.dumps({"root": str(root), "files": sorted(files)}),
+        input=json.dumps(
+            {
+                "root": str(root),
+                "files": sorted(files),
+                "components": _components(root, files, environ),
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -203,6 +209,22 @@ def compiler_modules(root, files, environ=None, timeout=1800):
                 )
             )
     return imports, exports
+
+
+def _components(root, files, environ):
+    """{Vue component of ``files``: its script, as the compiler reads it}."""
+    from . import vue_sfc
+
+    components = sorted(f for f in files if vue_sfc.is_component(f))
+    sources = [(root / f).read_bytes() for f in components]
+    read = vue_sfc.read(sources, environ) if sources else []
+    return {
+        file: {
+            "text": vue_sfc.script_source(source, component).decode("utf-8"),
+            "jsx": component.jsx,
+        }
+        for file, source, component in zip(components, sources, read)
+    }
 
 
 def bind_imports(result, root, found):
