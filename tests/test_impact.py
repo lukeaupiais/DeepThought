@@ -1151,7 +1151,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         # The writer and the declaring file are the change set.
         self.assertEqual(
-            [(p["name"], p["relations"]) for p in impact["providers"]],
+            [
+                (p["file_path"] if p["top_level"] else p["name"], p["relations"])
+                for p in impact["providers"]
+            ],
             [("db/schema.sql", ["DECLARES"]), ("set_email", ["WRITES_COLUMN"])],
         )
         # The reader must change; callers of the reader and of the writer
