@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from collections import Counter, defaultdict
 from hashlib import sha256
+import contextlib
 import dataclasses
 from pathlib import PurePosixPath
 import functools
@@ -24,12 +25,10 @@ import time
 
 from .._version import __version__
 from ..data_contracts import (
-    read_tsconfig_paths,
-    resolve_script_alias,
     resolve_script_module,
 )
 from ..engine import analyze_repository, source_languages
-from .. import go_facts
+from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -39,6 +38,10 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
+from ..service_contracts.folding import compiler_values
+from ..service_contracts.go_payloads import handler_payloads
+from ..service_contracts import python_payloads
+from ..scip_calls import ScipReferences
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -145,6 +148,107 @@ _LARAVEL_RULE = register_rule(
         "class name.",
     )
 )
+
+PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-body-type",
+            "resolved",
+            "A NestJS route handler's parameter decorated @Body() of "
+            "@nestjs/common is written with this type: the TypeScript "
+            "compiler resolves the type's name (through imports, re-exports "
+            "and path aliases) to this declaration of the repository; "
+            "Promise<T>, Observable<T>, arrays, unions and Partial<T> carry "
+            "the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-response-type",
+            "resolved",
+            "A NestJS route handler's written return type names this type: "
+            "the TypeScript compiler resolves the name to this declaration "
+            "of the repository; Promise<T>, Observable<T>, arrays, unions "
+            "and Partial<T> carry the types inside them. An inferred return "
+            "type is not read.",
+        )
+    ),
+}
+
+MESSAGE_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-payload-type",
+            "resolved",
+            "A NestJS @MessagePattern or @EventPattern handler's parameter "
+            "decorated @Payload() (else its first parameter, when that has "
+            "no decorator) is written with this type: the TypeScript "
+            "compiler resolves the type's name to this declaration of the "
+            "repository; Promise<T>, Observable<T>, arrays, unions and "
+            "Partial<T> carry the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-reply-type",
+            "resolved",
+            "A NestJS @MessagePattern handler's written return type names "
+            "this type: the TypeScript compiler resolves the name to this "
+            "declaration of the repository; Promise<T>, Observable<T>, "
+            "arrays, unions and Partial<T> carry the types inside them.",
+        )
+    ),
+}
+GO_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.go-request-body-type",
+            "resolved",
+            "A Go route handler decodes its request body into a value of this "
+            "type: gin's Context.Bind/ShouldBind/BindJSON/ShouldBindJSON, "
+            "echo's Context.Bind or fiber's Ctx.BodyParser, or encoding/json's "
+            "Decoder.Decode on json.NewDecoder(r.Body) of the handler's "
+            "*http.Request; the Go type checker gives the argument's named "
+            "type (through pointers and slices) and its declaration.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.go-response-body-type",
+            "resolved",
+            "A Go route handler encodes its response from a value of this "
+            "type: gin's Context.JSON (IndentedJSON, PureJSON, SecureJSON, "
+            "AsciiJSON), echo's Context.JSON/JSONPretty, fiber's Ctx.JSON, or "
+            "encoding/json's Encoder.Encode on json.NewEncoder(w) of the "
+            "handler's http.ResponseWriter; the Go type checker gives the "
+            "argument's named type (through pointers and slices) and its "
+            "declaration.",
+        )
+    ),
+}
+
+PYTHON_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-body-type",
+            "resolved",
+            "A FastAPI path operation reads its request body as this type: "
+            "the annotation of a handler parameter marked Body, Form or File "
+            "of fastapi, or unmarked, not in the path and naming a pydantic, "
+            "SQLModel or dataclass model; a scip-python index resolves each "
+            "name, marker and base.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-response-type",
+            "resolved",
+            "A FastAPI path operation writes its response as this type: its "
+            "decorator's response_model, else the handler's return "
+            "annotation; a scip-python index resolves each name.",
+        )
+    ),
+}
 
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
@@ -633,6 +737,17 @@ REQUEST_RULES = {
             "repository; the host, base URL and gateway are not checked.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            contract_rules.HTTP_UNKNOWN_BASE,
+            "pattern_matched",
+            "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_LOCAL_PORT: register_rule(
         EvidenceRule(
             contract_rules.HTTP_LOCAL_PORT,
@@ -724,6 +839,24 @@ ORVAL_REQUEST_RULES = {
     )
     for rule in REQUEST_RULES
 }
+_HEY_API = (
+    "@hey-api/openapi-ts generated this file from an OpenAPI spec (its "
+    "header says so) and sends the operation through its client: "
+    "client.<method>({url, ...}), the method named by the call, or "
+    "__request(OpenAPI, {method, url, ...}) in its legacy clients. The path "
+    "is the one it wrote, each {parameter} filled in at run time, under the "
+    "base URL the client is configured with at run time, which is not read. "
+)
+HEY_API_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.hey-api-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _HEY_API + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -800,6 +933,18 @@ OPENAPI_REQUEST_RULES = {
             "that program serves.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_GATEWAY: register_rule(
         EvidenceRule(
             "service-contracts.openapi-client-gateway",
@@ -829,6 +974,18 @@ OPENAPI_FEIGN_REQUEST_RULES = {
             _OPENAPI_FEIGN
             + "The request fits this route more specifically than any other "
             "route in the repository.",
+        )
+    ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-feign-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_FEIGN
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
         )
     ),
     contract_rules.HTTP_GATEWAY: register_rule(
@@ -949,6 +1106,34 @@ GRPC_CALL_RULE = register_rule(
         "package and the method names one of its rpcs. The channel's target "
         "address is not read.",
     )
+)
+
+
+CARRIES_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-signature-carries-message",
+        "resolved",
+        "The Go type checker (go/types) reads the protobuf message types "
+        "(named types whose pointer has protoc-gen-go's ProtoReflect method) "
+        "that each linked Go stub call of a gRPC method passes or receives, "
+        "type arguments of generic stream types included; a Go function or "
+        "method whose parameter or result types are built from one of them "
+        "(through pointers, slices, arrays, maps, channels and type "
+        "arguments) carries that method's messages. Set only when every "
+        "linked client call and handler of the method is Go and fully "
+        "type-checked.",
+    )
+)
+
+# Rules of this tool's edges that are not contract sites (HANDLES,
+# REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
+# Contract coverage counts sites only, so these may be resolved.
+NON_SITE_RULES = frozenset(
+    {CARRIES_MESSAGE_RULE.rule_id}
+    | {rule.rule_id for rule in PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
 )
 
 
@@ -1339,9 +1524,9 @@ def _config_paths(root, names):
 
 
 def _script_constants(root, sources):
-    """String constants the repository's scripts export, import or have
-    defined by angular.json, resolving relative imports and tsconfig.json
-    ``paths`` aliases to analyzed script files."""
+    """The repository's scripts with the TypeScript compiler's facts about
+    them (``ts_facts``: string values of names, and how imports resolve)
+    and the globals angular.json defines for them."""
     scripts = {
         coverage.file: (tree, content, coverage.language)
         for coverage, content, tree in sources
@@ -1349,30 +1534,15 @@ def _script_constants(root, sources):
     }
     if not scripts:
         return None
-    files = set(scripts)
-    ts_paths, defines = {}, []
-    for path in _config_paths(root, ("tsconfig.json", "angular.json")):
+    defines = []
+    for path in _config_paths(root, ("angular.json",)):
         try:
             content = (root / path).read_bytes()
         except OSError:
             continue
-        if path.endswith("angular.json"):
-            defines.extend(angular_defines(path, content))
-            continue
-        found = read_tsconfig_paths(path, content)
-        if found is not None:
-            ts_paths[path.rpartition("/")[0]] = found
-    cache = {}
-
-    def resolve(file, module):
-        key = (file, module)
-        if key not in cache:
-            cache[key] = resolve_script_module(
-                file, module, files
-            ) or resolve_script_alias(file, module, files, ts_paths)
-        return cache[key]
-
-    return ScriptConstants(scripts, resolve, defines)
+        defines.extend(angular_defines(path, content))
+    facts = ts_facts.collect(root, list(scripts), defines)
+    return ScriptConstants(scripts, facts, defines)
 
 
 # Build manifests: the nearest directory above a file with one of them is
@@ -1618,70 +1788,124 @@ def _go_modules(root, sources):
     return found
 
 
-# The languages each contract family has a reader for in this tool. A
-# language of the repository outside a family's set is stated as not read,
-# so that the sites found for a family are not taken as all of them.
+# The languages each contract family has a reader for in this tool, by
+# (edge family, protocol). A language of the repository outside a family's
+# set is stated as not linked, so that the sites found for a family are not
+# taken as all of them.
 _WEB_LANGUAGES = frozenset(
     {"python", "javascript", "typescript", "go", "java", "csharp", "php"}
 )
+_MESSAGING_LANGUAGES = frozenset({"java", "python", "go", "javascript", "typescript"})
 CONTRACT_READERS = {
-    "http_routes": _WEB_LANGUAGES,
-    "http_requests": _WEB_LANGUAGES,
-    "grpc_handlers": frozenset(grpc_contracts.SERVER_LANGUAGES),
-    "grpc_calls": frozenset(grpc_contracts.CALL_LANGUAGES),
-    "graphql_resolvers": frozenset({"javascript", "typescript"}),
-    "graphql_requests": frozenset({"javascript", "typescript"}),
-    "message_endpoints": frozenset(
-        {"java", "python", "go", "javascript", "typescript"}
-    ),
+    ("HANDLES", "http"): _WEB_LANGUAGES,
+    ("REQUESTS", "http"): _WEB_LANGUAGES,
+    ("HANDLES", "grpc"): frozenset(grpc_contracts.SERVER_LANGUAGES),
+    ("REQUESTS", "grpc"): frozenset(grpc_contracts.CALL_LANGUAGES),
+    ("HANDLES", "graphql"): frozenset({"javascript", "typescript"}),
+    ("REQUESTS", "graphql"): frozenset({"javascript", "typescript"}),
+    ("PUBLISHES", "messaging"): _MESSAGING_LANGUAGES,
+    ("CONSUMES", "messaging"): _MESSAGING_LANGUAGES,
+}
+_RESOLVER = f"service-contracts@{__version__}"
+
+
+# Unread GraphQL sites of client operations; the others are of servers.
+_GRAPHQL_CLIENT_UNREAD = frozenset({"operation_not_parsed", "client_fragment_root"})
+# The edge family of an unread messaging site by its role; a role naming no
+# direction (a file the Go type checker could not check) counts for both.
+_MESSAGING_UNREAD = {
+    "publish": ("PUBLISHES",),
+    "consume": ("CONSUMES",),
+    "subscribe": ("CONSUMES",),
 }
 
 
-def contract_coverage(repo_url, languages, coverage, sites):
-    """One ContractCoverage node per (contract family, language of the
-    repository's source files): whether this tool reads that family in that
-    language (status ``read``, or ``not_read`` with reason ``no_reader``),
-    how many files of the language there are (``languages``, from
-    ``source_languages``), and how many sites it found (and, for client
-    calls, linked). ``sites`` maps each family to (file, linked or None) per
+def contract_coverage(repo_url, languages, coverage, sites, unread=None):
+    """One EdgeCoverage node per (edge family, protocol, language of the
+    repository's source files), in the shape the call and import coverage
+    shares. Every contract site rule of this tool is pattern_matched: the
+    engine's own readers find the sites, and a reader counts only the sites
+    it recognises, so a family is never ``linked`` or ``no_sites`` here. It
+    is ``not_linked`` with reason ``parser_rules`` when this tool reads the
+    family in that language (``sites`` may be 0), and with reason
+    ``not_supported`` when it has no reader; ``files_linked`` is 0.
+    ``resolver``; ``files`` (``languages``, from ``source_languages``);
+    ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
+    ``unresolved``; ``unread`` and ``files_unread``, the sites the readers
+    saw but could not read (a path, destination or field that is not a
+    literal, a handler without its declaration, ...), and the files holding
+    them. Calls no reader recognises are in neither count. ``sites`` maps
+    each (family, protocol) to (file, resolution status or None) per site;
+    ``unread`` maps each (family, protocol) to the file of each unread
     site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
-    for family in sorted(CONTRACT_READERS):
-        found, linked = {}, {}
-        for file, link in sites.get(family, ()):
-            language = language_of.get(file)
-            found[language] = found.get(language, 0) + 1
-            if link:
-                linked[language] = linked.get(language, 0) + 1
-        clients = family in ("http_requests", "grpc_calls")
+    for family, protocol in sorted(CONTRACT_READERS):
+        counts = {}
+        for file, status in sites.get((family, protocol), ()):
+            found = counts.setdefault(language_of.get(file), {})
+            found["sites"] = found.get("sites", 0) + 1
+            if status is not None:
+                found[status] = found.get(status, 0) + 1
+        missed = {}
+        for file in (unread or {}).get((family, protocol), ()):
+            files = missed.setdefault(language_of.get(file), {})
+            files[file] = files.get(file, 0) + 1
         for language in sorted(languages):
-            read = language in CONTRACT_READERS[family]
+            read = language in CONTRACT_READERS[(family, protocol)]
+            found = counts.get(language, {})
+            not_read = missed.get(language, {})
+            reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
-                    ["ContractCoverage"],
+                    ["EdgeCoverage"],
                     {
                         "qualified_name": (
-                            f"{repo_url}::contract-coverage::{family}::{language}"
+                            f"{repo_url}::edge-coverage::{family}::{protocol}::"
+                            f"{language}"
                         ),
                         "repo_url": repo_url,
-                        "name": f"{family} {language}",
+                        "name": f"{family} {protocol} {language}",
                         "family": family,
+                        "protocol": protocol,
                         "language": language,
-                        "status": "read" if read else "not_read",
-                        **({} if read else {"reason": "no_reader"}),
+                        "status": "not_linked",
+                        "reason": reason,
+                        "resolver": [_RESOLVER] if read else [],
                         "files": languages[language],
-                        "sites": found.get(language, 0),
-                        **({"linked": linked.get(language, 0)} if clients else {}),
+                        "files_linked": 0,
+                        "sites": found.get("sites", 0),
+                        "unread": sum(not_read.values()),
+                        "files_unread": len(not_read),
+                        **(
+                            {
+                                key: found.get(key, 0)
+                                for key in ("linked", "ambiguous", "unresolved")
+                            }
+                            if family == "REQUESTS"
+                            else {}
+                        ),
                     },
                 )
             )
     return nodes
 
 
+# Imports of a Go file whose HTTP handlers may decode or encode payloads
+# (go_payloads).
+_GO_HTTP_PAYLOAD_IMPORTS = (
+    b'"encoding/json"',
+    b'"github.com/gin-gonic/gin"',
+    b'"github.com/labstack/echo',
+    b'"github.com/gofiber/fiber',
+)
+
+
 def _go_messaging_facts(root, sources):
-    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
-    type checker for the Go sources that import a broker client; reason is
+    """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
+    calls}) from the Go type checker: the first for the Go sources that
+    import a broker client, the last for those whose HTTP handlers may
+    carry payloads (``_GO_HTTP_PAYLOAD_IMPORTS``); reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
@@ -1689,9 +1913,20 @@ def _go_messaging_facts(root, sources):
         for c, content, _ in sources
         if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
     ]
-    if not files:
-        return {}, {}
-    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    handlers = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and c.file.endswith(".go")
+        and any(marker in content for marker in _GO_HTTP_PAYLOAD_IMPORTS)
+    ]
+    if not files and not handlers:
+        return {}, {}, {}
+    facts = go_facts.collect(
+        root,
+        sorted({*files, *handlers}),
+        list(_go_modules(root, sources).values()),
+    )
     calls, literals = defaultdict(list), defaultdict(list)
     for call in facts.calls:
         calls[call.file].append(call)
@@ -1706,7 +1941,99 @@ def _go_messaging_facts(root, sources):
         else:
             reason = None
         found[file] = (calls[file], literals[file], reason)
-    return found, go_facts.gopath_report(facts)
+    handler_calls = {file: calls[file] for file in handlers}
+    return found, go_facts.gopath_report(facts), handler_calls
+
+
+def _declaration_node(tree, definition):
+    """The tree-sitter node of a declaration: the function, method or func
+    literal spanning exactly its lines and columns."""
+    start = (definition.line - 1, definition.column)
+    end = (definition.end_line - 1, definition.end_column)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.start_point > start or node.end_point < end:
+            continue
+        if (
+            tuple(node.start_point) == start
+            and tuple(node.end_point) == end
+            and node.type
+            in ("function_declaration", "method_declaration", "func_literal")
+        ):
+            return node
+        stack.extend(node.children)
+    return None
+
+
+def _go_grpc_carriers(root, sources, grpc, definitions):
+    """({(service, method): message types}, [(definition id, (service,
+    method), carried types)]) from the Go type checker: the protobuf
+    messages each gRPC method's linked Go stub calls pass or receive, and
+    the Go functions whose signatures are built from them. A method gets
+    message types only when every linked client call of it is Go, in a
+    fully type-checked file, and matched to the checker's call, and every
+    handler of it is in such a file too. Without the
+    Go toolchain go_facts raises GoMissing."""
+    calls = {c.id: c for c in grpc.calls}
+    linked = defaultdict(list)
+    for resolution in grpc.resolutions:
+        if resolution.status == "linked":
+            linked[(resolution.service, resolution.method)].append(
+                calls[resolution.call_id]
+            )
+    if not any(c.file.endswith(".go") for found in linked.values() for c in found):
+        return {}, []
+    files = [
+        c.file for c, _, _ in sources if c.language == "go" and c.file.endswith(".go")
+    ]
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    unchecked = set(facts.uncovered) | set(facts.partial)
+    written = {}
+    for call in facts.calls:
+        if call.name_line is not None and call.messages:
+            written[(call.file, call.name_line, call.name_column, call.method)] = (
+                call.messages
+            )
+    messages = {}
+    for key, found in linked.items():
+        types = set()
+        for call in found:
+            carried = (
+                None
+                if not call.file.endswith(".go") or call.file in unchecked
+                else written.get((call.file, call.line, call.column, call.method))
+            )
+            if not carried:
+                break
+            types.update(carried)
+        else:
+            messages[key] = frozenset(types)
+    # A handler outside the checked Go files may carry the messages unseen.
+    files_of = {d.id: d.file for d in definitions}
+    for handler in grpc.handlers:
+        file = files_of.get(handler.handler_id, "")
+        if not file.endswith(".go") or file in unchecked:
+            messages.pop((handler.service, handler.method), None)
+    if not messages:
+        return {}, []
+    carriers_of = defaultdict(set)
+    for key, types in messages.items():
+        for t in types:
+            carriers_of[t].add(key)
+    at = defaultdict(list)
+    for d in definitions:
+        if d.file.endswith(".go") and d.kind in ("Function", "Method"):
+            at[(d.file, d.line)].append(d.id)
+    carriers = []
+    for signature in facts.signatures:
+        found = at.get((signature.file, signature.line), ())
+        if signature.file in unchecked or len(found) != 1:
+            continue
+        for key in sorted({k for t in signature.types for k in carriers_of[t]}):
+            carried = sorted(t for t in signature.types if t in messages[key])
+            carriers.append((found[0], key, carried))
+    return messages, carriers
 
 
 def _go_router_mounts(root, sources):
@@ -1951,7 +2278,26 @@ class ServiceContractTool(AnalysisTool):
         )
 
     async def analyze(
-        self, repo_url, languages=None, file_patterns=None, skip_patterns=None
+        self,
+        repo_url,
+        languages=None,
+        file_patterns=None,
+        skip_patterns=None,
+        scip_indexes=(),
+    ):
+        """``scip_indexes`` are pairs of an ingested SCIP index and its
+        receipt digest, as the tree-sitter tool takes them: the names in a
+        FastAPI handler's annotations resolve through them to the types its
+        route carries."""
+        # The TypeScript compiler's values serve the folders of this run.
+        with contextlib.ExitStack() as stack:
+            self._compiler_stack = stack
+            return await self._analyze(
+                repo_url, languages, file_patterns, skip_patterns, scip_indexes
+            )
+
+    async def _analyze(
+        self, repo_url, languages, file_patterns, skip_patterns, scip_indexes=()
     ):
         started = time.monotonic()
         selected = tuple(
@@ -2128,7 +2474,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
-        go_messaging, go_gopath = _go_messaging_facts(root, sources)
+        go_messaging, go_gopath, go_handler_calls = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2140,6 +2486,15 @@ class ServiceContractTool(AnalysisTool):
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
+        if scripts is not None:
+            self._compiler_stack.enter_context(
+                compiler_values(
+                    {
+                        content: scripts.compiler.values.get(file, {})
+                        for file, (_, content, _) in scripts.sources.items()
+                    }
+                )
+            )
         axios_exported = {}
 
         def axios_imported(file):
@@ -2458,6 +2813,9 @@ class ServiceContractTool(AnalysisTool):
             ),
             tests=frozenset(tests),
         )
+        grpc_messages, grpc_carriers = _go_grpc_carriers(
+            root, sources, grpc, result.definitions
+        )
         # An rpc's google.api.http option is an HTTP route the gRPC method
         # serves through grpc-gateway or Kratos.
         for binding in grpc.http_bindings:
@@ -2667,6 +3025,145 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        # A route or message destination carries the types its handler
+        # writes for the request and the response, as the TypeScript
+        # compiler resolves them.
+        declared = defaultdict(list)
+        for d in definitions.values():
+            declared[(d.file, d.symbol.rsplit(".", 1)[-1])].append(d)
+        carried = 0
+        carried_edges = set()
+        payload_unresolved = 0
+
+        def carry(labels, name, file, line, direction, definition_id, rule, key=None):
+            nonlocal carried
+            if (name, definition_id, direction, key) in carried_edges:
+                return
+            carried_edges.add((name, definition_id, direction, key))
+            target_labels, target = symbol_node(definition_id)
+            carried += 1
+            relationships.append(
+                RelationshipData(
+                    "CARRIES",
+                    labels,
+                    {"qualified_name": name, "repo_url": repo_url},
+                    target_labels,
+                    {"qualified_name": target, "repo_url": repo_url},
+                    {
+                        "direction": direction,
+                        **({"body_key": key} if key else {}),
+                        "file_path": file,
+                        "line": line,
+                        **_evidence(rule),
+                    },
+                )
+            )
+
+        def declaration(file, type_name, line):
+            found = [
+                d
+                for d in declared.get((file, type_name), ())
+                if d.line <= line <= d.end_line
+            ]
+            return found[0].id if len(found) == 1 else None
+
+        def carries(file, payloads, labels, name, line, rules):
+            nonlocal payload_unresolved
+            types = {} if scripts is None else scripts.compiler.types.get(file, {})
+            missing = (
+                {}
+                if scripts is None
+                else scripts.compiler.unresolved_types.get(file, {})
+            )
+            for direction, start, end, key in payloads:
+                payload_unresolved += missing.get((start, end), 0)
+                for type_file, type_name, type_line, _ in types.get((start, end), ()):
+                    found = declaration(type_file, type_name, type_line)
+                    if found is not None:
+                        carry(
+                            labels,
+                            name,
+                            file,
+                            line,
+                            direction,
+                            found,
+                            rules[direction],
+                            key,
+                        )
+
+        trees = {c.file: (tree, content) for c, content, tree in sources}
+        for route in routes:
+            handler = (
+                None if route.handler_id is None else definitions.get(route.handler_id)
+            )
+            if handler is None:
+                continue
+            calls = go_handler_calls.get(handler.file)
+            tree, content = trees.get(handler.file, (None, None))
+            if not calls or tree is None:
+                continue
+            function = _declaration_node(tree, handler)
+            if function is None:
+                continue
+            inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
+            for direction, (_, type_name), where in handler_payloads(
+                function, content, inside
+            ):
+                if where is None:
+                    continue  # a type of a library, outside the module tree
+                found = declaration(where[0], type_name, where[1])
+                if found is None:
+                    payload_unresolved += 1
+                    continue
+                carry(
+                    ["HttpRoute", "Contract"],
+                    f"{repo_url}::{route.file}::http-route::{route.id}",
+                    route.file,
+                    route.line,
+                    direction,
+                    found,
+                    GO_PAYLOAD_RULES[direction],
+                )
+
+        python_routes = [r for r in routes if r.payloads and r.framework == "fastapi"]
+        if python_routes:
+            references = ScipReferences(result, scip_indexes, root)
+            python_trees = {
+                c.file: (content, tree)
+                for c, content, tree in sources
+                if c.language == "python"
+            }
+            for route in python_routes:
+                found, unresolved = python_payloads.route_payloads(
+                    references,
+                    python_trees,
+                    route.file,
+                    route.payloads,
+                    set(re.findall(r"\{(\w+)(?::\w+)?\}", route.path)),
+                )
+                payload_unresolved += unresolved
+                for direction, definition, key in found:
+                    carry(
+                        ["HttpRoute", "Contract"],
+                        f"{repo_url}::{route.file}::http-route::{route.id}",
+                        route.file,
+                        route.line,
+                        direction,
+                        definition.id,
+                        PYTHON_PAYLOAD_RULES[direction],
+                        key,
+                    )
+
+        for route in routes:
+            if route.payloads and route.framework != "fastapi":
+                carries(
+                    route.file,
+                    route.payloads,
+                    ["HttpRoute", "Contract"],
+                    f"{repo_url}::{route.file}::http-route::{route.id}",
+                    route.line,
+                    PAYLOAD_RULES,
+                )
         by_id = {r.id: r for r in requests}
         counts = {}
         undisclosed = {}
@@ -2746,6 +3243,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
                                     "orval": ORVAL_REQUEST_RULES,
+                                    "hey-api": HEY_API_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -2876,6 +3374,7 @@ class ServiceContractTool(AnalysisTool):
             return {scope for scope, d in depth.items() if d == deepest}
 
         groups = {}
+        graphql_status = {}  # id(request) -> linked | ambiguous | unresolved
         for request in graphql_requests:
             package = _node_package(root, request.file)
             if package not in groups:
@@ -2888,7 +3387,9 @@ class ServiceContractTool(AnalysisTool):
             if len(scopes) != 1:
                 reason = "client_field_ambiguous" if scopes else "client_field_unknown"
                 graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+                graphql_status[id(request)] = "ambiguous" if scopes else "unresolved"
                 continue
+            graphql_status[id(request)] = "linked"
             full = f"{request.operation}.{request.field}"
             if request.caller_id is None:
                 labels, source = file_node(request.file)
@@ -2939,6 +3440,20 @@ class ServiceContractTool(AnalysisTool):
                             and declared[0].streaming
                             else {}
                         ),
+                        # The protobuf message types its Go clients pass
+                        # and receive (see CARRIES_MESSAGE).
+                        **(
+                            {
+                                "message_types": sorted(
+                                    f"{package}.{name}"
+                                    for package, name in grpc_messages[
+                                        (service, method)
+                                    ]
+                                )
+                            }
+                            if (service, method) in grpc_messages
+                            else {}
+                        ),
                     },
                 )
             )
@@ -2957,6 +3472,21 @@ class ServiceContractTool(AnalysisTool):
                     {
                         "line": handler.line,
                         **_evidence(GRPC_SERVER_RULES[handler.rule]),
+                    },
+                )
+            )
+        for definition_id, key, carried in grpc_carriers:
+            labels, source = symbol_node(definition_id)
+            relationships.append(
+                RelationshipData(
+                    "CARRIES_MESSAGE",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {"qualified_name": grpc_names[key], "repo_url": repo_url},
+                    {
+                        "message_types": [f"{p}.{n}" for p, n in carried],
+                        **_evidence(CARRIES_MESSAGE_RULE),
                     },
                 )
             )
@@ -3025,6 +3555,15 @@ class ServiceContractTool(AnalysisTool):
                     },
                 ),
             )
+            if endpoint.payloads:
+                carries(
+                    endpoint.file,
+                    endpoint.payloads,
+                    ["MessageDestination", "Contract"],
+                    name,
+                    endpoint.line,
+                    MESSAGE_PAYLOAD_RULES,
+                )
             if endpoint.declaration_id is None:
                 source = file_node(endpoint.file)
             else:
@@ -3112,7 +3651,23 @@ class ServiceContractTool(AnalysisTool):
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
-        linked_requests = {r.request_id for r in resolutions if r.route_id}
+        request_status = {r.request_id: r.status for r in resolutions}
+        unread_sites = defaultdict(list)
+        for item in unread:
+            if item.kind in ("route", "request"):
+                family = "HANDLES" if item.kind == "route" else "REQUESTS"
+                unread_sites[(family, "http")].append(item.file)
+            elif item.kind == "graphql":
+                family = (
+                    "REQUESTS" if item.reason in _GRAPHQL_CLIENT_UNREAD else "HANDLES"
+                )
+                unread_sites[(family, "graphql")].append(item.file)
+        for file, _, kind, _ in grpc.unread:
+            if kind == "server":
+                unread_sites[("HANDLES", "grpc")].append(file)
+        for item in messaging_unread:
+            for family in _MESSAGING_UNREAD.get(item.role, ("PUBLISHES", "CONSUMES")):
+                unread_sites[(family, "messaging")].append(item.file)
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3122,17 +3677,27 @@ class ServiceContractTool(AnalysisTool):
             ),
             result.coverage,
             {
-                "http_routes": [(r.file, None) for r in routes],
-                "http_requests": [(q.file, q.id in linked_requests) for q in requests],
-                "grpc_handlers": [(h.file, None) for h in grpc.handlers],
-                "grpc_calls": [
-                    (grpc_calls[r.call_id].file, r.status == "linked")
-                    for r in grpc.resolutions
+                ("HANDLES", "http"): [(r.file, None) for r in routes],
+                ("REQUESTS", "http"): [
+                    (q.file, request_status.get(q.id, "unresolved")) for q in requests
                 ],
-                "graphql_resolvers": [(r.file, None) for r in graphql_resolvers],
-                "graphql_requests": [(r.file, None) for r in graphql_requests],
-                "message_endpoints": [(e.file, None) for e in endpoints],
+                ("HANDLES", "grpc"): [(h.file, None) for h in grpc.handlers],
+                ("REQUESTS", "grpc"): [
+                    (grpc_calls[r.call_id].file, r.status) for r in grpc.resolutions
+                ],
+                ("HANDLES", "graphql"): [(r.file, None) for r in graphql_resolvers],
+                ("REQUESTS", "graphql"): [
+                    (r.file, graphql_status.get(id(r), "unresolved"))
+                    for r in graphql_requests
+                ],
+                ("PUBLISHES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role == "publish"
+                ],
+                ("CONSUMES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role != "publish"
+                ],
             },
+            unread_sites,
         )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
@@ -3166,6 +3731,8 @@ class ServiceContractTool(AnalysisTool):
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
                 "gateway_routes": len(gateways),
+                "payload_types": carried,
+                "payload_types_unresolved": payload_unresolved,
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 **({"go_gopath_packages": go_gopath} if go_gopath else {}),
@@ -3176,9 +3743,21 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
+                "grpc_methods_with_message_types": len(grpc_messages),
+                "grpc_message_carriers": len(grpc_carriers),
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
+                ),
+                "typescript_compiler": (
+                    {
+                        "files": len(scripts.compiler.programs),
+                        "programs": len(set(scripts.compiler.programs.values())),
+                        "rejected_configs": len(scripts.compiler.rejected_configs),
+                        "names_failed": sum(scripts.compiler.failures.values()),
+                    }
+                    if scripts is not None
+                    else {}
                 ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "

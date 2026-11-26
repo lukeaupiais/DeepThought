@@ -30,17 +30,21 @@ from deepthought.storage.graph import (
 
 WEAKNESS = {"resolved": 0, "pattern_matched": 1, "name_matched": 2}
 EVIDENCE = ["resolved", "pattern_matched", "name_matched"]
-RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
+# Code relations; get_impact also follows a test's USES_FIXTURE edges and an
+# endpoint's USES_DEPENDENCY edges.
+CODE_RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
+RELATIONS = CODE_RELATIONS | {"USES_FIXTURE", "USES_DEPENDENCY"}
 
 
-def expected(output, root, max_depth):
-    """{dependent qualified_name: (depth, evidence)} by reverse BFS."""
+def expected(output, root, max_depth, relations=RELATIONS):
+    """{dependent qualified_name: (depth, evidence)} by reverse BFS over
+    ``relations``."""
     incoming = defaultdict(list)
     children = defaultdict(list)
     for r in output.relationships:
         source = r.source_match["qualified_name"]
         target = r.target_match["qualified_name"]
-        if r.type in RELATIONS:
+        if r.type in relations:
             incoming[target].append((source, WEAKNESS[r.properties["evidence_type"]]))
         elif r.type == "CONTAINS" and "Symbol" in r.source_labels:
             children[source].append(target)
