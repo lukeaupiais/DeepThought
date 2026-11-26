@@ -19,7 +19,7 @@ and JdbcClient) name the tables they read and write (``SqlUse``).
 """
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field as _field, replace
 import json
 import logging
 import posixpath
@@ -1154,6 +1154,13 @@ class Statement:
     # fix, or JPQL, which no SQL parser reads; "tokens_not_parsed" for SQL
     # sqlglot rejects in every dialect.
     reader: str = "sqlglot"
+    # The text sqlglot read and the dialect that read it, for its columns.
+    text: str = _field(default="", compare=False, repr=False)
+    dialect: str | None = _field(default=None, compare=False, repr=False)
+    # For code that may run any of several statements (one per path), each.
+    alternatives: tuple["Statement", ...] = _field(
+        default=(), compare=False, repr=False
+    )
 
 
 def _word(token):
@@ -1248,11 +1255,12 @@ def statement_tables(text, jpql=False):
         # (OLD AS o), SQLite's VARYING CHARACTER): read by the token
         # reader and counted as such.
         return replace(_token_statement_tables(text), reader="tokens_not_parsed")
-    return Statement(*found)
+    reads, writes, dialect = found
+    return Statement(reads, writes, text=text, dialect=dialect)
 
 
 def _sqlglot_tables(text):
-    """(reads, writes) of SQL text by sqlglot, or None."""
+    """(reads, writes, dialect) of SQL text by sqlglot, or None."""
     # sqlglot is a required dependency, imported when SQL is first read so
     # that importing the package stays free of it (a core-only install).
     import sqlglot
@@ -1301,8 +1309,294 @@ def _sqlglot_tables(text):
                 name = _sqlglot_name(table, ctes)
                 if name is not None:
                     reads.append(name)
-        return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes))
+        return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes)), dialect
     return None
+
+
+@dataclass(frozen=True)
+class ColumnUse:
+    """A column a statement reads (names in a read position) or writes
+    (assigns, inserts or sets on conflict)."""
+
+    table: str  # table key
+    column: str
+    writes: bool
+
+
+def statement_columns(statement, schema):
+    """(uses, complete tables) of a statement sqlglot read: the ColumnUse of
+    each column it names, resolved by sqlglot's optimizer (qualify) against
+    ``schema`` ({table key: column names}, the tables whose columns are all
+    known), and the tables of the statement every column reference of which
+    resolved to one of their columns (a ``*`` expands to all of them). A
+    reference that names no column of a known table, or that sqlglot cannot
+    attribute to one table, leaves the tables it could belong to incomplete.
+    None for a statement sqlglot did not read."""
+    import sqlglot
+    from sqlglot.errors import SqlglotError
+
+    if statement is not None and statement.alternatives:
+        # Code that may run any of them uses every one's columns; a table
+        # is complete when it is in each one that names it.
+        found = [statement_columns(s, schema) for s in statement.alternatives]
+        if any(f is None for f in found):
+            return None
+        uses = tuple(dict.fromkeys(u for f in found for u in f[0]))
+        named = [{*s.reads, *s.writes} & set(schema) for s in statement.alternatives]
+        complete = frozenset(
+            t
+            for t in set().union(*named)
+            if all(t in f[1] for f, n in zip(found, named) if t in n)
+        )
+        return uses, complete
+    if statement is None or statement.reader != "sqlglot" or not statement.text:
+        return None
+    try:
+        trees = [
+            t
+            for t in sqlglot.parse(statement.text, read=statement.dialect)
+            if t is not None
+        ]
+    except (SqlglotError, ValueError, RecursionError):
+        return None
+    state = _Columns(schema, statement.dialect)
+    for tree in trees:
+        state.statement(tree)
+    complete = frozenset(t for t in state.seen - state.unresolved if t in schema)
+    return tuple(dict.fromkeys(state.uses)), complete
+
+
+class _Columns:
+    """Column uses of statements, gathered by statement_columns."""
+
+    def __init__(self, schema, dialect):
+        from sqlglot.schema import MappingSchema
+
+        self.schema = schema
+        self.dialect = dialect
+        # Names are compared as the engine keeps them (column_key), so the
+        # schema is not normalized again.
+        self.mapping = MappingSchema(
+            {t: {c: "UNKNOWN" for c in columns} for t, columns in schema.items()},
+            dialect=dialect,
+            normalize=False,
+        )
+        self.uses, self.seen, self.unresolved = [], set(), set()
+
+    def _key(self, table):
+        return table_key(table.name) if table.name else None
+
+    def _use(self, table, column, writes):
+        """Record a column of ``table`` (a key), or mark it unresolved."""
+        self.seen.add(table)
+        if column in self.schema.get(table, ()):
+            self.uses.append(ColumnUse(table, column, writes))
+        else:
+            self.unresolved.add(table)
+
+    def _all_tables(self, tree):
+        from sqlglot import exp
+
+        found = {self._key(t) for t in tree.find_all(exp.Table)} - {None}
+        self.seen |= found
+        self.unresolved |= found
+
+    def select(self, tree):
+        """Columns a query reads, by sqlglot's scopes after qualify."""
+        from sqlglot import exp
+        from sqlglot.errors import SqlglotError
+        from sqlglot.optimizer.qualify import qualify
+        from sqlglot.optimizer.scope import traverse_scope
+
+        try:
+            qualified = qualify(
+                tree.copy(),
+                schema=self.mapping,
+                dialect=self.dialect,
+                validate_qualify_columns=False,
+                quote_identifiers=False,
+                identify=False,
+            )
+            scopes = traverse_scope(qualified)
+        except (SqlglotError, ValueError, KeyError, RecursionError):
+            self._all_tables(tree)
+            return
+        for scope in scopes:
+            tables = {
+                alias: self._key(source)
+                for alias, source in scope.sources.items()
+                if isinstance(source, exp.Table) and self._key(source)
+            }
+            self.seen |= set(tables.values())
+            projections = (
+                scope.expression.expressions
+                if isinstance(scope.expression, exp.Select)
+                else ()
+            )
+            if any(
+                isinstance(p, exp.Star)
+                or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star))
+                for p in projections
+            ):
+                # A * qualify could not expand: a table's columns unknown.
+                self.unresolved |= set(tables.values())
+            for column in scope.columns:
+                if isinstance(column.this, exp.Star):
+                    continue
+                source = scope.sources.get(column.table) if column.table else None
+                if source is None:
+                    if column.table or len(tables) != 1:
+                        # Not attributed to one source (an output alias is
+                        # resolved by qualify, not left here).
+                        if not self._is_output_alias(scope, column):
+                            self.unresolved |= set(tables.values())
+                        continue
+                    table = next(iter(tables.values()))
+                    self._use(table, column.name, False)
+                elif isinstance(source, exp.Table):
+                    table = self._key(source)
+                    if table is not None:
+                        self._use(table, column.name, False)
+
+    @staticmethod
+    def _is_output_alias(scope, column):
+        from sqlglot import exp
+
+        if column.table or not isinstance(scope.expression, exp.Select):
+            return False
+        return column.name in {p.alias for p in scope.expression.expressions if p.alias}
+
+    def _query(self, target, extra_sources, expressions, where, with_):
+        """Columns read by ``expressions`` and ``where`` over ``target`` and
+        ``extra_sources``, as the SELECT that reads them."""
+        from sqlglot import exp
+
+        select = exp.Select(
+            expressions=[e.copy() for e in expressions] or [exp.Literal.number(1)]
+        ).from_(target.copy())
+        for source in extra_sources:
+            select = select.join(source.copy())
+        if where is not None:
+            select.set("where", where.copy())
+        if with_ is not None:
+            select.set("with_", with_.copy())
+        self.select(select)
+
+    def _target(self, node):
+        from sqlglot import exp
+
+        target = node.this
+        if isinstance(target, exp.Schema):
+            target = target.this
+        return target if isinstance(target, exp.Table) else None
+
+    def _assigned(self, target, key, assignments, writes=True):
+        """Columns that SET-style ``a = b`` pairs assign on ``target``."""
+        from sqlglot import exp
+
+        names = {target.name, target.alias_or_name}
+        values = []
+        for pair in assignments:
+            if not isinstance(pair, exp.EQ):
+                continue
+            left = pair.this
+            if isinstance(left, exp.Column) and (not left.table or left.table in names):
+                self._use(key, column_key(left), writes)
+            else:
+                self.unresolved.add(key)
+            values.append(pair.expression)
+        return values
+
+    def statement(self, tree):
+        from sqlglot import exp
+
+        dml = (exp.Update, exp.Insert, exp.Delete)
+        if any(isinstance(c.this, dml) for c in tree.find_all(exp.CTE)):
+            # A data-modifying CTE is a statement of its own; the query
+            # around it reads what it RETURNs, from its target.
+            tree = tree.copy()
+            for cte in list(tree.find_all(exp.CTE)):
+                if not isinstance(cte.this, dml):
+                    continue
+                inner = cte.this
+                self.statement(inner)
+                target = self._target(inner)
+                returning = inner.args.get("returning")
+                stand_in = exp.Select(
+                    expressions=[e.copy() for e in returning.expressions]
+                    if returning
+                    else [exp.Literal.number(1)]
+                )
+                if target is not None:
+                    stand_in = stand_in.from_(target.copy())
+                cte.set("this", stand_in)
+        if isinstance(tree, (exp.Select, exp.SetOperation)):
+            self.select(tree)
+            return
+        with_ = tree.args.get("with_")
+        returning = tree.args.get("returning")
+        returned = list(returning.expressions) if returning else []
+        if isinstance(tree, exp.Update):
+            target = self._target(tree)
+            key = target and self._key(target)
+            if key is None:
+                self._all_tables(tree)
+                return
+            values = self._assigned(target, key, tree.expressions)
+            sources = []
+            from_ = tree.args.get("from")
+            if from_ is not None:
+                sources.append(from_.this)
+            sources.extend(j.this for j in tree.args.get("joins") or ())
+            self._query(
+                target, sources, values + returned, tree.args.get("where"), with_
+            )
+        elif isinstance(tree, exp.Delete):
+            target = self._target(tree)
+            key = target and self._key(target)
+            if key is None:
+                self._all_tables(tree)
+                return
+            self.seen.add(key)
+            sources = list(tree.args.get("using") or ())
+            self._query(target, sources, returned, tree.args.get("where"), with_)
+        elif isinstance(tree, exp.Insert):
+            target = self._target(tree)
+            key = target and self._key(target)
+            if key is None:
+                self._all_tables(tree)
+                return
+            if isinstance(tree.this, exp.Schema) and tree.this.expressions:
+                for column in tree.this.expressions:
+                    self._use(key, column_key(column), True)
+            elif key in self.schema:
+                for column in self.schema[key]:
+                    self._use(key, column, True)
+            else:
+                self.seen.add(key)
+                self.unresolved.add(key)
+            source = tree.expression
+            if isinstance(source, (exp.Select, exp.SetOperation)):
+                if with_ is not None and not source.args.get("with_"):
+                    source = source.copy()
+                    source.set("with_", with_.copy())
+                self.select(source)
+            conflict = tree.args.get("conflict")
+            values = []
+            if conflict is not None:
+                for column in conflict.args.get("conflict_keys") or ():
+                    self._use(key, column_key(column), False)
+                values = self._assigned(target, key, conflict.expressions or ())
+                # EXCLUDED.c is the row being inserted, not a read.
+                values = [
+                    v
+                    for v in values
+                    if not (isinstance(v, exp.Column) and v.table.lower() == "excluded")
+                ]
+            if values or returned:
+                self._query(target, [], values + returned, None, None)
+        else:
+            self._all_tables(tree)
 
 
 def _sqlglot_name(table, ctes):
@@ -4076,9 +4370,19 @@ def go_sql_from_facts(calls, definitions):
         if not statements:
             continue
         # The tables of every path that reaches the call: it may run any.
-        statement = Statement(
-            tuple(dict.fromkeys(t for _, s in statements for t in s.reads)),
-            tuple(dict.fromkeys(t for _, s in statements for t in s.writes)),
+        statement = (
+            statements[0][1]
+            if len(statements) == 1
+            else Statement(
+                tuple(dict.fromkeys(t for _, s in statements for t in s.reads)),
+                tuple(dict.fromkeys(t for _, s in statements for t in s.writes)),
+                # The weakest reader of any path.
+                next(
+                    (s.reader for _, s in statements if s.reader != "sqlglot"),
+                    "sqlglot",
+                ),
+                alternatives=tuple(s for _, s in statements),
+            )
         )
         if not (statement.reads or statement.writes) and any(
             PLACEHOLDER in text for text, _ in statements
