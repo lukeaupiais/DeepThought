@@ -18,6 +18,7 @@ from deepthought.inheritance import (
 )
 from deepthought.models import AnalysisResult
 from deepthought.scip_bases import SCIP_TYPESCRIPT_BASE
+from deepthought.ts_modules import with_compiler_modules
 
 READY = {
     language: importlib.util.find_spec("tree_sitter")
@@ -36,8 +37,12 @@ def write(directory, files):
 def analyze(files, language):
     with tempfile.TemporaryDirectory() as directory:
         write(directory, files)
-        return analyze_repository(
-            directory, repository_id="fixture", languages=(language,)
+        # JavaScript and TypeScript imports are the compiler's.
+        return with_compiler_modules(
+            analyze_repository(
+                directory, repository_id="fixture", languages=(language,)
+            ),
+            directory,
         )
 
 

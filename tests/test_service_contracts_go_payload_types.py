@@ -98,6 +98,7 @@ class GoPayloadTypeTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        self.unresolved = output.metadata.custom_metrics["payload_types_unresolved"]
         return sorted(
             (
                 r.source_match["qualified_name"].split("::")[1],
@@ -155,6 +156,54 @@ class GoPayloadTypeTests(unittest.TestCase):
             [f[1:3] for f in found],
             [("CreateOrder", "request"), ("Order", "response")],
         )
+
+    def test_fiber_v3_binds_the_body_and_writes_json(self):
+        # A body bound into an any (raw) is not known: unresolved.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v3"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": FIBER_V3,
+            }
+        )
+        self.assertEqual(
+            [f[1:4] for f in found],
+            [
+                ("CreateOrder", "request", "service-contracts.go-request-body-type"),
+                ("Order", "response", "service-contracts.go-response-body-type"),
+            ],
+        )
+        self.assertEqual(self.unresolved, 1)
+
+
+FIBER_V3 = """package main
+
+import (
+\t"github.com/gofiber/fiber/v3"
+
+\t"example.com/shop/api"
+)
+
+func create(c fiber.Ctx) error {
+\tvar in api.CreateOrder
+\tif err := c.Bind().Body(&in); err != nil {
+\t\treturn err
+\t}
+\treturn c.JSON(api.Order{ID: in.Item})
+}
+
+func raw(c fiber.Ctx) error {
+\tvar body any = &api.CreateOrder{}
+\treturn c.Bind().Body(body)
+}
+
+func main() {
+\tapp := fiber.New()
+\tapp.Post("/orders", create)
+\tapp.Put("/orders", raw)
+}
+"""
 
 
 if __name__ == "__main__":
