@@ -89,4 +89,7 @@ RELATIONSHIP_SENTENCES = {
     "CARRIES_MESSAGE": "is a message type of",
     "CARRIES": "carries the payload type",
     "HAS_COLUMN": "has the column",
+    "READS_COLUMN": "reads the column",
+    "WRITES_COLUMN": "writes the column",
+    "SIGNATURE_USES": "names in its signature the type",
 }

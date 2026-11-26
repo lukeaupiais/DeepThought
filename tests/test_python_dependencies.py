@@ -60,9 +60,15 @@ class DeclaredTest(unittest.TestCase):
                 '[project.optional-dependencies]\ndb = ["psycopg"]\n'
             )
             found = declared(root)
-        expected = ["attrs", "flask==3.0.0", "orjson", "pytest>=8 ; python_version>'3'"]
-        if importlib.util.find_spec("tomllib"):
-            expected += ["psycopg", "sqlalchemy[asyncio]>=2"]
+        # pyproject.toml is read on every Python (tomli on 3.10).
+        expected = [
+            "attrs",
+            "flask==3.0.0",
+            "orjson",
+            "pytest>=8 ; python_version>'3'",
+            "psycopg",
+            "sqlalchemy[asyncio]>=2",
+        ]
         self.assertEqual(found, sorted(expected))
 
 
@@ -339,6 +345,57 @@ class InstalledDependenciesTest(unittest.TestCase):
             any(s.endswith("Thing#go().") for s in self.external_symbols(run)),
             self.external_symbols(run),
         )
+
+    def test_a_nested_project_reads_the_workspace_package_it_requires(self):
+        # flask's examples/tutorial requires flask: the workspace's own source,
+        # not a release installed over it; flask's own requirements stand in.
+        (self.root / "main.py").unlink()
+        (self.root / "pyproject.toml").write_text(
+            '[project]\nname = "My_Lib"\ndependencies = ["tinylib==1.0"]\n'
+        )
+        (self.root / "src" / "my_lib").mkdir(parents=True)
+        (self.root / "src" / "my_lib" / "__init__.py").write_text(
+            "from tinylib import Thing\n\n\ndef make():\n    return Thing()\n"
+        )
+        app = self.root / "examples" / "app"
+        (app / "app").mkdir(parents=True)
+        (app / "pyproject.toml").write_text(
+            '[project]\nname = "app"\ndependencies = ["my-lib>=1"]\n'
+        )
+        (app / "app" / "__init__.py").write_text("")
+        (app / "app" / "views.py").write_text(
+            "from app import __name__ as package\nfrom my_lib import make\n\n\n"
+            "def run():\n    return make().go()\n"
+        )
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("python",), environ=self.environ
+        )
+        runs = {r.get("module"): r for r in report["runs"]}
+        run = runs["examples/app"]
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["provided"], ["my-lib>=1"])
+        self.assertEqual(run["dependencies"]["packages"], ["tinylib==1.0"])
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertEqual(
+            report["coverage"]["examples/app/app/views.py"]["status"], "covered"
+        )
+        from deepthought._scip import scip_pb2
+
+        def occurrences(run):
+            index = scip_pb2.Index()
+            index.ParseFromString(Path(run["index"]).read_bytes())
+            return [o for d in index.documents for o in d.occurrences]
+
+        symbols = {o.symbol for o in occurrences(run)}
+        # The workspace's function keeps the symbol the root's run defines,
+        # so the call binds to its definition there.
+        defined = {
+            o.symbol
+            for o in occurrences(runs[None])
+            if o.symbol_roles & 1 and o.symbol.endswith("make().")
+        }
+        self.assertTrue(defined and defined <= symbols, (defined, symbols))
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols))
 
     def test_undeclared_libraries_stay_unresolved(self):
         # Nothing declared, so nothing is installed for the indexer.

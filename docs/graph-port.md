@@ -207,6 +207,39 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
+### Python imports from scip-python
+
+In a file a scip-python index covers, an absolute import is resolved as the
+interpreter would resolve it: each Python project (a directory with a
+`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
+directory with its `src`, so the FastAPI template's `backend/app` imports as
+`app`, and pyright searches those roots, the project's installed dependencies
+and the standard library. scip-python records the module at each
+name the statement writes, including the submodules `from a import b` names.
+
+| Rule | Evidence | Meaning |
+| --- | --- | --- |
+| `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+
+Externally resolved specifiers are listed in the File's `external_imports`, not
+`unresolved_imports`. A covered absolute import with no module occurrence
+stays unresolved (`scip_no_occurrence`): pyright found no module, for example
+a dependency that is not installed. Two cases keep the path rules. Relative
+imports do, because scip-python 0.6.8 names the module of `from .models import
+X` by the written remainder alone (`` `models`/__init__: ``), which is another
+project's top-level `models` or nothing. A from-import of an in-repository
+package also keeps the path rule's links to the submodules it names (`from
+flask import json`), which the index records as attributes of the package.
+Files no index covers keep the path rules throughout. scip-python 0.6.8 also
+names a module's package from the installed distributions' file lists rather
+than from pyright's resolution, so a wheel that ships a top-level `tests`
+package (msal-extensions does) labels the repository's own `tests` as its
+module. A module that the same index defines links to its document instead:
+pyright searched the local roots first and resolved the names to it. Tool metadata counts
+scip-python's decisions in `scip_python_imports` and the packages in
+`python_packages`.
+
 ## Calls
 
 Tree-sitter extraction records each call whose callee is a plain or dotted name
@@ -605,7 +638,22 @@ messages; it is `retest` otherwise when the contract has `message_types`
 (the types are known, so a wrapper that hides them shields its callers),
 and `unknown` when it has not (no type facts for that contract yet: HTTP
 routes, GraphQL fields, message destinations, tables, and gRPC methods with
-clients or handlers outside type-checked Go). `source_roles` lists `test` and `example`
+clients or handlers outside type-checked Go).
+
+For gRPC methods in any language an index covers, the messages also come
+from SCIP: the GrpcMethod node has protoc's `request_message` and
+`response_message`, and each client's stub call (the CALLS edge from the
+REQUESTS edge's declaration at the same line, to the method as written)
+reaches the generated stub method, whose `SIGNATURE_USES` edges name the
+message declarations (those named like protoc's types; `DeepPartial` or
+`Metadata` beside them are not messages). A declaration whose signature
+names one carries the messages as a `CARRIES_MESSAGE` edge does, and the
+messages are known when every client's stub names one and every provider's
+signature names one too. So a TypeScript client against grpc-tools'
+generated `*_grpc_pb.d.ts` is decided like a Go one (other generators are
+not checked yet); an untyped client (plain JavaScript, a
+`proto-loader` client, Python's generated `*_pb2_grpc.py`, whose stub
+methods are attributes) leaves the method `unknown`. `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
@@ -2451,11 +2499,52 @@ bind to its src-layout package. Two of those `src` directories with a
 top-level module or regular package of the same name are both left off, so
 one module name never names two files; namespace packages (no `__init__`)
 merge across them as Python merges them. A project's own directory is not
-added, since pyright already resolves a flat layout from the importing
-file's directory. On haystack-core-integrations (47d359e; `chroma`,
+on the workspace's path; a nested Python project (a `pyproject.toml` or
+`setup.cfg` below the root) whose files import one of its own top-level
+modules by absolute name, as Python's `ast` reads the imports, gets a
+scip-python run of its own instead: from the workspace root with
+`--target-only <project>`, its own directory and `src` first on
+`PYTHONPATH`, then the workspace's roots, and its declared packages
+installed. A service imports its own modules by bare name (`from schemas
+import ...` in src/OrderService) and two services' `schemas` cannot share one
+path; running from the root keeps workspace symbols, since scip-python names
+a file outside `--cwd` with a local symbol. A requirement on a distribution
+the workspace itself builds (flask's examples require `flask`) is not
+installed, so its source is read, and that project's own dependencies are
+installed in its place; the receipt lists it under `provided`. Cross-file
+references (non-local symbols defined in another document): flask
+(49943b5) 3,017 to 3,135, joe0106/fastapi-microservices-orchestrator
+0 to 71, AntonVagabond/OnlineStore 297 to 985, full-stack-fastapi-template
+1,038 to 1,183; its SQLModel table gate stays 64/66. A fixture project that
+never imports itself (poetry's 100 test fixtures) gets no run. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
-from 5,403 to 6,473. scip-go gets
+from 5,403 to 6,473.
+
+A pytest test gets a fixture's value through a parameter without an
+annotation (`def test_x(app): app.route(...)`), which pyright cannot type,
+so scip-python records nothing at `route` or at anything reached from it.
+Each scip-python run whose documents include such tests indexes them a
+second time (`deepthought.fixture_probes`), in a copy of the workspace's
+Python files where each parameter
+that `deepthought.pytest_fixtures` resolves to a module-level fixture defaults to that fixture's value (`def test_x(*,
+app=_f0()):`, with the fixture imported at the end of an earlier line;
+generator and async fixtures through helpers that give what they yield or
+return). Fixtures that request fixtures are rewritten the same way, and the
+fixture decorators are blanked, since pytest's `fixture` hides the function.
+Pyright types a parameter from its default, so the types are the indexer's.
+Every edit is at a line's end or inside a signature, and only global
+symbols outside those spans are added, where the first index has no
+occurrence. Parameters a test assigns, annotated ones, fixtures in classes
+and plugin fixtures (`monkeypatch`) are left alone. The receipt records the
+parameters rewritten and the occurrences added under `fixture_probes`; a
+failed second run is recorded there and the first index is kept. On flask
+(49943b5) the Python calls scip-python left without an occurrence go from
+974 to 165 and the calls it links from 1,210 to 1,650, for about 9% more
+indexing time; httpx gets 90 occurrences. Projects whose fixture parameters
+are annotated (full-stack-fastapi-template) are unchanged.
+
+scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
 `--yarn-workspaces` from the workspace's manifests; `--yarn-workspaces` only
 for a private root package, since Yarn refuses to list the workspaces of
@@ -2503,6 +2592,14 @@ with a reason:
 | `no_go_module` | No `go.mod` in the file's directory or any directory above it |
 | `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+A known scip-python 0.6.8 fault makes one repository time out: its bundled
+pyright builds unions in quadratic time, so a module holding a very large
+tuple literal never finishes (netbox's `extras/data/un_locode.py`, about
+111,000 entries; current pyright reads it in about two seconds). 0.6.8 is the
+latest release, and the engine does not work around it: the run stops at
+`--timeout` and every Python file of that run is `indexer_timeout`, named per
+file.
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
 (outside `vendor` and hidden directories; a `go.mod` below a directory whose
@@ -2834,6 +2931,27 @@ through a renamed re-export's import name, such as `outward` in the
 guessed. A second compiler pipeline in the engine, pinned to one compiler
 version, costs more than that gap. The compiler stays an offline oracle
 (`tools/typescript_reference_oracle.cjs`).
+
+## Signature types
+
+`deepthought.signature_types` records which types each function's signature
+names, for impact (see "Impact"). A signature is the declaration's span in
+the parse tree up to its `body` (all of it for a declaration without one, such
+as a `.d.ts` method or an interface method): receiver, type parameters,
+parameters with their annotations and defaults, result type, and for a
+function assigned to a variable (`const f = (a: A): B => ...`) the variable's
+annotation too. Every SCIP reference an index records inside that span, other
+than a definition, is read back to the parsed declaration its symbol is
+defined at, as call binding does (see "SCIP references"); a class, interface,
+struct, Go type, type alias, enum, record, trait or union becomes a
+`SIGNATURE_USES` edge from the function to it (`resolved`, rule
+`scip.signature-type-reference`, at the first reference's line and UTF-8
+column). A nested function's signature is its own, not its parent's. String
+annotations (`point: "Point"`) and generic arguments (`Optional[Feature]`,
+`ServerUnaryCall<Point, Feature>`) count, since the indexer resolves them.
+Types declared outside the repository have no parsed declaration and are not
+recorded; files no index covers get no edges. The tree-sitter tool's metrics
+count them as `signature_types`.
 
 ## SCIP implementations
 
@@ -3768,6 +3886,7 @@ CARRIES backwards):
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-client-data-type` | resolved | the value a NestJS `ClientProxy` sends with `send(pattern, data)` or `emit(pattern, data)`: the type written where `data`'s name is declared, else the compiler's type of it, and the types of an object or array literal's members (`{ shipment, audit }` carries both) |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.kafkajs-message-value-type` | resolved | the value a kafkajs producer's `send()` message serializes: `JSON.stringify(x)` as a `value` written anywhere in `messages` (an array, or `rs.map((r) => ({ value: ... }))`), directly or inside `Buffer.from(...)`; x's types as for `nestjs-client-data-type`, with an array method's callback parameter and `rs[0]` carrying what `rs` carries. A value written another way, or typed `any`, counts in `payload_types_unresolved` |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-kafka-message-value-type` | resolved | a Go Kafka message (kafka-go `Message`, sarama `ProducerMessage`, confluent-kafka-go `Message` around its `TopicPartition`) whose `Value` is `b` after `b, err := json.Marshal(v)`, read through conversions such as `sarama.ByteEncoder(b)`; go/types gives v's named type and declaration. A slice or pointer is read through to its element (`[]Order` carries `Order`, with nothing on the edge marking a list). A v whose static type is an interface is encoded as its dynamic type, which is not known: it counts in `payload_types_unresolved`. `b` must be assigned once, so `var b []byte; b, _ = json.Marshal(v)` is not read |
 
 The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
 name written in such a type, through imports, re-exports and the project's
@@ -5910,6 +6029,13 @@ of the selected snapshot with:
 Snapshots store the evidence type and rule ID, not the rule text. The description
 comes from the rules registered by the installed version, which is why
 `rule_status` is reported. An unknown `edge_id` gives status `not_found`.
+
+Every stored node also carries the label `GraphNode`. It holds the identity
+constraint on (`repo_url`, `snapshot_id`, `qualified_name`) across all node
+kinds and the index that edge writes and whole-snapshot reads match on: Neo4j
+constraints and indexes are per label, and the label set is open. It says
+nothing about the node, so the labels that answers list (nodes returned by
+Cypher, impact dependents, edge endpoints, snapshot diffs) leave it out.
 
 ## Provision and use
 
