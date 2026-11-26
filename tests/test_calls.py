@@ -23,6 +23,7 @@ from deepthought.calls import (
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     CALL_TS_COMPILER_EXPORT,
+    CALL_TS_EXPORT_CONFLICT,
     PYTHON_CALL_SELF_INHERITED,
     PYTHON_CALL_ATTRIBUTE_RECEIVER,
     PYTHON_CALL_RESULT_RECEIVER,
@@ -1520,9 +1521,10 @@ class TypeScriptCallTests(unittest.TestCase):
         found = links(result)
         for line, callee, target, rule in (
             (5, "a.route", "base.ts::Hono.route", CALL_JS_TYPED_RECEIVER),
-            (5, "help", "base.ts::helper", CALL_IMPORTED_NAME),
+            # base.ts exports `help` twice, which the language rejects.
+            (5, "help", "base.ts::helper", CALL_TS_EXPORT_CONFLICT),
             (5, "HonoBase", "base.ts::Hono", CALL_IMPORTED_NAME),
-            (6, "m.help", "base.ts::helper", CALL_MODULE_ATTRIBUTE),
+            (6, "m.help", "base.ts::helper", CALL_TS_EXPORT_CONFLICT),
             (6, "HonoBase.make", "base.ts::Hono.make", CALL_JS_STATIC_METHOD),
             (6, "again", "base.ts::helper", CALL_IMPORTED_NAME),
         ):
@@ -1533,7 +1535,8 @@ class TypeScriptCallTests(unittest.TestCase):
         # A name declared and also exported for another declaration is an
         # error the compiler reports; it binds the later export clause.
         self.assertEqual(
-            found[("main.ts", 6, "both")][:2], ("linked", "base.ts::other")
+            found[("main.ts", 6, "both")],
+            ("linked", "base.ts::other", CALL_TS_EXPORT_CONFLICT, None),
         )
         # relay.ts imports `helper`, which base.ts exports only under other
         # names, so the compiler binds nothing for `relayed`.
@@ -1587,17 +1590,17 @@ class TypeScriptCallTests(unittest.TestCase):
             "typescript",
         )
         found = links(result)
-        for callee, target in (
-            ("render", "src/render.ts::render"),
-            ("r", "src/render.ts::render"),
-            ("hydrate", "src/render.ts::hydrate"),
-            ("dflt", "src/render.ts::render"),
-            ("idx.render", "src/render.ts::render"),
+        for callee, target, rule in (
+            # src/index.ts exports `render` twice, which the language rejects.
+            ("render", "src/render.ts::render", CALL_TS_EXPORT_CONFLICT),
+            ("r", "src/render.ts::render", CALL_TS_COMPILER_EXPORT),
+            ("hydrate", "src/render.ts::hydrate", CALL_TS_COMPILER_EXPORT),
+            ("dflt", "src/render.ts::render", CALL_TS_COMPILER_EXPORT),
+            ("idx.render", "src/render.ts::render", CALL_TS_EXPORT_CONFLICT),
         ):
             with self.subTest(callee=callee):
                 self.assertEqual(
-                    found[("main.ts", 4, callee)],
-                    ("linked", target, CALL_TS_COMPILER_EXPORT, None),
+                    found[("main.ts", 4, callee)], ("linked", target, rule, None)
                 )
         # A namespace exported again is not followed, and an import that is
         # not exported again exports nothing.
