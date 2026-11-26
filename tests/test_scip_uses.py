@@ -28,6 +28,10 @@ def update(item: Item):
     item.price += 1
     handler(item)
     return item.price
+
+
+class Special(Item):
+    pass
 """
 
 GO = """\
@@ -113,6 +117,9 @@ class PythonUsesTest(unittest.TestCase):
             )
             self.assertEqual(edges[("READS_FIELD", "update", "Item.price")]["sites"], 1)
             self.assertIn(("CONTAINS", "Item", "Item.price"), edges)
+            # A named base is the INHERITS_FROM edge's, not a type use.
+            self.assertNotIn(("USES_TYPE", "Special", "Item"), edges)
+            self.assertNotIn(("USES_TYPE", "shop.py", "Item"), edges)
             self.assertEqual(output.metadata.custom_metrics["scip_fields"], 1)
 
 

@@ -232,8 +232,9 @@ Code also couples through names it does not call: a type in an annotation,
 conversion or `isinstance`, a function passed as a value (a handler, a
 callback, an entry in a lookup table), a field read or written. In a file a
 SCIP index covers, every reference that is not at a call's name, not in an
-import statement and not a declaration's own name (scip-python records a
-redefinition as a reference) becomes a use edge
+import statement, not a base a class declaration names (its INHERITS_FROM
+edge) and not a declaration's own name (scip-python records a redefinition as
+a reference) becomes a use edge
 (`deepthought.scip_uses`), from the innermost parsed declaration around it
 (or its file), all `resolved`:
 

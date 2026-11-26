@@ -21,7 +21,8 @@ mark every reference ``ReadAccess`` or nothing): the target of an assignment,
 augmented assignment, ``++``/``--``, ``del``, or a Go keyed composite literal
 element. Uses of one kind from one source to one target are one edge, with
 the first site and the number of sites. References in import statements are
-left to the import edges, and local variables have no declaration to link.
+left to the import edges, the bases a class declaration names to its
+INHERITS_FROM edges, and local variables have no declaration to link.
 """
 
 import re
@@ -235,6 +236,12 @@ def bind_uses(result: AnalysisResult, indexes, root):
     imports = defaultdict(list)
     for item in result.imports:
         imports[item.file].append((item.line, item.end_line))
+    # A base a class declaration names is its INHERITS_FROM edge's.
+    bases = defaultdict(list)
+    for base in result.supertypes:
+        bases[base.file].append(
+            ((base.line, base.column), (base.end_line, base.end_column))
+        )
 
     def innermost(file, line, column, kinds=None):
         point = (line, column)
@@ -293,6 +300,11 @@ def bind_uses(result: AnalysisResult, indexes, root):
             if any(
                 start <= reference.line <= end
                 for start, end in imports.get(reference.file, ())
+            ):
+                continue
+            if any(
+                start <= (reference.line, column) < end
+                for start, end in bases.get(reference.file, ())
             ):
                 continue
             declared = view.definitions.get(

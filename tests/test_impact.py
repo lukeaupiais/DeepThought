@@ -298,7 +298,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1024
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1088
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
