@@ -290,6 +290,40 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.rows(files), [("app.py", 1, "name_matched", ["IMPORTS"])])
 
+    async def test_answers_say_which_named_files_changed_since(self):
+        repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in SOURCES.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            service = GraphQueryService(
+                self.manager.driver, database=self.manager.database, workspace=directory
+            )
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            self.assertEqual(impact["freshness"]["status"], "current")
+            self.assertGreater(impact["freshness"]["files_checked"], 0)
+            edited, removed = sorted(SOURCES)[:2]
+            (Path(directory) / edited).write_text(SOURCES[edited] + "\n# edited\n")
+            (Path(directory) / removed).unlink()
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            named = {
+                item["element"]["file_path"] or item["element"]["path"]
+                for item in impact["items"]
+            }
+            freshness = impact["freshness"]
+            self.assertEqual(freshness["status"], "changed")
+            self.assertEqual(set(freshness.get("changed_files", [])), {edited} & named)
+            self.assertEqual(set(freshness.get("missing_files", [])), {removed} & named)
+        # Without a workspace nothing is checked, and answers say nothing.
+        plain = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+        self.assertNotIn("freshness", plain)
+
     async def test_bounds_and_budget(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
         for depth in (0, 6, "3"):
