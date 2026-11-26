@@ -310,6 +310,23 @@ class DependencyTests(unittest.TestCase):
             [("g", "get_db", "app/main.py:4")],
         )
 
+    def test_files_python_cannot_parse_are_reported(self):
+        metadata = analyze(SOURCES, None).metadata
+        python = "{}.{}".format(*sys.version_info[:2])
+        self.assertEqual(
+            metadata.custom_metrics["python_ast_unparsed"],
+            {"python": python, "files": ["app/broken.py"]},
+        )
+        warnings = [w for w in metadata.warnings if "python_ast_unparsed" in w]
+        self.assertEqual(len(warnings), 1)
+        self.assertTrue(
+            warnings[0].startswith(
+                f"python_ast_unparsed: app/broken.py: Python {python}'s ast cannot "
+                "parse it (invalid syntax"
+            ),
+            warnings[0],
+        )
+
     def test_nothing_is_linked_without_an_index(self):
         # Without the index, Depends is not known to be FastAPI's.
         self.assertEqual(edges(analyze(SOURCES, None)), [])
