@@ -142,3 +142,44 @@ class PythonMountTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SETTINGS_PREFIX = {
+    # The full-stack-fastapi-template layout: the API prefix is a setting.
+    "backend/app/main.py": """
+from fastapi import FastAPI
+from app.api.main import api_router
+from app.core.config import settings
+
+app = FastAPI()
+app.include_router(api_router, prefix=settings.API_V1_STR)
+""",
+    "backend/app/__init__.py": "",
+    "backend/app/api/__init__.py": "",
+    "backend/app/api/main.py": """
+from fastapi import APIRouter
+
+api_router = APIRouter()
+
+@api_router.get("/items/{id}")
+def item(id: int):
+    pass
+""",
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter-python is not installed")
+class UnknownPrefixTests(unittest.TestCase):
+    def test_a_prefix_the_code_does_not_fix_keeps_the_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, text in SETTINGS_PREFIX.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+        _, routes, _, _, _ = tool.last_facts
+        self.assertEqual(
+            [(r.path, r.base_unknown) for r in routes], [("/items/{id}", True)]
+        )
