@@ -283,7 +283,8 @@ class IndexersTest(unittest.TestCase):
         (self.root / "svc" / "testdata" / "go.mod").write_text("module fixture\n")
         (self.root / "tools").mkdir()
         (self.root / "tools" / "gen.go").write_text("package tools\n")
-        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc"])
+        # The testdata module holds no Go file, so it gets no run.
+        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc", "svc/testdata"])
         self.fake("scip-go")
         report = indexers.index_workspace(
             self.root,
@@ -291,7 +292,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="lib.go,main.go",
             ),
         )
@@ -323,7 +324,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="main.go,term_windows.go",
             ),
         )
@@ -389,6 +390,16 @@ class IndexersTest(unittest.TestCase):
 
         self.assertEqual(build(["a.go", "b.go"]), build(["b.go", "a.go"]))
 
+    def test_canonical_bytes_do_not_depend_on_the_indexer_arguments(self):
+        # scip-go 0.2 records its arguments, with the scratch output path.
+        def build(output):
+            index = scip_pb2.Index()
+            index.metadata.tool_info.name = "scip-go"
+            index.metadata.tool_info.arguments.extend(["index", "--output", output])
+            return indexers.canonical_bytes(index)
+
+        self.assertEqual(build("/tmp/one/index.scip"), build("/tmp/two/index.scip"))
+
     def test_scip_tool_composes_indexes_of_several_languages(self):
         import asyncio
 
@@ -410,7 +421,7 @@ class IndexersTest(unittest.TestCase):
             self.root,
             self.out / "go.scip",
             environ=self.environ(
-                FAKE_NAME="scip-go", FAKE_VERSION="0.1.26", FAKE_DOCUMENTS="main.go"
+                FAKE_NAME="scip-go", FAKE_VERSION="0.2.7", FAKE_DOCUMENTS="main.go"
             ),
         )
         self.assertEqual((python.status, go.status), ("indexed", "indexed"))
@@ -433,6 +444,40 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(producers, ["scip-python", "scip-go"])
         only_go = asyncio.run(tool.analyze("repo", languages={"go"}))
         self.assertEqual(only_go.metadata.files_processed, 1)
+
+    def test_scip_tool_reads_a_whole_index_and_names_an_unreadable_one(self):
+        import asyncio
+        from unittest import mock
+
+        from deepthought import scip
+        from deepthought.analysis_tools import scip as tool_module
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        self.fake("scip-python")
+        self.out.mkdir()
+        python = indexers.run_indexer(
+            indexers.INDEXERS["scip-python"],
+            self.root,
+            self.out / "py.scip",
+            environ=self.environ(FAKE_DOCUMENTS="src/pkg/a.py"),
+        )
+        tool = ScipAnalysisTool(self.root, index_paths=[python.index])
+
+        # An index bigger than ingest_scip's default cap (lobe-chat's 80 MB
+        # against 50 MB): the default is shrunk so this small index exceeds it.
+        def capped(path, max_index_bytes=10, **kwargs):
+            return scip.ingest_scip(path, max_index_bytes=max_index_bytes, **kwargs)
+
+        with mock.patch.object(tool_module, "ingest_scip", capped):
+            output = asyncio.run(tool.analyze("repo"))
+        self.assertEqual(output.metadata.files_processed, 1)
+
+        def unreadable(path, **kwargs):
+            return scip.ingest_scip(path, **{**kwargs, "max_index_bytes": 1})
+
+        with mock.patch.object(tool_module, "ingest_scip", unreadable):
+            with self.assertRaisesRegex(ValueError, "exceeds max_index_bytes"):
+                asyncio.run(tool.analyze("repo"))
 
     def test_cli_exits_nonzero_when_files_are_uncovered(self):
         env = {**os.environ, "PYTHONPATH": str(SRC), "PATH": ""}

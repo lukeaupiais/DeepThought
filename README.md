@@ -234,6 +234,19 @@ Cancellation is cooperative between reads. This SDK operation introduces no new
 mandatory dependency or changes to analysis/graph artifact schemas.
 
 
+### What an edit breaks (CLI)
+
+```sh
+deepthought check-edit ./workspace ./change.diff
+```
+
+Applies the unified diff to a scratch copy, runs the edited languages' own
+type checkers (Go, `tsc`, pyright) on the workspace before and after, and
+prints each new diagnostic at its unedited line with the declaration that
+holds it. Exit codes: **0** nothing breaks, **1** breaks, **3** a check could
+not run, **2** invalid input. See "What an edit breaks" in
+`docs/graph-port.md`.
+
 ### Recorded source consistency (CLI)
 
 ```sh
