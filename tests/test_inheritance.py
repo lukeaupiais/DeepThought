@@ -17,6 +17,7 @@ from deepthought.inheritance import (
     resolve_supertypes,
 )
 from deepthought.models import AnalysisResult
+from deepthought.scip_bases import SCIP_TYPESCRIPT_BASE
 
 READY = {
     language: importlib.util.find_spec("tree_sitter")
@@ -275,8 +276,8 @@ class InheritanceToolTests(unittest.TestCase):
                     "extends",
                     "Base",
                     2,
-                    "name_matched",
-                    BASE_IMPORTED_NAME,
+                    "resolved",
+                    SCIP_TYPESCRIPT_BASE,
                 ),
                 (
                     "A",
@@ -285,14 +286,15 @@ class InheritanceToolTests(unittest.TestCase):
                     "implements",
                     "Shape",
                     2,
-                    "name_matched",
-                    BASE_IMPORTED_NAME,
+                    "resolved",
+                    SCIP_TYPESCRIPT_BASE,
                 ),
             ],
         )
+        # Error is declared by TypeScript's own library, not the repository.
         self.assertEqual(
             output.metadata.custom_metrics["supertype_resolution"],
-            {"linked": 2, "unresolved:unbound_name": 1},
+            {"linked": 2, "unresolved:scip_external": 1},
         )
         rules = registered_rules()
         for rule_id in (BASE_LEXICAL_NAME, BASE_IMPORTED_NAME, BASE_MODULE_ATTRIBUTE):
