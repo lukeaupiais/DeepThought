@@ -118,7 +118,7 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
 | `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
 | `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead. When `pkg/__init__.py` neither declares nor imports `x`, calls and bases read `x` as that module (`x.f()`) |
-| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
+| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources, `.mjs` to `.mts`/`.d.mts` and `.cjs` to `.cts`/`.d.cts` (`.mts` and `.cts` files are TypeScript); when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
 | `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
 | `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
 | `tree-sitter.typescript-path-alias` | resolved | a TypeScript file's bare specifier matching a `compilerOptions.paths` pattern of the nearest `tsconfig.json` (else `jsconfig.json` in the same directory): an exact pattern, else the wildcard pattern with the longest prefix; each target, below `baseUrl` or the config's directory, is tried in TypeScript's order (TypeScript extensions on the file, then the directory's `package.json` `typings`, `types` and `main`, then `index.*`; then the same with JavaScript extensions); the first target that reaches an analyzed file wins. A nearer config without `paths` shadows a farther one; a config that `extends` another without settling `paths` and `baseUrl` itself leaves the specifier unresolved (`path_alias_inherited`), as does one that is not JSON with comments (`script_config_unreadable`); `include`, `exclude`, `references`, `exports` and `baseUrl` without `paths` are not read |
@@ -394,7 +394,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE, USES_DEPENDENCY and REQUESTS, and
+  forwards over HANDLES. A test reaches the code its pytest fixtures call
+  (see "pytest fixtures"), and an endpoint the FastAPI dependencies it
+  injects (see "FastAPI dependencies"). A Go
   interface method DISPATCHES_TO each implementation (see "Interface
   implementations"), so a changed implementation reaches the interface
   method and its callers, but not the other implementations. A route a changed
@@ -538,6 +541,29 @@ one the graph cannot hold as a call (the function assigned as a default
 value in `Hono`'s constructor, now of the wrong type). The compiler side
 covers value uses and type errors; the graph side covers callers past the
 first break, other languages and other services.
+
+### Answers against the working copy
+
+A graph answer describes one snapshot, so after an edit its lines can point at
+code that has since moved. When `GraphQueryService` is given the workspace the
+snapshot came from (`workspace=`; `DEEPTHOUGHT_WORKSPACE` for the CLI and the
+MCP server), every snapshot answer, raw Cypher included, carries `freshness`.
+It covers the files the answer names under `file_path`, `path` or `file`, at
+any depth, also as a raw query's unaliased column such as `f.path`:
+
+- `current`: each named analyzed file still has the bytes the snapshot
+  recorded (`File.file_sha256`);
+- `changed`: `changed_files` were edited and `missing_files` are gone since
+  the snapshot, so re-read those or re-index;
+- `unverified`: the answer names no analyzed file it can read in the
+  workspace. A file whose real path leaves the workspace (a symlink out of it)
+  is not read and not counted.
+
+`files_checked` counts the files compared. At most 500 files are checked and
+20 of each kind are listed per answer; `files_listed_truncated` says when the
+lists were cut. Digests are cached by size and modification time, so an edit
+that keeps both (`cp -p`, an archive restore) reads as unchanged. Without a
+workspace, answers carry no `freshness`.
 
 ## Components
 
@@ -946,6 +972,101 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### pytest fixtures
+
+pytest hands a test the fixtures its parameters name, so the test depends on
+them without calling them (`deepthought.pytest_fixtures`). Each test function
+(`test*`), test method (`test*` in a class named `Test*`) and fixture in a
+test module (`test_*.py`, `*_test.py`) or `conftest.py` has a USES_FIXTURE
+edge to each fixture it requests, with the `line` and `name` written:
+
+| Rule | Links |
+|---|---|
+| `pytest.fixture-parameter` | a parameter without a default value (after a method's `self`) to the fixture of that name |
+| `pytest.fixture-usefixtures` | a string in `@pytest.mark.usefixtures(...)` on a test or test class to the fixture of that name |
+| `pytest.fixture-autouse` | a test, at its `def` line, to each `autouse=True` fixture it sees and does not request by name |
+
+A fixture is a function decorated `@pytest.fixture` or
+`@pytest_asyncio.fixture` (or `fixture` imported from either), named by its
+`name=` argument when that is a string. A name is looked up as pytest looks
+it up: the test's class, its module, then `conftest.py` in the module's
+directory and each directory above it, nearest first; a fixture requesting
+its own name gets the one it overrides. A parameter that
+`@pytest.mark.parametrize` on the test or its class gives values directly
+(not `indirect`) requests no fixture. All three rules are `pattern_matched`.
+This is a rule over the source read with Python's `ast`, because pytest's
+own listing (`--fixtures-per-test`) imports the project and runs its
+plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
+`getfixturevalue`, fixtures inherited from a test class's base classes,
+and `python_files` or `python_functions` settings in
+configuration are not read, and neither is a file the running Python's
+`ast` cannot parse; each such file is named in the analysis warnings
+(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
+a change to code a fixture calls reaches every test that requests it.
+
+### FastAPI dependencies
+
+`Depends(get_db)` and `Security(auth)` hand FastAPI a function or class to
+call when an endpoint runs, so the endpoint depends on it without calling it
+(`deepthought.fastapi_dependencies`). Each such use is a USES_DEPENDENCY
+edge to the dependency, with the `line` and UTF-8 byte `column` where it is
+written, its `name`, the `injector` (`Depends` or `Security`), and the
+indexer that resolved it (`producer`, `receipt`):
+
+| Rule | Links |
+|---|---|
+| `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
+
+Both ends come from the scip-python index, so the rule is `resolved`. The
+call counts only when the index resolves its callee to FastAPI's own
+`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+first argument or `dependency=`. For a `Depends()` with neither, it is what
+FastAPI calls: the parameter's annotation, or the `T` of
+`Annotated[T, Depends()]`. It is linked only when the index resolves that
+name to exactly one parsed declaration. The declaration that depends on it
+is the function whose parameters or decorators (`dependencies=[...]`) hold
+the call, else the innermost function around the call, else the file (an
+app or router made with `dependencies=[...]`). Python's `ast` reads only that
+placement; FastAPI itself is never imported or run. `get_impact` follows
+USES_DEPENDENCY backwards, so a changed dependency reaches its endpoints.
+
+A type alias of `Annotated[T, Depends(f)]` (`SessionDep = Annotated[Session,
+Depends(get_db)]`, at module, class or function level, or a `type`
+statement) injects `f` wherever a parameter is annotated with it. The index
+resolves the annotation to the alias's definition, and the function holding
+the parameter gets the edge, at the place the alias is written, with `alias`
+set to the `file:line` that defines the alias. The alias line itself is not
+a use.
+
+Not read: a dependency given as an instance (`Security(scheme)` with
+`scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
+at run time (`Depends(make_dependency())`, a loop variable); an alias of an
+alias, or an alias written inside another annotation
+(`Optional[SessionDep]`); files no scip-python index covers; and files the
+running Python's `ast` cannot parse, such as Python 3.14's
+`except A, B:` read by an older interpreter. Each such file is named in the
+analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
+interpreter version, in the `python_ast_unparsed` metric; the same applies to
+pytest fixtures.
+
+On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
+come through aliases, 21 are on an app or router, and 14 are `Depends()`
+calls of the parameter's type. A text search for `Depends(`/`Security(` with
+a plain name finds 475 sites. The ones not linked are instances (security
+schemes), dependencies built at run time, and examples inside docstrings.
+Samples of 15 direct links and 8 alias links, checked against the source,
+were all correct. On the full-stack-fastapi-template backend (77e550a) 39
+uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
+their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
+injects an instance and is not linked. That template's `app/api/deps.py`
+uses Python 3.14 syntax, so this was measured with its one `except A, B:`
+line parenthesised; under an older interpreter the aliases there are not
+read.
+`tools/check_impact.py` matches on every compared seed: 117 of 117 (136
+dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
+`docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
+output budget not compared) over the whole template backend.
 
 ### Interface implementations
 
@@ -2841,6 +2962,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`); a file with no manifest above it, or under a `go.mod` that holds more than one `package main` directory, has no known project and excludes nothing |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
+| `service-contracts.http-path-unknown-base` (`openapi-client-`, `openapi-feign-client-`, `locust-host-`, `oapi-codegen-client-` and `orval-client-` variants as above) | pattern_matched | no candidate fits the request's whole path, and the route is declared under a base written as text the source does not fix (a FastAPI prefix from settings, Go's `baseUrl + "/cart"`, an Express mount path in a variable), so its path is stored without that base. An ASP.NET route on a builder the reader could not follow (an `app` parameter) also has `base_unknown`, but that builder may add nothing, so it does not take part. The request's path fits the route once one or more leading literal segments, taken as that base, are skipped: the fewest skipped segments that fit any route win, the rest of the path must fix some text, and a route with no literal segment (`/{id}`) never takes part. A client calling `/api/v1/items/7` reaches FastAPI's `@router.get("/items/{id}")` under `settings.API_V1_STR`. Not for a request forwarded by a gateway, nor for one with a literal host, which names its server: only a relative path, or one under an unknown base of its own, takes part. Requests to routes of one mount are not yet required to skip the same text, so `/other-service/v1/items/3` reaches a route that `/api/v1/items/7` also reaches |
 
 The URL's path is compared segment by segment with each candidate's
 template, and the method must be accepted. A literal segment equal to a route
@@ -3439,6 +3561,10 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser`, or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
 
@@ -3462,6 +3588,33 @@ repository has its edge. The types not linked are of
 `prisma-examples`, whose models come from the generated client outside the
 repository, and of `travel_booking_microservice`, whose DTOs come from the
 `building-blocks` workspace package, which only an install links.
+
+For Go, the type checker (`gofacts`, `go/types`) gives, for each such
+call in the handler's own body, the package and receiver declaring the
+method, so a method of another type with the same name is not read, and
+the named type of the argument through pointers, slices and arrays with its
+declaration's position, which is the tree-sitter Symbol the edge ends at.
+A decoder or encoder held in a variable counts when the handler assigns
+it once from `json.NewDecoder(r.Body)` or `json.NewEncoder(w)`. Calls in
+functions the handler calls are not followed, and a type declared in a
+library (`gin.H`, `map[string]any`) gives no edge.
+
+For Python, the scip-python index of the run (`ScipReferences`) resolves
+every name written in a FastAPI handler's annotations, so a model imported
+under another name or through a module (`schemas.Order`) reaches its
+class. Which parameter is the body follows FastAPI's own reading, told by
+the SCIP symbols of the packages: a parameter marked `Depends`,
+`Security`, `Query`, `Path`, `Header` or `Cookie` (as its default or in
+`Annotated` metadata) is not, an enum or plain class is a query
+parameter, and a model class is the body. `Annotated[T, ...]` gives T and
+other subscripts are read through (`list[Order]`, `Page[Order]`). The
+markers and the model bases resolve only when the indexer ran with the
+application's dependencies installed (the engine installs them from its
+requirements or project file); without them, or without an index, a
+parameter that cannot be told and every name the index records no
+reference for count in `payload_types_unresolved`, and nothing is guessed.
+The `graph` command hands the indexes it ingested once to the
+`service-contracts` and `data-contracts` tools as well as `tree-sitter`.
 
 ### Gateways
 
@@ -5597,6 +5750,32 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+
+`queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
+or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
+short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`
+(with its kind, such as `class` or `type alias`, unless it is a function or
+method),
+a link as `A (a.go:10) calls B (b.go:4) at line 12` from the verb its type has
+in `RELATIONSHIP_SENTENCES` (`storage/graph/schema.py`), a path as
+`A (a.go:3) calls B (b.go:8) at line 4, which calls C (c.go:2) at line 9`
+(each item placed on its first mention, since a hop's line is in the calling
+item's file), and other values as `name value` under the column name the query
+chose. A column that is null in every row is said once (`signature none`); a
+null in some rows only is left out of those rows. A link's evidence is shown
+only when it is below `resolved` (`[name matched]`, `[pattern matched]`); its
+rule id, a node's qualified name and its storage keys are left out, and JSON
+rows (`format: "json"`, which keep their MCP structured content) still carry
+them. What every row shares is
+said once, repeating leading values become headings, rows that differ only in
+a number merge (`at lines 195, 209`), and rows in test files follow under
+`In tests:`. The text opens with the row count and whether the limit cut it, and
+closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
+the link families and languages in the result. Link ends a query did not
+return are looked up, and coverage is read, without journaling either as a
+query. The byte budget applies to the text. `tools/check_result_text.py` runs
+queries in both forms on a dedicated database and reports any fact the text
+lost.
 
 ## Verification and validation
 
