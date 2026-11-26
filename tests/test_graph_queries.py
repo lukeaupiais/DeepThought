@@ -13,7 +13,7 @@ from deepthought.analysis_tools.contracts import (
     StandardizedOutput,
     ToolExecutionMetadata,
 )
-from deepthought.graph_queries import GraphQueryService, _bounds
+from deepthought.graph_queries import GraphQueryService, _bounds, _cypher_code
 
 from evidence_fixtures import FIXTURE_EVIDENCE
 
@@ -29,6 +29,51 @@ class QueryInputTests(unittest.TestCase):
         ]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 _bounds(*args)
+
+    def test_cypher_guard_reads_only_the_query_code(self):
+        reads = []
+
+        class Recording(GraphQueryService):
+            async def _read(self, query, parameters, *args, **kwargs):
+                reads.append(query)
+                return {"status": "succeeded"}
+
+        service = Recording(None)
+
+        def run(query):
+            return asyncio.run(
+                service.query_cypher(
+                    query, {}, "repo", snapshot_id="s", allow_database_scope=True
+                )
+            )
+
+        for query in [
+            'MATCH (s:Symbol) WHERE s.name = "use" RETURN s',
+            "MATCH (s:Symbol {name: 'Start'}) RETURN s",
+            'MATCH (f:File) WHERE f.path ENDS WITH "delete.go" RETURN f',
+            'MATCH (s) WHERE s.name CONTAINS "Set" RETURN s',
+            'RETURN "a;b" AS text',
+            'RETURN "say \\"call\\" twice" AS text',
+            "MATCH (n:`CALL`) RETURN n",
+            "MATCH (n) // set the scene\nRETURN n",
+            "MATCH (n) /* DELETE */ RETURN n",
+        ]:
+            with self.subTest(query=query):
+                self.assertEqual(run(query), {"status": "succeeded"})
+        self.assertEqual(len(reads), 9)
+        for query in [
+            "MATCH (n) DELETE n",
+            "MATCH (n) SET n.bad = true RETURN n",
+            "RETURN 1; RETURN 2",
+            "CALL db.labels()",
+            'RETURN "unterminated',
+            "MATCH (n) /* open comment RETURN n",
+            'MATCH (n) WHERE n.name = "x" DELETE n',
+        ]:
+            with self.subTest(query=query), self.assertRaises(ValueError):
+                run(query)
+        self.assertEqual(len(reads), 9)
+        self.assertEqual(_cypher_code("RETURN 'x' AS y"), "RETURN     AS y")
 
 
 @unittest.skipUnless(
