@@ -443,6 +443,67 @@ tool's own output that never reads Neo4j. Every compared seed matched exactly
 dependents). 7 and 12 seeds with more than 100 dependents or 64 KB of output
 were truncated and not compared.
 
+### What an edit breaks
+
+`deepthought check-edit WORKSPACE DIFF` (`edit_check.check_edit`) answers
+what a proposed edit breaks from the language's own type checker, not from
+the graph. Missing in both the original and the port until now. The unified
+diff is applied with `git apply` to a scratch copy, and the checker of each
+edited language runs on an unedited copy and on the edited one:
+
+- Go: `gocheck/main.go` type-checks every package of each module that holds
+  an edited file (and each workspace module whose go.mod requires one of
+  them), with its tests, from source with go/types, after downloading the
+  module's dependencies through a copy of its go.mod. `go build` and `go vet`
+  stop at a package with errors and never check its importers or its tests,
+  so an edit that breaks a caller in its own package would hide every other
+  break; go/types returns the package as far as it typed it and importers are
+  checked against that. Go files in directories no build reads (`_examples`)
+  are listed in `unchecked_files`.
+- TypeScript and JavaScript: `tsc --noEmit` of the nearest tsconfig.json of
+  each edited file (a solution file's references instead) and of every
+  project that references one of those, through a wrapper config beside the
+  project that extends it. The compiler is the project's installed
+  typescript, else its locked or declared release installed into the cache
+  with `npm install --ignore-scripts` (`DEEPTHOUGHT_TYPESCRIPT` overrides).
+  A `compilerOptions.types` entry that is not installed would stop tsc
+  before it checks any file, so it is left out and named in the check's
+  `notes`. A package the project's `extends` chain names that is not
+  installed is installed into the cache and linked into the scratch copy.
+  An error in a config file stops tsc before it checks any file, so it fails
+  the check.
+- Python: `pyright --outputjson` over every Python file under the nearest
+  project (pyrightconfig.json, pyproject.toml, setup.cfg or setup.py), else
+  the workspace, with the project's settings: a configured `include` often
+  leaves out tests and examples, which call the edited code too
+  (`DEEPTHOUGHT_PYRIGHT`, else `pyright` on PATH, else pyright 1.1.409
+  installed into the cache).
+
+A diagnostic only the edited copy has is a **break**, reported at its line in
+the unedited source with the innermost declaration that holds it (Tree-sitter,
+the same names as graph Symbols) or `(top level of file)`, so it can be
+joined to the graph by file and line. Diagnostics on lines the edit wrote are
+`edit_diagnostics`: mistakes in the edit, not code it breaks. Existing errors
+(missing dependencies, a broken file elsewhere) appear on both sides and
+cancel. A check that cannot run is `unavailable` or `failed` with its reason,
+and the report is then not `complete`; files in other languages are listed in
+`unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
+run, 2 invalid input or a diff that does not apply.
+
+Independent checks against compiler-derived call truth (verification): a
+parameter added to chi's `NewRouter` breaks 115 of 115 call sites (67 in the
+package and its tests, 48 in middleware), to ky's `cancelBody` 12 of 12, and
+a required keyword to click's `echo` 431, including the 400 in tests and
+examples outside its pyright include.
+
+Measured against the graph's CALLS on the A/B development corpora: adding a
+parameter to chi's `URLParam` breaks 47 call lines, the same 47 the graph
+links. Adding one to hono's `getPath` breaks the 62 linked call lines plus
+one the graph cannot hold as a call (the function assigned as a default
+value in `Hono`'s constructor, now of the wrong type). The compiler side
+covers value uses and type errors; the graph side covers callers past the
+first break, other languages and other services.
+
 ## Components
 
 The original service detector added weighted points for a Dockerfile (30), a
