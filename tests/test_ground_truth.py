@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from typescript_ready import needs_typescript
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -765,6 +766,7 @@ class UnknownCorpusTests(unittest.TestCase):
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter_typescript"), "the TypeScript grammar"
 )
+@needs_typescript
 class RouteTruthTests(unittest.TestCase):
     FILES = {
         "package.json": '{"name": "app"}',
