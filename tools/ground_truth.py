@@ -1455,10 +1455,12 @@ def score_scip_calls(corpus, workspace, cache, result, expected, examples=10):
     the same indexer derived checks the binding, not the indexer; the
     compile oracles (go_compile_truth.py, ts_compile_truth.py,
     py_check_truth.py) judge the indexer."""
-    from deepthought.scip_calls import bind_calls
+    # As TreeSitterTool binds them: pyright answers the Python calls the
+    # index gets wrong.
+    from deepthought.analysis_tools.tree_sitter import _bind
 
     indexes = engine_indexes(corpus, workspace, cache, scip_languages(corpus))
-    binding = bind_calls(result, indexes, workspace)
+    binding = _bind(result, indexes, workspace)
     report, samples = score(result, expected, examples, binding.resolutions)
     if "impact" in corpus:
         import impact_truth
@@ -2269,9 +2271,9 @@ def main(argv=None):
             # Calls bound from SCIP indexes of the workspace. Truth derived
             # from the same indexer checks the binding, not the indexer.
             import deepthought
-            from deepthought.scip_calls import bind_calls
+            from deepthought.analysis_tools.tree_sitter import _bind
 
-            binding = bind_calls(
+            binding = _bind(
                 result,
                 [
                     (deepthought.ingest_scip(path, repository_id="truth"), "-")

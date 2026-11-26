@@ -20,7 +20,9 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls, ts_modules
+from ..pyright_calls import PyrightDefinitions
 from ..scip_calls import bind_calls
+from ..edge_coverage import edge_coverage
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -579,9 +581,28 @@ CALL_RULES.update(
             "resolves to overload signatures (TypeScript overloads, Python "
             "@overload) links to the one implementation declared beside "
             "them; more than one leaves the call ambiguous.",
+            scip_calls.PYRIGHT_CALL_DEFINITION: "A Python call whose SCIP "
+            "target is one scip-python is known to get wrong, or that the "
+            "index records no occurrence for, links to the declaration "
+            "pinned pyright's go-to-definition gives for the callee's last "
+            "name.",
         }.items()
     }
 )
+
+
+def _bind(result, scip_indexes, root):
+    """Call bindings from the indexes, with pyright running for Python
+    calls when an index covers a Python file."""
+    python = any(
+        coverage.file.endswith((".py", ".pyi"))
+        for index, _ in scip_indexes
+        for coverage in index.coverage
+    )
+    if not python:
+        return bind_calls(result, scip_indexes, root)
+    with PyrightDefinitions(root) as pyright:
+        return bind_calls(result, scip_indexes, root, pyright)
 
 
 def _call_name(callee):
@@ -901,7 +922,7 @@ class TreeSitterTool(AnalysisTool):
         kinds = {d.id: d.kind for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
         call_counts, resolver_counts = {}, {}
-        binding = bind_calls(result, scip_indexes, self.repo_path)
+        binding = _bind(result, scip_indexes, self.repo_path)
         for resolution in binding.resolutions:
             producer = binding.producers.get(resolution.call_id)
             key = resolution.status + (
@@ -909,8 +930,8 @@ class TreeSitterTool(AnalysisTool):
             )
             call_counts[key] = call_counts.get(key, 0) + 1
             # Separately by who decided: the index (its "nothing here"
-            # included), the parser kept over a suspect index target, or the
-            # parser in a file no index covers.
+            # included), pyright for a Python call the index got wrong or
+            # missed, or the parser in a file no index covers.
             by_resolver = resolver_counts.setdefault(
                 binding.resolver(resolution.call_id), {}
             )
@@ -945,7 +966,7 @@ class TreeSitterTool(AnalysisTool):
                             "end_column": site.end_column,
                             "status": resolution.status,
                             # Which resolver left it unlinked, and why.
-                            "resolver": "tree-sitter" if producer is None else "scip",
+                            "resolver": binding.resolver(resolution.call_id),
                             **_produced(producer),
                             **(
                                 {"reason": resolution.reason}
@@ -1093,6 +1114,55 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[method], "Symbol"],
                     {"qualified_name": qualified[method], "repo_url": repo_url},
                     _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # Which families a deterministic resolver linked, per language: the
+        # index for the calls it decided, the TypeScript compiler for the
+        # imports it resolved or left unlinked and the calls bound through
+        # them, the parser's rules for the rest.
+        call_producers = {key: value[0] for key, value in binding.producers.items()}
+        for r in binding.resolutions:
+            # The index's own calls carry its rules, never these.
+            if r.call_id in binding.compiler_kept or (r.rule_id or "").startswith(
+                "typescript."
+            ):
+                call_producers[r.call_id] = ts_modules.TYPESCRIPT_TOOL
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                call_producers,
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                {
+                    r.import_id: ts_modules.TYPESCRIPT_TOOL
+                    for r in resolutions
+                    if r.reason in ts_modules.COMPILER_REASONS
+                    or any(
+                        link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                        for link in r.links
+                    )
+                },
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
                 )
             )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
