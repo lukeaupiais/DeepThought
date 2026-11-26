@@ -326,6 +326,26 @@ Checked against independent parsers:
 The TypeScript check finds each declaration by its UTF-16 name position, so it
 also confirms those positions.
 
+### Generated files
+
+A Tree-sitter File node that a generator wrote carries `generated_by`:
+- `linguist`: GitHub Linguist's rules, run by go-enry's port
+  (`enry.IsGenerated`, `deepthought.generated_files`). They read the file's
+  name and content: generator headers such as "Code generated ... DO NOT
+  EDIT.", protobuf, gRPC and Thrift outputs, minified or bundled JavaScript,
+  source maps and lock files.
+- `gitattributes`: the repository's own `linguist-generated` attribute, read
+  with `git check-attr` when the workspace is in a git work tree.
+
+An unset attribute (`-linguist-generated`) clears the rules' verdict, as it
+does on GitHub. Other files have no `generated_by`.
+
+The rules run in the `genfiles` Go program of the package. Its go.mod and
+go.sum pin go-enry, and its first build downloads that module into the module
+cache. An offline host installs it ahead, from that directory, with
+`GOBIN=<dir on PATH> go install .`, which names it `deepthought-genfiles`.
+`DEEPTHOUGHT_GENFILES` names another build.
+
 ### Indexer symbols and parsed declarations
 
 Tree-sitter File nodes carry `file_sha256`, the digest of the analyzed bytes
@@ -426,7 +446,8 @@ by path (`deepthought.source_roles`: directories such as `tests/`,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
 test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
 `FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
-unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+unclassified), and `generated` when the dependent's File has `generated_by`
+(see "Generated files"); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
 first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page

@@ -19,6 +19,7 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
+from ..generated_files import generated_files
 from .. import scip_calls
 from ..scip_calls import bind_calls
 from ..syntax import (
@@ -792,6 +793,21 @@ class TreeSitterTool(AnalysisTool):
         declared_packages = {
             item.file: {item.kind: item.name} for item in result.packages
         }
+        # Linguist's rules (and the repository's own linguist-generated
+        # attributes) say which files a generator wrote; nothing is parsed
+        # when the analysis failed.
+        generated = (
+            {}
+            if result.status == "failed"
+            else generated_files(
+                self.repo_path,
+                [
+                    c.file
+                    for c in result.coverage
+                    if c.status in {"analyzed", "partial"}
+                ],
+            )
+        )
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -812,6 +828,11 @@ class TreeSitterTool(AnalysisTool):
                             else {}
                         ),
                         **declared_packages.get(coverage.file, {}),
+                        **(
+                            {"generated_by": generated[coverage.file]}
+                            if coverage.file in generated
+                            else {}
+                        ),
                         **{
                             key: sorted(values)
                             for key, values in sorted(

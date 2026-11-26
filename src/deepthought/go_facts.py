@@ -320,20 +320,41 @@ def build(go, timeout=300, program="gofacts"):
     """(path of the ``program`` binary (a directory of this package holding
     main.go) for this source and toolchain, built into the cache directory
     when missing; the toolchain's GOROOT)."""
-    source = resources.files(__package__).joinpath(f"{program}/main.go").read_bytes()
+    directory = resources.files(__package__).joinpath(program)
+    source = directory.joinpath("main.go").read_bytes()
+    # A program with its own go.mod pins its dependencies there (go.sum
+    # holds their checksums); building it downloads them once into the
+    # module cache. Programs without one use the standard library only.
+    module = {
+        name: directory.joinpath(name).read_bytes()
+        for name in ("go.mod", "go.sum")
+        if directory.joinpath(name).is_file()
+    }
     environment = _environment(go)
+    if module:
+        for name in ("GOPROXY", "GOFLAGS"):
+            if name in os.environ:
+                environment[name] = os.environ[name]
+            else:
+                environment.pop(name, None)
+        environment["GOFLAGS"] = "-mod=readonly"
     info = _info(go)
     version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
-    key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
+    key = sha256(
+        source + b"".join(module.values()) + "\0".join(version[:3]).encode()
+    ).hexdigest()[:16]
     binary = _cache_directory() / f"{program}-{key}"
     if binary.is_file():
         return binary, version[3]
     binary.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"deepthought-{program}-") as scratch:
         (Path(scratch) / "main.go").write_bytes(source)
+        for name, content in module.items():
+            (Path(scratch) / name).write_bytes(content)
         output = Path(scratch) / program
         subprocess.run(
-            [go, "build", "-trimpath", "-o", str(output), "main.go"],
+            [go, "build", "-trimpath", "-o", str(output)]
+            + (["."] if module else ["main.go"]),
             cwd=scratch,
             capture_output=True,
             text=True,

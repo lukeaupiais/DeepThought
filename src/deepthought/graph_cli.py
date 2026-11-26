@@ -247,8 +247,8 @@ def parser():
             q.add_argument(
                 "--exclude-role",
                 action="append",
-                choices=("test", "example"),
-                help="Repeat to leave out dependents in tests or examples",
+                choices=("test", "example", "generated"),
+                help="Repeat to leave out dependents in tests, examples or generated files",
             )
         if name in {
             "callers",

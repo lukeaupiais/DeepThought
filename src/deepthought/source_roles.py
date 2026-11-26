@@ -56,6 +56,9 @@ ROLE_PATTERNS = {
     ),
     "example": _directories(_EXAMPLE_DIRECTORIES),
 }
+# A file a generator wrote, by Linguist's rules on its content (see
+# generated_files); it has no path pattern.
+GENERATED_ROLE = "generated"
 ROLES = frozenset(ROLE_PATTERNS)
 
 
@@ -81,6 +84,7 @@ def exclusion_pattern(roles):
     selected = sorted(set(roles))
     if not selected or not set(selected) <= ROLES:
         raise ValueError(
-            "exclude_roles must be a nonempty subset of " + ", ".join(sorted(ROLES))
+            "exclude_roles must be a nonempty subset of "
+            + ", ".join(sorted(ROLES | {GENERATED_ROLE}))
         )
     return "|".join(f"(?:{ROLE_PATTERNS[role]})" for role in selected)

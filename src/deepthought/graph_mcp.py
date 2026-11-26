@@ -144,7 +144,7 @@ def create_server():
         )
 
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
-    Roles = list[Literal["test", "example"]] | None
+    Roles = list[Literal["test", "example", "generated"]] | None
     ContractKind = (
         Literal[
             "DbColumn",
@@ -217,8 +217,9 @@ def create_server():
 
         Each dependent's ``impact`` is ``direct`` (depth 1: it uses the
         declaration itself, so a signature change may need an edit there) or
-        ``transitive`` (re-test it); ``source_roles`` marks tests and
-        examples, and ``exclude_roles`` leaves those roles out before paging.
+        ``transitive`` (re-test it); ``source_roles`` marks tests,
+        examples and generated files, and ``exclude_roles`` leaves those
+        roles out before paging.
         Each dependent's ``action`` says what the ``change`` needs of it: for
         a ``signature`` change, ``must_change`` at depth 1 and ``retest``
         deeper; for a ``behaviour`` change (body only), ``retest``.
@@ -310,7 +311,8 @@ def create_server():
 
         A truncated list continues with ``offset`` set to its ``next_offset``.
         Each file's ``impact`` is ``direct`` at depth 1, else ``transitive``;
-        ``exclude_roles`` leaves out tests or examples (``source_roles``).
+        ``exclude_roles`` leaves out tests, examples or generated files
+        (``source_roles``).
         """
         return await ctx.request_context.lifespan_context.get_file_impact(
             file_path,

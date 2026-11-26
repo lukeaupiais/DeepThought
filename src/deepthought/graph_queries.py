@@ -13,7 +13,7 @@ import time
 from hashlib import sha256
 
 from .components import PACKAGE_KINDS
-from .source_roles import ROLE_PATTERNS, exclusion_pattern
+from .source_roles import GENERATED_ROLE, ROLE_PATTERNS, exclusion_pattern
 
 # A query that is one identifier also finds members named by it.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
@@ -50,6 +50,15 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+# Whether a generator wrote the dependent's file: its File node carries
+# generated_by (see generated_files).
+_GENERATED_FILE = (
+    "EXISTS { MATCH (generated:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+    "WHERE generated.path = coalesce(dependent.file_path, dependent.path) "
+    "AND generated.generated_by IS NOT NULL }"
+)
 
 
 def _text(value, name):
@@ -901,7 +910,8 @@ class GraphQueryService:
         Each dependent is ``direct`` (depth 1: it uses the change itself, so
         it may need an edit) or ``transitive`` (deeper: its behaviour may
         change, so it needs re-testing), and lists its ``source_roles``
-        (``test``, ``example``; see ``source_roles``). ``exclude_roles``
+        (``test``, ``example``, and ``generated`` from the file's
+        ``generated_by``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
 
         Each dependent also has an ``action`` for the kind of ``change``:
@@ -1153,7 +1163,21 @@ class GraphQueryService:
         action=None,
     ):
         _text(subject, "subject")
-        exclude = exclusion_pattern(exclude_roles)
+        # "generated" is read from the dependent's File (generated_by, by
+        # Linguist's rules), not from its path like the other roles.
+        exclude_generated = isinstance(
+            exclude_roles, (list, tuple, set, frozenset)
+        ) and (GENERATED_ROLE in exclude_roles)
+        path_roles = (
+            [r for r in exclude_roles if r != GENERATED_ROLE]
+            if exclude_generated
+            else exclude_roles
+        )
+        exclude = (
+            None
+            if exclude_generated and not path_roles
+            else exclusion_pattern(path_roles)
+        )
         if type(offset) is not int or not 0 <= offset <= 100_000:
             raise ValueError("offset must be an integer from 0 to 100000")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
@@ -1177,6 +1201,7 @@ class GraphQueryService:
                 "WHERE NOT dependent IN changed "
                 "AND ($exclude IS NULL OR NOT "
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
+                "AND NOT ($exclude_generated AND GENERATED) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
                 "WITH root, dependent, target, path, "
@@ -1202,7 +1227,8 @@ class GraphQueryService:
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
                 "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
-                "=~ role.pattern | role.name] AS source_roles, "
+                "=~ role.pattern | role.name] + "
+                "CASE WHEN GENERATED THEN ['generated'] ELSE [] END AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
@@ -1212,6 +1238,7 @@ class GraphQueryService:
                 "SKIP $offset LIMIT $fetch_limit"
             )
             .replace("ACTION", _IMPACT_ACTIONS[action])
+            .replace("GENERATED", _GENERATED_FILE)
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1223,6 +1250,7 @@ class GraphQueryService:
                 "offset": offset,
                 "evidence": evidence,
                 "exclude": exclude,
+                "exclude_generated": exclude_generated,
                 "roles": [
                     {"name": name, "pattern": ROLE_PATTERNS[name]}
                     for name in sorted(ROLE_PATTERNS)
