@@ -987,6 +987,28 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+CARRIES_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-signature-carries-message",
+        "resolved",
+        "The Go type checker (go/types) reads the protobuf message types "
+        "(named types whose pointer has protoc-gen-go's ProtoReflect method) "
+        "that each linked Go stub call of a gRPC method passes or receives, "
+        "type arguments of generic stream types included; a Go function or "
+        "method whose parameter or result types are built from one of them "
+        "(through pointers, slices, arrays, maps, channels and type "
+        "arguments) carries that method's messages. Set only when every "
+        "linked client call and handler of the method is Go and fully "
+        "type-checked.",
+    )
+)
+
+# Rules of this tool's edges that are not contract sites (HANDLES,
+# REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
+# Contract coverage counts sites only, so these may be resolved.
+NON_SITE_RULES = frozenset({CARRIES_MESSAGE_RULE.rule_id})
+
+
 _BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
 
 
@@ -1746,6 +1768,76 @@ def _go_messaging_facts(root, sources):
             reason = None
         found[file] = (calls[file], literals[file], reason)
     return found, go_facts.gopath_report(facts)
+
+
+def _go_grpc_carriers(root, sources, grpc, definitions):
+    """({(service, method): message types}, [(definition id, (service,
+    method), carried types)]) from the Go type checker: the protobuf
+    messages each gRPC method's linked Go stub calls pass or receive, and
+    the Go functions whose signatures are built from them. A method gets
+    message types only when every linked client call of it is Go, in a
+    fully type-checked file, and matched to the checker's call, and every
+    handler of it is in such a file too. Without the
+    Go toolchain go_facts raises GoMissing."""
+    calls = {c.id: c for c in grpc.calls}
+    linked = defaultdict(list)
+    for resolution in grpc.resolutions:
+        if resolution.status == "linked":
+            linked[(resolution.service, resolution.method)].append(
+                calls[resolution.call_id]
+            )
+    if not any(c.file.endswith(".go") for found in linked.values() for c in found):
+        return {}, []
+    files = [
+        c.file for c, _, _ in sources if c.language == "go" and c.file.endswith(".go")
+    ]
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    unchecked = set(facts.uncovered) | set(facts.partial)
+    written = {}
+    for call in facts.calls:
+        if call.name_line is not None and call.messages:
+            written[(call.file, call.name_line, call.name_column, call.method)] = (
+                call.messages
+            )
+    messages = {}
+    for key, found in linked.items():
+        types = set()
+        for call in found:
+            carried = (
+                None
+                if not call.file.endswith(".go") or call.file in unchecked
+                else written.get((call.file, call.line, call.column, call.method))
+            )
+            if not carried:
+                break
+            types.update(carried)
+        else:
+            messages[key] = frozenset(types)
+    # A handler outside the checked Go files may carry the messages unseen.
+    files_of = {d.id: d.file for d in definitions}
+    for handler in grpc.handlers:
+        file = files_of.get(handler.handler_id, "")
+        if not file.endswith(".go") or file in unchecked:
+            messages.pop((handler.service, handler.method), None)
+    if not messages:
+        return {}, []
+    carriers_of = defaultdict(set)
+    for key, types in messages.items():
+        for t in types:
+            carriers_of[t].add(key)
+    at = defaultdict(list)
+    for d in definitions:
+        if d.file.endswith(".go") and d.kind in ("Function", "Method"):
+            at[(d.file, d.line)].append(d.id)
+    carriers = []
+    for signature in facts.signatures:
+        found = at.get((signature.file, signature.line), ())
+        if signature.file in unchecked or len(found) != 1:
+            continue
+        for key in sorted({k for t in signature.types for k in carriers_of[t]}):
+            carried = sorted(t for t in signature.types if t in messages[key])
+            carriers.append((found[0], key, carried))
+    return messages, carriers
 
 
 def _go_router_mounts(root, sources):
@@ -2514,6 +2606,9 @@ class ServiceContractTool(AnalysisTool):
             ),
             tests=frozenset(tests),
         )
+        grpc_messages, grpc_carriers = _go_grpc_carriers(
+            root, sources, grpc, result.definitions
+        )
         # An rpc's google.api.http option is an HTTP route the gRPC method
         # serves through grpc-gateway or Kratos.
         for binding in grpc.http_bindings:
@@ -2998,6 +3093,20 @@ class ServiceContractTool(AnalysisTool):
                             and declared[0].streaming
                             else {}
                         ),
+                        # The protobuf message types its Go clients pass
+                        # and receive (see CARRIES_MESSAGE).
+                        **(
+                            {
+                                "message_types": sorted(
+                                    f"{package}.{name}"
+                                    for package, name in grpc_messages[
+                                        (service, method)
+                                    ]
+                                )
+                            }
+                            if (service, method) in grpc_messages
+                            else {}
+                        ),
                     },
                 )
             )
@@ -3016,6 +3125,21 @@ class ServiceContractTool(AnalysisTool):
                     {
                         "line": handler.line,
                         **_evidence(GRPC_SERVER_RULES[handler.rule]),
+                    },
+                )
+            )
+        for definition_id, key, carried in grpc_carriers:
+            labels, source = symbol_node(definition_id)
+            relationships.append(
+                RelationshipData(
+                    "CARRIES_MESSAGE",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {"qualified_name": grpc_names[key], "repo_url": repo_url},
+                    {
+                        "message_types": [f"{p}.{n}" for p, n in carried],
+                        **_evidence(CARRIES_MESSAGE_RULE),
                     },
                 )
             )
@@ -3244,6 +3368,8 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
+                "grpc_methods_with_message_types": len(grpc_messages),
+                "grpc_message_carriers": len(grpc_carriers),
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
