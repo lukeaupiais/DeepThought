@@ -561,3 +561,190 @@ class JsconfigTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UntypedPackagesTest(unittest.TestCase):
+    def test_declared_packages_without_declarations_or_types(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            modules = {
+                "plain": {"name": "plain"},
+                "typed": {"name": "typed", "types": "index.d.ts"},
+                "exported": {"name": "exported", "exports": {".": {"types": "a.d.ts"}}},
+                "beside": {"name": "beside"},
+                "covered": {"name": "covered"},
+                "@scope/thing": {"name": "@scope/thing"},
+            }
+            files = {
+                f"node_modules/{name}/package.json": json.dumps(manifest)
+                for name, manifest in modules.items()
+            }
+            files["node_modules/beside/index.d.ts"] = "export {};\n"
+            files["node_modules/@types/covered/package.json"] = "{}"
+            files["package.json"] = json.dumps(
+                {
+                    "dependencies": {name: "1" for name in modules},
+                    "devDependencies": {"missing": "1", "@types/node": "1"},
+                }
+            )
+            write(scratch, files)
+            self.assertEqual(
+                js_dependencies.untyped_packages(scratch),
+                [("@scope/thing", "scope__thing"), ("plain", "plain")],
+            )
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-typescript"])
+    and shutil.which("npm")
+    and importlib.util.find_spec("google.protobuf"),
+    "Install scip-typescript, npm and the scip extra",
+)
+class TypeAcquisitionTest(unittest.TestCase):
+    """A plain JavaScript package's calls are typed through the
+    DefinitelyTyped package the pinned types-registry names."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        base = Path(self.scratch.name)
+        self.root, self.out = base / "work", base / "out"
+        data = tarball(
+            {
+                "package.json": json.dumps(
+                    {
+                        "name": "@types/plainlib",
+                        "version": "1.0.0",
+                        "types": "index.d.ts",
+                    }
+                ),
+                "index.d.ts": "export declare class Thing { go(): number; }\n",
+            }
+        )
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
+        holder = {}
+
+        class Registry(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                port = holder["port"]
+                if self.path.lower() in ("/@types%2fplainlib", "/@types/plainlib"):
+                    body = json.dumps(
+                        {
+                            "name": "@types/plainlib",
+                            "dist-tags": {"latest": "1.0.0"},
+                            "versions": {
+                                "1.0.0": {
+                                    "name": "@types/plainlib",
+                                    "version": "1.0.0",
+                                    "dist": {
+                                        "tarball": f"http://127.0.0.1:{port}/t.tgz",
+                                        "integrity": integrity,
+                                    },
+                                }
+                            },
+                        }
+                    ).encode()
+                elif self.path == "/t.tgz":
+                    body = data
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Registry)
+        holder["port"] = server.server_port
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        write(
+            self.root,
+            {
+                "vendor/plainlib/package.json": json.dumps(
+                    {"name": "plainlib", "version": "1.0.0", "main": "index.js"}
+                ),
+                "vendor/plainlib/index.js": (
+                    "class Thing { go() { return 1; } }\nmodule.exports = { Thing };\n"
+                ),
+                "package.json": json.dumps(
+                    {
+                        "name": "app",
+                        "private": True,
+                        "dependencies": {"plainlib": "file:./vendor/plainlib"},
+                    }
+                ),
+                "app.js": (
+                    'const { Thing } = require("plainlib");\n'
+                    "function run() {\n  return new Thing().go();\n}\n"
+                    "module.exports = { run };\n"
+                ),
+            },
+        )
+        self.environ = {
+            **os.environ,
+            "npm_config_registry": f"http://127.0.0.1:{server.server_port}/",
+            "npm_config_cache": str(base / "cache"),
+            "npm_config_fetch_retries": "0",
+            "npm_config_fetch_timeout": "2000",
+            "NO_PROXY": "127.0.0.1",
+            "no_proxy": "127.0.0.1",
+        }
+
+    def index(self, registry):
+        original = js_dependencies._types_registry
+        js_dependencies._types_registry = registry
+        try:
+            report = indexers.index_workspace(
+                self.root, self.out, languages=("javascript",), environ=self.environ
+            )
+        finally:
+            js_dependencies._types_registry = original
+        (run,) = report["runs"]
+        from deepthought._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        index.ParseFromString(Path(run["index"]).read_bytes())
+        symbols = {o.symbol for d in index.documents for o in d.occurrences}
+        return report, run, symbols
+
+    def test_an_untyped_package_gets_its_definitely_typed_package(self):
+        report, run, symbols = self.index(
+            lambda environ: {"plainlib": {js_dependencies.TYPES_TAG: "1.0.0"}}
+        )
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        (install,) = run["dependencies"]["installs"]
+        self.assertEqual(
+            install["types"],
+            {
+                "status": "acquired",
+                "packages": ["@types/plainlib@1.0.0"],
+                "detail": None,
+            },
+        )
+        self.assertTrue(
+            any("@types/plainlib" in s and s.endswith("Thing#go().") for s in symbols),
+            symbols,
+        )
+        self.assertFalse((self.root / "node_modules").exists())
+
+    def test_a_failed_acquisition_makes_the_install_partial(self):
+        from deepthought.tool_provisioning import ToolInstallFailed
+
+        def unreachable(environ):
+            raise ToolInstallFailed("installing types-registry failed: offline")
+
+        report, run, _ = self.index(unreachable)
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "partial")
+        (install,) = run["dependencies"]["installs"]
+        self.assertEqual(install["types"]["status"], "failed")
+        self.assertIn("offline", install["types"]["detail"])
+        self.assertEqual(
+            report["coverage"]["app.js"]["warning"], "dependencies_unavailable"
+        )
