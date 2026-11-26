@@ -118,7 +118,7 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
 | `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
 | `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead. When `pkg/__init__.py` neither declares nor imports `x`, calls and bases read `x` as that module (`x.f()`) |
-| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
+| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources, `.mjs` to `.mts`/`.d.mts` and `.cjs` to `.cts`/`.d.cts` (`.mts` and `.cts` files are TypeScript); when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
 | `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
 | `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
 | `tree-sitter.typescript-path-alias` | resolved | a TypeScript file's bare specifier matching a `compilerOptions.paths` pattern of the nearest `tsconfig.json` (else `jsconfig.json` in the same directory): an exact pattern, else the wildcard pattern with the longest prefix; each target, below `baseUrl` or the config's directory, is tried in TypeScript's order (TypeScript extensions on the file, then the directory's `package.json` `typings`, `types` and `main`, then `index.*`; then the same with JavaScript extensions); the first target that reaches an analyzed file wins. A nearer config without `paths` shadows a farther one; a config that `extends` another without settling `paths` and `baseUrl` itself leaves the specifier unresolved (`path_alias_inherited`), as does one that is not JSON with comments (`script_config_unreadable`); `include`, `exclude`, `references`, `exports` and `baseUrl` without `paths` are not read |
@@ -151,9 +151,10 @@ enclosing declaration. In Python, JavaScript and TypeScript (and Go, below), a
 method called on a call's, construction's or element's result, on `super` or
 through an optional chain is recorded too, its receiver written with arguments
 and indexes dropped (`f().g`, `new T().m`, `xs[].m`, `super.m`, `a?.b`,
-`f?.().m`); no name-binding rule reads these, so they stay unlinked unless a
-SCIP index links them. Other calls (`f()()`, `x[0]()`, `(a as T).m()`) are not
-recorded. `deepthought.calls.resolve_calls` matches names only,
+`f?.().m`), and a parenthesized receiver no name describes as `(…)`
+(`(a ? b : c).m()` is `(…).m`, `(a as T).m()` is `(…).m`); no name-binding
+rule reads these, so they stay unlinked unless a SCIP index links them. Other
+calls (`f()()`, `x[0]()`, `` `x`.trim() ``) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
 inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
 covers take their targets from the index instead (below); the original's SCIP
@@ -272,6 +273,32 @@ Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
 8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
 `tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
+### Test cases
+
+JavaScript and TypeScript test runners (Jest, Vitest, Mocha, `node:test`,
+Jasmine, Bun) declare tests by calling a function with a name and a callback,
+so the calls a test makes would otherwise belong to no declaration and answer
+as the whole file. A statement that calls `it`, `test`, `specify`, `bench`,
+`fit`, `xit` or `xtest` (kind `Test`), or `describe`, `suite`, `context`,
+`fdescribe` or `xdescribe` (kind `TestSuite`), optionally through modifiers
+(`only`, `skip`, `todo`, `concurrent`, `sequential`, `fails`, `each`, `for`,
+`skipIf`, `runIf`, with or without arguments: `it.each(rows)("x", fn)`), with
+a string or substitution-free template name first and a function after it,
+is a declaration. Its symbol is the callee as written, without modifier
+arguments, and the name as a JSON string, joined to the enclosing suites
+with `.`: `describe("add").it.each("adds %i")`. No identifier can be written
+that way, so a test case is never a call's target. Its line is the line of
+the call and its span the whole call, so suites contain their cases and the
+calls inside a callback take the test case as their caller; `get_impact` and
+`get_call_sites` then name the test case. The test case's own call (and a
+modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
+with a substitution or with an escape other than a quote or backslash, a call
+whose result is used, and a call through another object (`runner.it(...)`)
+declare nothing. This is a parser rule: listing a runner's tests would load
+the project's test configuration, which runs its code. Python test functions
+and Go `TestX` functions are declarations already; Go `t.Run` closures stay
+inside their test function.
+
 ## Declaration nesting
 
 Each declaration is linked from the innermost other declaration whose span
@@ -359,7 +386,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE, USES_DEPENDENCY and REQUESTS, and
+  forwards over HANDLES. A test reaches the code its pytest fixtures call
+  (see "pytest fixtures"), and an endpoint the FastAPI dependencies it
+  injects (see "FastAPI dependencies"). A Go
   interface method DISPATCHES_TO each implementation (see "Interface
   implementations"), so a changed implementation reaches the interface
   method and its callers, but not the other implementations. A route a changed
@@ -424,7 +454,8 @@ clients or handlers outside type-checked Go). `source_roles` lists `test` and `e
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
-test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+test file names such as `*_test.go`, `test_*.py`, pytest's `conftest.py`,
+Django's `tests.py`, `FooTest.java`,
 `FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
 unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
@@ -503,6 +534,29 @@ one the graph cannot hold as a call (the function assigned as a default
 value in `Hono`'s constructor, now of the wrong type). The compiler side
 covers value uses and type errors; the graph side covers callers past the
 first break, other languages and other services.
+
+### Answers against the working copy
+
+A graph answer describes one snapshot, so after an edit its lines can point at
+code that has since moved. When `GraphQueryService` is given the workspace the
+snapshot came from (`workspace=`; `DEEPTHOUGHT_WORKSPACE` for the CLI and the
+MCP server), every snapshot answer, raw Cypher included, carries `freshness`.
+It covers the files the answer names under `file_path`, `path` or `file`, at
+any depth, also as a raw query's unaliased column such as `f.path`:
+
+- `current`: each named analyzed file still has the bytes the snapshot
+  recorded (`File.file_sha256`);
+- `changed`: `changed_files` were edited and `missing_files` are gone since
+  the snapshot, so re-read those or re-index;
+- `unverified`: the answer names no analyzed file it can read in the
+  workspace. A file whose real path leaves the workspace (a symlink out of it)
+  is not read and not counted.
+
+`files_checked` counts the files compared. At most 500 files are checked and
+20 of each kind are listed per answer; `files_listed_truncated` says when the
+lists were cut. Digests are cached by size and modification time, so an edit
+that keeps both (`cp -p`, an archive restore) reads as unchanged. Without a
+workspace, answers carry no `freshness`.
 
 ## Components
 
@@ -911,6 +965,101 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### pytest fixtures
+
+pytest hands a test the fixtures its parameters name, so the test depends on
+them without calling them (`deepthought.pytest_fixtures`). Each test function
+(`test*`), test method (`test*` in a class named `Test*`) and fixture in a
+test module (`test_*.py`, `*_test.py`) or `conftest.py` has a USES_FIXTURE
+edge to each fixture it requests, with the `line` and `name` written:
+
+| Rule | Links |
+|---|---|
+| `pytest.fixture-parameter` | a parameter without a default value (after a method's `self`) to the fixture of that name |
+| `pytest.fixture-usefixtures` | a string in `@pytest.mark.usefixtures(...)` on a test or test class to the fixture of that name |
+| `pytest.fixture-autouse` | a test, at its `def` line, to each `autouse=True` fixture it sees and does not request by name |
+
+A fixture is a function decorated `@pytest.fixture` or
+`@pytest_asyncio.fixture` (or `fixture` imported from either), named by its
+`name=` argument when that is a string. A name is looked up as pytest looks
+it up: the test's class, its module, then `conftest.py` in the module's
+directory and each directory above it, nearest first; a fixture requesting
+its own name gets the one it overrides. A parameter that
+`@pytest.mark.parametrize` on the test or its class gives values directly
+(not `indirect`) requests no fixture. All three rules are `pattern_matched`.
+This is a rule over the source read with Python's `ast`, because pytest's
+own listing (`--fixtures-per-test`) imports the project and runs its
+plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
+`getfixturevalue`, fixtures inherited from a test class's base classes,
+and `python_files` or `python_functions` settings in
+configuration are not read, and neither is a file the running Python's
+`ast` cannot parse; each such file is named in the analysis warnings
+(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
+a change to code a fixture calls reaches every test that requests it.
+
+### FastAPI dependencies
+
+`Depends(get_db)` and `Security(auth)` hand FastAPI a function or class to
+call when an endpoint runs, so the endpoint depends on it without calling it
+(`deepthought.fastapi_dependencies`). Each such use is a USES_DEPENDENCY
+edge to the dependency, with the `line` and UTF-8 byte `column` where it is
+written, its `name`, the `injector` (`Depends` or `Security`), and the
+indexer that resolved it (`producer`, `receipt`):
+
+| Rule | Links |
+|---|---|
+| `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
+
+Both ends come from the scip-python index, so the rule is `resolved`. The
+call counts only when the index resolves its callee to FastAPI's own
+`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+first argument or `dependency=`. For a `Depends()` with neither, it is what
+FastAPI calls: the parameter's annotation, or the `T` of
+`Annotated[T, Depends()]`. It is linked only when the index resolves that
+name to exactly one parsed declaration. The declaration that depends on it
+is the function whose parameters or decorators (`dependencies=[...]`) hold
+the call, else the innermost function around the call, else the file (an
+app or router made with `dependencies=[...]`). Python's `ast` reads only that
+placement; FastAPI itself is never imported or run. `get_impact` follows
+USES_DEPENDENCY backwards, so a changed dependency reaches its endpoints.
+
+A type alias of `Annotated[T, Depends(f)]` (`SessionDep = Annotated[Session,
+Depends(get_db)]`, at module, class or function level, or a `type`
+statement) injects `f` wherever a parameter is annotated with it. The index
+resolves the annotation to the alias's definition, and the function holding
+the parameter gets the edge, at the place the alias is written, with `alias`
+set to the `file:line` that defines the alias. The alias line itself is not
+a use.
+
+Not read: a dependency given as an instance (`Security(scheme)` with
+`scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
+at run time (`Depends(make_dependency())`, a loop variable); an alias of an
+alias, or an alias written inside another annotation
+(`Optional[SessionDep]`); files no scip-python index covers; and files the
+running Python's `ast` cannot parse, such as Python 3.14's
+`except A, B:` read by an older interpreter. Each such file is named in the
+analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
+interpreter version, in the `python_ast_unparsed` metric; the same applies to
+pytest fixtures.
+
+On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
+come through aliases, 21 are on an app or router, and 14 are `Depends()`
+calls of the parameter's type. A text search for `Depends(`/`Security(` with
+a plain name finds 475 sites. The ones not linked are instances (security
+schemes), dependencies built at run time, and examples inside docstrings.
+Samples of 15 direct links and 8 alias links, checked against the source,
+were all correct. On the full-stack-fastapi-template backend (77e550a) 39
+uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
+their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
+injects an instance and is not linked. That template's `app/api/deps.py`
+uses Python 3.14 syntax, so this was measured with its one `except A, B:`
+line parenthesised; under an older interpreter the aliases there are not
+read.
+`tools/check_impact.py` matches on every compared seed: 117 of 117 (136
+dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
+`docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
+output budget not compared) over the whole template backend.
 
 ### Interface implementations
 
@@ -2675,7 +2824,10 @@ which only client requests are read:
   is a name bound once in its file, found through the file's imports
   (relative to its package, else under the nearest enclosing directory that
   holds the module, following re-exports). A router mounted twice gets a
-  route per mount; one never mounted keeps its own prefix. Express mounts
+  route per mount; one never mounted keeps its own prefix. A prefix the code
+  does not fix at the start of the path (`prefix=settings.API_V1_STR`) keeps
+  the route, matched on the rest of its path, and the route records
+  `base_unknown`. Express mounts
   compose the same way: `parent.use([path,] ...routers)` joins the parent's
   prefixes with the path (each path of an array; a name bound to a string
   counts as a path). A mounted router is a name bound once to `express()`,
@@ -2803,6 +2955,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`); a file with no manifest above it, or under a `go.mod` that holds more than one `package main` directory, has no known project and excludes nothing |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
+| `service-contracts.http-path-unknown-base` (`openapi-client-`, `openapi-feign-client-`, `locust-host-`, `oapi-codegen-client-` and `orval-client-` variants as above) | pattern_matched | no candidate fits the request's whole path, and the route is declared under a base written as text the source does not fix (a FastAPI prefix from settings, Go's `baseUrl + "/cart"`, an Express mount path in a variable), so its path is stored without that base. An ASP.NET route on a builder the reader could not follow (an `app` parameter) also has `base_unknown`, but that builder may add nothing, so it does not take part. The request's path fits the route once one or more leading literal segments, taken as that base, are skipped: the fewest skipped segments that fit any route win, the rest of the path must fix some text, and a route with no literal segment (`/{id}`) never takes part. A client calling `/api/v1/items/7` reaches FastAPI's `@router.get("/items/{id}")` under `settings.API_V1_STR`. Not for a request forwarded by a gateway, nor for one with a literal host, which names its server: only a relative path, or one under an unknown base of its own, takes part. Requests to routes of one mount are not yet required to skip the same text, so `/other-service/v1/items/3` reaches a route that `/api/v1/items/7` also reaches |
 
 The URL's path is compared segment by segment with each candidate's
 template, and the method must be accepted. A literal segment equal to a route
@@ -3703,6 +3856,24 @@ call and import coverage uses too:
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
   found; for `REQUESTS` also how many were `linked`, `ambiguous` and
   `unresolved`.
+- `unread` and `files_unread`: the sites a reader saw but could not read,
+  and the files holding them: a route or request path, GraphQL field or
+  message destination that is not a literal, a gRPC handler without its
+  declaration, a GraphQL operation that does not parse, a Go file the type
+  checker could not check (counted for both messaging families). An unread
+  site is one where no route, request, field or endpoint could be formed at
+  all; a request whose URL is not literal is still formed, with the unread
+  part as a placeholder, and when it matches no route it is counted in
+  `unresolved`, not `unread`. With
+  `sites` and the `REQUESTS` resolution counts they say how much of what
+  the readers recognised is in the graph. Unread sites of specs and
+  generator configs have no source language and are only in the run's
+  `unread` metric. So are those of gateway configs (nginx `location` blocks,
+  Spring Cloud Gateway, YARP, Ocelot): a gateway route is not an edge of its
+  own but a hop a `REQUESTS` link is resolved through, so a gateway route
+  that is not read shows up as `unresolved` requests behind it. A call no reader recognises (a client the readers
+  do not know, C# gRPC calls through `using static`) is in no count, so
+  `unread: 0` is not a proof that every site is in the graph.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
@@ -3849,6 +4020,36 @@ at run time, so their routes are not read. emqx, fleetyards and
 realworld-react-fsd do not commit orval's output, and tidb-dashboard's
 generated files are server stubs.
 
+
+### OpenAPI TypeScript clients (@hey-api/openapi-ts)
+
+@hey-api/openapi-ts also turns an OpenAPI document into TypeScript functions,
+one per operation, each sending through the client it generates:
+
+```ts
+public static readItem(options: Options<ReadItemData>) {
+  return (options.client ?? client).get({ url: '/api/v1/items/{id}', ...options });
+}
+```
+
+In a file whose header comment says `This file is auto-generated by
+@hey-api/openapi-ts`, a call `<expression>.<method>(config)`, where the method
+is an HTTP method in lower case and `config` is an object literal with a `url`
+key, is an `HttpRequest` with client `hey-api` and that method. So is a call
+`f(OpenAPI, config)` whose `config` has `url` and `method` keys, as its legacy
+clients write `__request(OpenAPI, {method, url, path})`. Each `{parameter}`
+in the URL is filled in at run time, and the base URL is the client's run-time
+configuration, which is not read. Links carry the
+`service-contracts.hey-api-client-*` rules (pattern_matched).
+
+As for orval, this reads the generated file, not the spec: the spec is often
+not committed (fastapi/full-stack-fastapi-template generates it from the
+backend), and running the generator would run the repository's configuration
+code. In full-stack-fastapi-template (`77e550a`) all 23 operations of
+`frontend/src/client/sdk.gen.ts` are read. Each links to the FastAPI route it
+calls through `http-path-unknown-base`, since those routes sit under
+`settings.API_V1_STR`; on main without unknown-base routes they are
+unresolved as `no_route`.
 ### OpenAPI TypeScript clients (openapi-fetch)
 
 openapi-fetch clients are typed by the `paths` that openapi-typescript
@@ -4647,6 +4848,7 @@ component roll-up like HTTP routes and message destinations:
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read by PostgreSQL's own parser (libpg_query, through pglast; `postgres` in the `ddl_readers` metric), else from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed`. Each migration set (see `data-contracts.sql-foreign-key`) is replayed in order: `DROP TABLE` removes a table (`ddl_tables_dropped`), `ALTER TABLE ... RENAME TO` moves it, declared at the rename (`ddl_tables_renamed`), and a table created twice keeps its first declaration. Rollback migrations declare nothing. A drizzle-kit folder is its own set; on lobe-chat the replayed tables equal the last drizzle-kit snapshot's 256 |
 | File -[:DECLARES]-> DbColumn, DbTable -[:HAS_COLUMN]-> DbColumn | `data-contracts.sql-column`, `data-contracts.table-has-column` | resolved | each column of a table read by `data-contracts.sql-create-table`, as a `["DbColumn", "Contract"]` node (`{table}::column::{column}`, named `table.column`). The columns are the `CREATE TABLE` column definitions sqlglot (else PostgreSQL's parser) reads, replayed with the tables through each migration set: `ALTER TABLE ... ADD [COLUMN]` adds one, `DROP COLUMN` removes it, and `RENAME COLUMN` and MySQL's `CHANGE` rename it in place, declared at the rename. An ALTER sqlglot does not parse (`ADD CONSTRAINT ... USING INDEX`, `ALTER COLUMN ... SET STATISTICS`) is read by PostgreSQL's parser. A `DO` block runs with its migration, so the statements its PL/pgSQL body runs, in every branch, are read from libpg_query's PL/pgSQL parse at their own lines; a column change in a function or procedure body is not applied (it runs only if called) and leaves its table unknown, and so does a dynamic `EXECUTE` whose expression holds `ALTER` (for the whole migration set). A table that takes columns from elsewhere (`AS SELECT`, `LIKE`, `INHERITS`, `PARTITION OF`, `OF type`) is not complete. A quoted name keeps its case, as PostgreSQL keeps it, and an unquoted one is folded to lower case; a drop or rename matches the exact name, else the one name equal to it ignoring case. A table whose `CREATE TABLE` neither parser reads, or that an `ALTER TABLE` neither parser reads may change (its words include ADD, DROP, RENAME, CHANGE, MODIFY or COLUMN), gets no columns and no `columns_read` property (`ddl_tables_columns_unknown`, `ddl_alter_unparsed`); an unparsed ALTER whose table cannot be read marks the whole migration set. Tables with `columns_read: true` list every column. On lobe-chat all 256 tables are read (7 by PostgreSQL's parser, whose identity sequence options sqlglot rejects), with 3,598 columns: 3,597 equal drizzle-kit's last snapshot and the extra one, `channel_jobs.delivery_key`, is a column migration 0197 keeps on purpose while the snapshot omits it. On simplebank the 74 columns equal the fields of the `models.go` sqlc writes. On Mattermost's PostgreSQL migrations all 88 tables are read, with the columns its migrations add inside `DO` blocks |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | the SQL rule of the statement (`data-contracts.go-sql-types`, `data-contracts.python-sql`, ...) | as that rule | the columns a SQL statement that code runs names, for the tables of it whose columns are all known (`columns_read`, see `data-contracts.sql-column`). sqlglot reads the statement in the dialect that parsed it and its optimizer (`qualify`, over the replayed columns as the schema) attributes each column reference to a table through aliases, joins, subqueries and common table expressions; a `*` expands to every column. UPDATE, DELETE and INSERT are read as the query their values, conditions and RETURNING make over the target: `SET c =` and an INSERT's column list (every column without one) and `ON CONFLICT ... DO UPDATE SET` write, everything else reads, and `EXCLUDED.c` is the inserted row. Code that may run one of several statements (one per path) uses the columns of each. The statement's READS or WRITES edge to a table carries `columns_resolved: true` when every column reference of the statement that could belong to that table resolved to one of its columns; a name that is no column of the table, a reference sqlglot cannot attribute to one table, a `*` over a table without known columns and a statement sqlglot does not parse leave it off. Counted in the `sql_columns` metric. On simplebank all 20 statements sqlc compiles resolve, with 142 column uses. JPQL, MyBatis and ORM calls name no columns here |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
@@ -5545,6 +5747,36 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+
+`queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
+or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
+short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`
+(with its kind, such as `class` or `type alias`, unless it is a function or
+method),
+a link as `A (a.go:10) calls B (b.go:4) at line 12` from the verb its type has
+in `RELATIONSHIP_SENTENCES` (`storage/graph/schema.py`), a path as
+`A (a.go:3) calls B (b.go:8) at line 4, which calls C (c.go:2) at line 9`
+(each item placed on its first mention, since a hop's line is in the calling
+item's file), and other values as `name value` under the column name the query
+chose. A column that is null in every row is said once (`signature none`); a
+null in some rows only is left out of those rows. A link's evidence is shown
+only when it is below `resolved` (`[name matched]`, `[pattern matched]`); its
+rule id, a node's qualified name and its storage keys are left out, and JSON
+rows (`format: "json"`, which keep their MCP structured content) still carry
+them. What every row shares is
+said once, repeating leading values become headings, rows that differ only in
+a number merge (`at lines 195, 209`), and rows in test files follow under
+`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot; it
+closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
+the link families in the result, for the result's languages and for every
+other analyzed language where the family is not linked (`(none returned)`):
+sites missing from the graph are missing from the result too. Link ends a query did not
+return are looked up, and coverage is read, without journaling either as a
+query. A multi-line value such as `source_code` follows its row as an
+indented block, and a File with `generated_by` is marked `generated`. The byte
+budget applies to the text. `tools/check_result_text.py` runs
+queries in both forms on a dedicated database and reports any fact the text
+lost.
 
 ## Verification and validation
 

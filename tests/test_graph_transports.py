@@ -318,6 +318,37 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             self.assertEqual(
                                 result["items"], [{"count": len(self.expected)}]
                             )
+                            rows = await session.call_tool(
+                                "queryGraph",
+                                {
+                                    "repository_id": self.repo,
+                                    "snapshot_id": self.snapshot,
+                                    "query": "MATCH (n:Symbol) RETURN count(n) AS count",
+                                    "parameters": {},
+                                },
+                            )
+                            # JSON rows keep their structured content.
+                            self.assertEqual(
+                                rows.structuredContent["items"],
+                                [{"count": len(self.expected)}],
+                            )
+                            spoken = await session.call_tool(
+                                "queryGraph",
+                                {
+                                    "repository_id": self.repo,
+                                    "snapshot_id": self.snapshot,
+                                    "query": "MATCH (n:Symbol) RETURN count(n) AS count",
+                                    "parameters": {},
+                                    "format": "text",
+                                },
+                            )
+                            self.assertFalse(spoken.isError)
+                            self.assertEqual(
+                                [i.text for i in spoken.content if i.type == "text"],
+                                [
+                                    f"1 result: every one this query matched.\n- count {len(self.expected)}"
+                                ],
+                            )
                             denied = await session.call_tool(
                                 "queryGraph",
                                 {

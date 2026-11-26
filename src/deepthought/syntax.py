@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -188,6 +192,29 @@ def extract(
     stack = [(tree.root_node, (), False)]
     while stack:
         node, scope, in_class = stack.pop()
+        test = _js_test_case(node, content) if script else None
+        if test is not None:
+            kind, segment, name_node = test
+            symbol = ".".join((*scope, segment))
+            ordinal = ordinals.get((symbol, kind), 0)
+            ordinals[(symbol, kind)] = ordinal + 1
+            definition = Definition(
+                id=identifier(repository_id, file, symbol, kind, ordinal),
+                file=file,
+                symbol=symbol,
+                kind=kind,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
+            )
+            definitions.append(definition)
+            if nodes is not None:
+                nodes[definition.id] = (node, name_node)
+            stack.extend(
+                (child, (*scope, segment), False) for child in reversed(children(node))
+            )
+            continue
         kind = KINDS.get(node.type)
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
@@ -2883,6 +2910,97 @@ def _js_import_names(node):
 
 
 _SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+# The test runners' (Jest, Vitest, Mocha, node:test, Jasmine, Bun) functions
+# that declare a test case or a group of them, and the modifiers written
+# between the function and its arguments (``it.only``, ``test.each(rows)``,
+# ``it.skipIf(cond)``).
+_JS_TEST_FUNCTIONS = {
+    "it": "Test",
+    "test": "Test",
+    "specify": "Test",
+    "bench": "Test",
+    "fit": "Test",
+    "xit": "Test",
+    "xtest": "Test",
+    "describe": "TestSuite",
+    "suite": "TestSuite",
+    "context": "TestSuite",
+    "fdescribe": "TestSuite",
+    "xdescribe": "TestSuite",
+}
+TEST_KINDS = frozenset(_JS_TEST_FUNCTIONS.values())
+_JS_TEST_MODIFIERS = {
+    "only",
+    "skip",
+    "todo",
+    "concurrent",
+    "sequential",
+    "fails",
+    "each",
+    "for",
+    "skipIf",
+    "runIf",
+}
+_JS_CALLBACKS = {"arrow_function", "function_expression", "function"}
+_JS_QUOTE_ESCAPES = {"\\'", '\\"', "\\`", "\\\\"}
+
+
+def _js_test_case(node, content):
+    """(kind, segment, name node) for a statement that declares a test case
+    or a suite: ``it("renders", () => ...)``, ``describe.each(rows)("x", fn)``.
+    The callee is one of the runners' bare functions, optionally with
+    modifiers; the first argument is a string without substitutions and a
+    later one a function. The segment is the callee as written, without
+    modifier arguments, and the name as a JSON string (``it("renders")``),
+    which no identifier can be, so a test case is never a name's target."""
+    if node.type != "call_expression" or node.parent is None:
+        return None
+    if node.parent.type != "expression_statement":
+        return None
+    arguments = node.child_by_field_name("arguments")
+    function = node.child_by_field_name("function")
+    if arguments is None or function is None or arguments.type != "arguments":
+        return None
+    parts = []
+    while True:
+        if function.type == "call_expression":
+            # A modifier taking arguments: `.each(rows)`, `.skipIf(cond)`.
+            function = function.child_by_field_name("function")
+            if function is None or function.type != "member_expression":
+                return None
+            continue
+        if function.type == "member_expression":
+            modifier = function.child_by_field_name("property")
+            if modifier is None or _text(modifier, content) not in _JS_TEST_MODIFIERS:
+                return None
+            parts.append(_text(modifier, content))
+            function = function.child_by_field_name("object")
+            if function is None:
+                return None
+            continue
+        break
+    kind = _JS_TEST_FUNCTIONS.get(_text(function, content))
+    if kind is None:
+        return None
+    values = arguments.named_children
+    if len(values) < 2 or not any(v.type in _JS_CALLBACKS for v in values[1:]):
+        return None
+    title = values[0]
+    if title.type not in {"string", "template_string"}:
+        return None
+    name = []
+    for part in title.named_children:
+        text = _text(part, content)
+        if part.type == "string_fragment":
+            name.append(text)
+        elif part.type == "escape_sequence" and text in _JS_QUOTE_ESCAPES:
+            name.append(text[1])
+        else:
+            # A substitution or another escape: the name is not written out.
+            return None
+    name = "".join(name)
+    callee = ".".join((_text(function, content), *reversed(parts)))
+    return kind, f"{callee}({json.dumps(name, ensure_ascii=False)})", title
 
 
 def _js_default_names(root, content):
@@ -5144,7 +5262,12 @@ def _receiver_chain_callee(node, content):
             return None if head is None else f"{head}[]"
         if node.type in {"parenthesized_expression", "non_null_expression"}:
             inner = [c for c in node.named_children if c.type != "comment"]
-            return chain(inner[0]) if len(inner) == 1 else None
+            head = chain(inner[0]) if len(inner) == 1 else None
+            if head is None and node.type == "parenthesized_expression":
+                # `(a ? b : c).m()`, `(x as T).m()`: a receiver no name
+                # describes. Only an index can link the call.
+                return "(…)"
+            return head
         return None
 
     if node is None or node.type not in _SCRIPT_CHAIN:
@@ -5277,14 +5400,13 @@ def extract_call_sites(
         reverse=True,
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
+    tests = {d.id for d in definitions if d.file == file and d.kind in TEST_KINDS}
     python = tree.root_node.type == "module"
     java = tree.root_node.type == "program"
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    script = file.endswith(
-        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
-    )
+    script = file.endswith((*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0]))
     sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
@@ -5352,7 +5474,16 @@ def extract_call_sites(
                 start = (node.start_point.row + 1, node.start_point.column)
                 end = (node.end_point.row + 1, node.end_point.column)
                 # Latest-starting enclosing span is the innermost declaration.
-                caller = next((i for s, e, i in spans if s <= start and end <= e), None)
+                # A test case's own call (`it("x", fn)`, and `it.each(rows)`
+                # in `it.each(rows)("x", fn)`) is not inside it.
+                caller = next(
+                    (
+                        i
+                        for s, e, i in spans
+                        if s <= start and end <= e and not (i in tests and s == start)
+                    ),
+                    None,
+                )
                 ordinal = ordinals.get(callee, 0)
                 ordinals[callee] = ordinal + 1
                 sites.append(
