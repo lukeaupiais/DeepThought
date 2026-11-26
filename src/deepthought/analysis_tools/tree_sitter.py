@@ -636,6 +636,12 @@ CALL_RULES.update(
             "beside it links to the declaration there that the compiler "
             "says the file exports under that name: what the call is typed "
             "against, not the code it runs.",
+            call_rules.CALL_TS_EXPORT_CONFLICT: "A JavaScript or TypeScript "
+            "callee bound by an import whose export the language rejects, in "
+            "the imported module or one the TypeScript compiler follows it "
+            "through: two exports of the name, or two 'export *' that give "
+            "it. The compiler reports the error and keeps one declaration, "
+            "which the call links to; the program does not link at run time.",
             call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' or "
             "'x.f.M()' where x is declared in the function around the call (a "
             "parameter, receiver, named result, 'var x T', or 'x := T{...}', "
@@ -815,6 +821,14 @@ CALL_RULES.update(
             "index records no occurrence for, links to the declaration "
             "pinned pyright's go-to-definition gives for the callee's last "
             "name.",
+            scip_calls.PYRIGHT_CALL_ALIAS: "A Python call through a local "
+            "assigned once from a dotted name (`get = console.get_style`, "
+            "`S = Segment`) links to the declaration pinned pyright's "
+            "go-to-definition gives for that name.",
+            scip_calls.PYRIGHT_CALL_CLASS_PARAMETER: "A call of a "
+            "classmethod's first parameter (`cls(...)`) links to the class "
+            "the method is declared in; pyright types the parameter as that "
+            "class but gives it no place.",
         }.items()
     }
 )

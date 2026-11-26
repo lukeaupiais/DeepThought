@@ -167,7 +167,7 @@ jobs:
     needs: attribution
     if: needs.attribution.outputs.tests == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       neo4j:
         image: neo4j@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177

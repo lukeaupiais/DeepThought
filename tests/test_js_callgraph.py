@@ -77,8 +77,10 @@ class LocateTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.directory)
 
     def test_missing_tool_is_an_error(self):
-        with self.assertRaisesRegex(js_callgraph.JellyUnavailable, "npm install -g"):
-            js_callgraph.locate_jelly({"PATH": self.directory})
+        with self.assertRaisesRegex(js_callgraph.JellyUnavailable, "needs npm"):
+            js_callgraph.locate_jelly(
+                {"PATH": self.directory, "DEEPTHOUGHT_CACHE": self.directory}
+            )
 
     def test_another_version_is_refused(self):
         fake = Path(self.directory) / "jelly"

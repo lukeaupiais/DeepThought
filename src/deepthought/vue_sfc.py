@@ -54,10 +54,21 @@ class Component:
         return any(block.lang in _JSX for block in self.blocks)
 
 
+def _version(package):
+    try:
+        return json.loads((package / "package.json").read_text("utf-8"))["version"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def locate(environ=None):
     """(node, the @vue/compiler-sfc package directory):
     ``$DEEPTHOUGHT_VUE_COMPILER_SFC`` if set, else the package installed
-    globally beside node (``npm install -g``)."""
+    globally beside node at the pinned version, else the pinned version that
+    the engine installs into its cache. Raises ``VueUnavailable`` when none
+    can be had."""
+    from .tool_provisioning import ToolInstallFailed, npm_package
+
     environ = os.environ if environ is None else environ
     node = shutil.which("node", path=environ.get("PATH"))
     if node is None:
@@ -65,19 +76,30 @@ def locate(environ=None):
             f"reading .vue files needs node and {VUE_COMPILER_SFC_TOOL}"
         )
     configured = environ.get(ENVIRONMENT_VARIABLE)
-    package = (
-        Path(configured)
-        if configured
-        else Path(node).resolve().parent.parent / "lib/node_modules/@vue/compiler-sfc"
-    )
-    try:
-        version = json.loads((package / "package.json").read_text("utf-8"))["version"]
-    except (OSError, ValueError, KeyError):
-        raise VueUnavailable(
-            f"reading .vue files needs {VUE_COMPILER_SFC_TOOL} "
-            f"(npm install -g {VUE_COMPILER_SFC_TOOL}, or set {ENVIRONMENT_VARIABLE} "
-            "to its package directory); none found at " + str(package)
-        ) from None
+    if configured:
+        package = Path(configured)
+        version = _version(package)
+        if version is None:
+            raise VueUnavailable(
+                f"${ENVIRONMENT_VARIABLE} names no {VUE_COMPILER_SFC_TOOL} "
+                f"package: {package}"
+            )
+    else:
+        package = (
+            Path(node).resolve().parent.parent / "lib/node_modules/@vue/compiler-sfc"
+        )
+        version = _version(package)
+        if version != VUE_COMPILER_SFC_VERSION:
+            try:
+                installed = npm_package(
+                    "@vue/compiler-sfc", VUE_COMPILER_SFC_VERSION, environ
+                )
+            except ToolInstallFailed as error:
+                raise VueUnavailable(
+                    f"reading .vue files needs {VUE_COMPILER_SFC_TOOL}: {error}"
+                ) from None
+            package = installed / "node_modules/@vue/compiler-sfc"
+            version = _version(package)
     if version != VUE_COMPILER_SFC_VERSION:
         raise VueUnavailable(
             f"@vue/compiler-sfc {version} found, {VUE_COMPILER_SFC_VERSION} required"
