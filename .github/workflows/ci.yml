@@ -262,6 +262,7 @@ jobs:
           # corpus's packageManager version, which it would try to download.
           echo "npm_config_manage_package_manager_versions=false" >> "$GITHUB_ENV"
           GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/tools/cmd/callgraph@v0.31.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Check the indexers are found
@@ -302,6 +303,7 @@ jobs:
           # corpus's packageManager version, which it would try to download.
           echo "npm_config_manage_package_manager_versions=false" >> "$GITHUB_ENV"
           GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/tools/cmd/callgraph@v0.31.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Check the indexers are found

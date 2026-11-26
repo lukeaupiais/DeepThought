@@ -10,6 +10,7 @@ output or claim additional languages.
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import posixpath
 import time
 from copy import deepcopy
 
@@ -33,6 +34,7 @@ from ..python_ast_facts import ast_facts
 from ..python_runtime import read_ast_facts
 from .. import scip_uses
 from .. import scip_imports
+from .. import go_callgraph
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -727,6 +729,16 @@ GO_INTERFACE_RULE = register_rule(
         "interface, and each interface method DISPATCHES_TO the type's method.",
     )
 )
+GO_CALL_VTA_RULE = register_rule(
+    EvidenceRule(
+        go_callgraph.GO_CALL_VTA,
+        "resolved",
+        "A Go call through an interface method or a function value links to "
+        "each function or method that the pinned golang.org/x/tools call "
+        "graph (variable type analysis over the module's SSA form, tests "
+        "included) says may be called there.",
+    )
+)
 SCIP_GO_IMPLEMENTATION_RULE = register_rule(
     EvidenceRule(
         scip_implements.SCIP_GO_IMPLEMENTATION,
@@ -781,6 +793,43 @@ CALL_RULES.update(
         }.items()
     }
 )
+
+
+def _go_dynamic_calls(result, root):
+    """{"targets": {call site id: declaration ids}, "failures": {package
+    directory: error}} from the pinned Go call graph tool, for the Go
+    modules of the analyzed files; none without Go modules. The tool is
+    required where there are any."""
+    modules = sorted(
+        posixpath.dirname(p.file)
+        for p in result.packages
+        if p.kind == "module" and p.file.endswith("go.mod")
+    )
+    if not modules:
+        return {"targets": {}, "failures": {}}
+    # Each module's packages are the directories of its analyzed Go files,
+    # named one by one: ``./...`` skips directories starting with "_" or
+    # ".", which the go tool still builds when named (chi's _examples).
+    packages = {module: set() for module in modules}
+    for coverage in result.coverage:
+        if coverage.language != "go" or not coverage.file.endswith(".go"):
+            continue
+        directory = posixpath.dirname(coverage.file)
+        module = max(
+            (m for m in modules if m == "" or (directory + "/").startswith(m + "/")),
+            key=len,
+            default=None,
+        )
+        if module is not None and "testdata" not in directory.split("/"):
+            packages[module].add(posixpath.relpath(directory or ".", module or "."))
+    binary = go_callgraph.locate_go_callgraph()
+    calls, failures = go_callgraph.dynamic_calls(
+        root, {m: sorted(p) for m, p in packages.items() if p}, binary
+    )
+    return {
+        "targets": go_callgraph.bind_dynamic_calls(result, calls),
+        "failures": failures,
+    }
 
 
 def _bind(result, scip_indexes, root):
@@ -1662,6 +1711,35 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        go_dynamic = _go_dynamic_calls(result, self.repo_path)
+        for site_id, targets in go_dynamic["targets"].items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "vta",
+                            "producer": go_callgraph.GO_CALLGRAPH_TOOL,
+                            **_evidence(GO_CALL_VTA_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1676,19 +1754,25 @@ class TreeSitterTool(AnalysisTool):
             errors=[d["message"] for d in diagnostics]
             if result.status == "failed"
             else [],
-            warnings=[d["message"] for d in diagnostics]
+            warnings=(
+                [d["message"] for d in diagnostics]
+                + [
+                    f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                    f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                    "is read from it"
+                    for file, error in unparsed.items()
+                ]
+                + [
+                    f"python_interpreter_unavailable: {error}"
+                    for error in (reader.errors if reader else ())
+                ]
+                if result.status != "failed"
+                else []
+            )
             + [
-                f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
-                f"parse it ({error}), so no pytest fixture or FastAPI dependency "
-                "is read from it"
-                for file, error in unparsed.items()
-            ]
-            + [
-                f"python_interpreter_unavailable: {error}"
-                for error in (reader.errors if reader else ())
-            ]
-            if result.status != "failed"
-            else [],
+                f"go call graph: package {directory} not loaded: {error}"
+                for directory, error in sorted(go_dynamic["failures"].items())
+            ],
             custom_metrics={
                 "analysis_status": result.status,
                 "model_tokens": 0,
@@ -1718,6 +1802,11 @@ class TreeSitterTool(AnalysisTool):
                     for resolver, counts in sorted(resolver_counts.items())
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "go_dynamic_calls": {
+                    "sites": len(go_dynamic["targets"]),
+                    "edges": sum(len(t) for t in go_dynamic["targets"].values()),
+                    "failed_packages": go_dynamic["failures"],
+                },
                 "scip_uses": dict(sorted(use_counts.items())),
                 "scip_fields": len(fields),
                 "signature_types": len(named_types),

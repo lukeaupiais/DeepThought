@@ -1482,6 +1482,38 @@ interface, and each interface method DISPATCHES_TO the type's method, so
 impact reaches the callers of an interface method from a changed
 implementation (see "Impact").
 
+Each call through an interface method or a function value also gets the
+targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
+call graph (`callgraph@v0.31.0 -algo=vta -test`, run per package offline from
+the module cache, `deepthought.go_callgraph`) gives, for each dynamic call
+site, the functions and methods that variable type analysis says may run
+there. Each becomes a CALLS edge from the caller with rule `go.call-vta`,
+`dispatch: vta` and `producer: callgraph@v0.31.0`; the site is the parsed
+call whose callee's last name ends at the call's opening parenthesis, and the
+target the parsed function or method of the callee's name whose span holds
+the callee's position. Calls of function values (handlers, callbacks) are
+linked this way only. The tool is required where the analyzed files include a
+`go.mod`: a missing binary, or one not built from x/tools v0.31.0 (`go
+version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
+package of an analyzed Go file is its own program, loaded with its tests,
+since a Go binary is one main package or one package's tests and what they
+import: values of two programs never meet, so a type of one example's main
+package cannot reach a call in another package's tests. VTA follows values
+through every function of a program, code nothing calls included, so each
+package is also run with `-algo=rta` (rapid type analysis from the program's
+main or its tests) and only the edges both report are kept: on chi this drops
+the example handlers' writes into the Compress middleware, which no example
+installs. A library package with neither a main nor tests has nothing to
+reach it from and keeps the VTA edges; any other RTA failure fails the
+package. Packages are named
+one by one, so directories `./...` skips (`_examples/`) are included;
+`testdata` is not. A package the tool cannot load (a dependency missing from
+the module cache, a type error) yields no edges and is reported in the
+warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
+`failed_packages`). The
+method-set DISPATCHES_TO edges above stay until impact is switched to these
+per-site edges.
+
 Nothing is guessed. An interface is left out when an embedded element is a
 type constraint, another module's or a third-party interface, or names no one
 interface; when a method's signature names a type parameter, an instantiated
