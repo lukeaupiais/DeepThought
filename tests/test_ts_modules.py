@@ -8,7 +8,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from deepthought import imports as import_rules
 from deepthought import ts_modules
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository
@@ -174,11 +173,19 @@ class CompilerImportTests(unittest.TestCase):
             repository_id="r",
             languages=("typescript", "javascript", "python"),
         )
-        parsed = import_rules.resolve_imports(result)
         scripts = [c.file for c in result.coverage]
         found = ts_modules.compiler_imports(self.root, scripts)
-        bound = ts_modules.bind_imports(result, self.root, found, parsed)
-        self.assertEqual([r.import_id for r in bound], [r.import_id for r in parsed])
+        bound = ts_modules.bind_imports(result, self.root, found)
+        # One resolution per JavaScript or TypeScript import, in identity
+        # order; other languages and configuration facts get none.
+        self.assertEqual(
+            [r.import_id for r in bound],
+            sorted(
+                i.id
+                for i in result.imports
+                if i.file.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"))
+            ),
+        )
         rule = ts_modules.TYPESCRIPT_COMPILER_MODULE
         outcomes = self.outcomes(result, bound)
         self.assertEqual(
@@ -275,10 +282,8 @@ class CompilerImportTests(unittest.TestCase):
         ]
         self.assertEqual(len(line6), 2)
         self.assertTrue(all(r.status == "linked" for r in line6))
-        # Other languages and configuration facts keep the parser's.
-        by_parser = self.outcomes(result, parsed)
         for key in (("p.py", 1), ("tsconfig.json", 1), ("typed/package.json", 1)):
-            self.assertEqual(outcomes[key], by_parser[key])
+            self.assertNotIn(key, outcomes)
         # require() in JavaScript and import() are bound like statements.
         self.assertEqual(outcomes[("src/c.js", 1)][3], (("src/b.ts", rule),))
         self.assertNotIn("src/j.tsx", {r.file for r in found})
@@ -293,16 +298,8 @@ class CompilerImportTests(unittest.TestCase):
         result = analyze_repository(
             self.root, repository_id="r", languages=("typescript",)
         )
-        parsed = import_rules.resolve_imports(result)
-        bound = ts_modules.bind_imports(result, self.root, [], parsed)
-        self.assertEqual(
-            {
-                r.reason
-                for r in bound
-                if r.reason != import_rules.RESOLUTION_CONFIGURATION
-            },
-            {ts_modules.NO_IMPORT},
-        )
+        bound = ts_modules.bind_imports(result, self.root, [])
+        self.assertEqual({r.reason for r in bound}, {ts_modules.NO_IMPORT})
         # A row for another specifier, or outside the statement, is not it.
         (item,) = [i for i in result.imports if i.file == "other/x.ts"]
         rows = [
@@ -313,7 +310,7 @@ class CompilerImportTests(unittest.TestCase):
         ]
         (resolution,) = [
             r
-            for r in ts_modules.bind_imports(result, self.root, rows, parsed)
+            for r in ts_modules.bind_imports(result, self.root, rows)
             if r.import_id == item.id
         ]
         self.assertEqual(resolution.reason, ts_modules.NO_IMPORT)
@@ -327,7 +324,7 @@ class CompilerImportTests(unittest.TestCase):
         )
         found = {
             r.import_id: r.status
-            for r in ts_modules.bind_imports(result, self.root, [row], parsed)
+            for r in ts_modules.bind_imports(result, self.root, [row])
         }
         self.assertEqual((found[first.id], found[second.id]), ("linked", "unresolved"))
         # A file outside the workspace is external.
@@ -336,7 +333,7 @@ class CompilerImportTests(unittest.TestCase):
         )
         (resolution,) = [
             r
-            for r in ts_modules.bind_imports(result, self.root, [outside], parsed)
+            for r in ts_modules.bind_imports(result, self.root, [outside])
             if r.import_id == item.id
         ]
         self.assertEqual(resolution.reason, ts_modules.EXTERNAL)
