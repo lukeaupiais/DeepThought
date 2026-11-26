@@ -7,6 +7,7 @@ import unittest
 
 from deepthought import analyze_repository
 from deepthought.calls import resolve_calls
+from deepthought.ts_modules import with_compiler_modules
 
 READY = all(
     importlib.util.find_spec(m)
@@ -58,10 +59,14 @@ def analyze(files):
             path = Path(directory) / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-        return analyze_repository(
+        # JavaScript and TypeScript imports are the compiler's.
+        return with_compiler_modules(
+            analyze_repository(
+                directory,
+                repository_id="fixture",
+                languages=("javascript", "typescript"),
+            ),
             directory,
-            repository_id="fixture",
-            languages=("javascript", "typescript"),
         )
 
 
