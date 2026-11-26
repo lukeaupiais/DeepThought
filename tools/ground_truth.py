@@ -1193,7 +1193,9 @@ def score_line_tables(
             continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
-        if source is None or target is None:
+        # Column edges (READS_COLUMN, WRITES_COLUMN) are scored on their
+        # own; the labels give each line's tables.
+        if source is None or target is None or "DbColumn" in target.labels:
             continue
         path = source.properties.get("file_path") or source.properties.get("path")
         table = r.properties.get("table") or target.properties.get("name")
