@@ -28,6 +28,11 @@ SCHEMA_QUERIES = (
         "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
     (
+        # "What is declared at file:line" is a common first question.
+        "CREATE INDEX deepthought_symbol_location IF NOT EXISTS "
+        "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.file_path)"
+    ),
+    (
         "CREATE INDEX deepthought_unresolved_call_name IF NOT EXISTS "
         "FOR (n:UnresolvedCall) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
@@ -89,6 +94,8 @@ RELATIONSHIP_SENTENCES = {
     "CARRIES_MESSAGE": "is a message type of",
     "CARRIES": "carries the payload type",
     "HAS_COLUMN": "has the column",
+    "HAS_FIELD": "has the field",
+    "GENERATED_FROM": "is generated from",
     "READS_COLUMN": "reads the column",
     "WRITES_COLUMN": "writes the column",
     "SIGNATURE_USES": "names in its signature the type",

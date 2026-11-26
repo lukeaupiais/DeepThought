@@ -99,6 +99,11 @@ class GoPayloadTypeTests(unittest.TestCase):
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
         self.unresolved = output.metadata.custom_metrics["payload_types_unresolved"]
+        self.paths = {
+            n.properties["qualified_name"]: n.properties["path"]
+            for n in output.nodes
+            if "HttpRoute" in n.labels
+        }
         return sorted(
             (
                 r.source_match["qualified_name"].split("::")[1],
@@ -106,6 +111,7 @@ class GoPayloadTypeTests(unittest.TestCase):
                 r.properties["direction"],
                 r.properties["rule_id"],
                 r.properties["evidence_type"],
+                r.source_match["qualified_name"],
             )
             for r in output.relationships
             if r.type == "CARRIES"
@@ -121,7 +127,7 @@ class GoPayloadTypeTests(unittest.TestCase):
             }
         )
         self.assertEqual(
-            found,
+            [f[:5] for f in found],
             [
                 (
                     "svc/main.go",
@@ -175,6 +181,61 @@ class GoPayloadTypeTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self.unresolved, 1)
+
+    def test_func_literal_handlers(self):
+        # The handler written inline is read; a middleware literal before
+        # it (gin runs the handler last) is not.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod(
+                    "example.com/shop",
+                    "github.com/gin-gonic/gin",
+                    "github.com/gofiber/fiber/v2",
+                ),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": INLINE,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2]) for f in found),
+            [
+                ("/api/orders", "CreateOrder", "request"),
+                ("/api/orders", "Order", "response"),
+                ("/gin/orders", "Order", "response"),
+            ],
+        )
+
+
+INLINE = """package main
+
+import (
+\t"github.com/gin-gonic/gin"
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func main() {
+\tr := gin.Default()
+\tr.GET("/gin/orders", func(c *gin.Context) {
+\t\tvar in api.CreateOrder
+\t\tc.ShouldBindJSON(&in)
+\t}, func(c *gin.Context) {
+\t\tc.JSON(200, []api.Order{})
+\t})
+
+\tapp := fiber.New()
+\torders := app.Group("/api")
+\torders.Post("/orders", func(c *fiber.Ctx) error {
+\t\tvar in api.CreateOrder
+\t\tif err := c.BodyParser(&in); err != nil {
+\t\t\treturn err
+\t\t}
+\t\treturn c.JSON(api.Order{ID: in.Item})
+\t})
+}
+"""
 
 
 FIBER_V3 = """package main

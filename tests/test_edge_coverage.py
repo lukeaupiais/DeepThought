@@ -86,6 +86,8 @@ class EdgeCoverageTests(unittest.TestCase):
                 "linked": 1,
                 "ambiguous": 1,
                 "unresolved": 1,
+                "external": 0,
+                "unresolved_reasons": {"unknown": 2},
                 "reason": None,
             },
         )
@@ -129,6 +131,8 @@ class EdgeCoverageTests(unittest.TestCase):
                 "linked": 0,
                 "ambiguous": 0,
                 "unresolved": 0,
+                "external": 0,
+                "unresolved_reasons": {},
                 "reason": None,
             },
         )
@@ -140,6 +144,49 @@ class EdgeCoverageTests(unittest.TestCase):
             ),
             ("not_linked", 1, "no_sites"),
         )
+
+    def test_calls_into_libraries_are_external_not_unresolved(self):
+        analyzed = result(("a.go", "go", "analyzed"), ("a.py", "python", "analyzed"))
+        sites = [
+            ("g1", "a.go", "linked"),
+            ("g2", "a.go", "unresolved"),  # fmt.Println
+            ("g3", "a.go", "unresolved"),  # len
+            ("g4", "a.go", "unresolved"),  # a method of an unknown type
+            ("p1", "a.py", "unresolved"),  # json.dumps
+            ("p2", "a.py", "ambiguous"),
+        ]
+        calls = (
+            [(i, f) for i, f, _ in sites],
+            {i: s for i, _, s in sites},
+            {i: "scip-go@0.1" for i in ("g1", "g2", "g3", "g4")}
+            | {"p1": "pyright@1", "p2": "pyright@1"},
+            {
+                "g2": "scip_external",
+                "g3": "scip_no_occurrence",
+                "g4": "scip_target_not_declaration",
+                "p1": "pyright_external",
+                "p2": "multiple_declarations",
+            },
+        )
+        records = {
+            (r.family, r.language): r.to_dict()
+            for r in edge_coverage(analyzed, PARSER, calls, ([], {}, {}))
+        }
+        go = records[("CALLS", "go")]
+        self.assertEqual(
+            {k: go[k] for k in ("status", "linked", "external", "unresolved")},
+            {"status": "linked", "linked": 1, "external": 1, "unresolved": 2},
+        )
+        self.assertEqual(
+            go["unresolved_reasons"],
+            {"scip_no_occurrence": 1, "scip_target_not_declaration": 1},
+        )
+        python = records[("CALLS", "python")]
+        self.assertEqual(
+            (python["external"], python["ambiguous"], python["unresolved"]),
+            (1, 1, 0),
+        )
+        self.assertEqual(python["unresolved_reasons"], {"multiple_declarations": 1})
 
 
 if __name__ == "__main__":

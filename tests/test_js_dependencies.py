@@ -54,6 +54,34 @@ class InstallDirectoriesTest(unittest.TestCase):
                 shutil.rmtree(Path(scratch) / name)
             self.assertEqual(install_directories(scratch), [])
 
+    def test_an_app_with_its_own_lockfile_under_an_npm_root_installs_there(self):
+        # A repository whose root package.json only pins tooling, with apps in
+        # subdirectories that each have their own lockfile: npm ci at the root
+        # installs none of the apps' packages.
+        lock = json.dumps({"lockfileVersion": 3})
+        tooling = json.dumps({"private": True, "devDependencies": {"lint": "1"}})
+        app = json.dumps({"dependencies": {"x": "1"}})
+        with tempfile.TemporaryDirectory() as scratch:
+            write(
+                scratch,
+                {
+                    "package.json": tooling,
+                    "package-lock.json": lock,
+                    "src/web/package.json": app,
+                    "src/web/package-lock.json": lock,
+                    "src/web/lib/package.json": app,
+                    "src/mobile/package.json": app,
+                    "src/mobile/package-lock.json": lock,
+                    "scripts/package.json": app,
+                },
+            )
+            self.assertEqual(
+                install_directories(scratch), [".", "src/mobile", "src/web"]
+            )
+            # A workspace root still installs everything below it.
+            write(scratch, {"package.json": json.dumps({"workspaces": ["src/*"]})})
+            self.assertEqual(install_directories(scratch), ["."])
+
     def test_packages_that_are_not_workspaces_install_where_they_are(self):
         declares = json.dumps({"dependencies": {"x": "1"}})
         with tempfile.TemporaryDirectory() as scratch:
