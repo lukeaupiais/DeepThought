@@ -83,13 +83,12 @@ IMPLEMENTS_RULE = register_rule(
 )
 
 
-def _implementations(index_path, max_index_bytes=50_000_000):
-    """(document, symbol, related symbol) for each is_implementation relationship."""
+def _implementations(index_path):
+    """(document, symbol, related symbol) for each is_implementation
+    relationship of an index whose receipt was validated."""
     from .._scip import scip_pb2
 
     content = Path(index_path).read_bytes()
-    if len(content) > max_index_bytes:
-        raise ValueError("Index exceeds max_index_bytes")
     index = scip_pb2.Index()
     index.ParseFromString(content)
     return sorted(
@@ -244,11 +243,20 @@ class ScipAnalysisTool(AnalysisTool):
         ]
         sources, owner = [], {}
         for path, receipt in zip(self.index_paths, receipts):
+            # The receipt vouches for the index's digest, so it is read whole:
+            # a size cap would refuse a big repository's index (lobe-chat's
+            # 80 MB) and read as a producer mismatch.
             source = ingest_scip(
                 path,
                 repository_id=repo_url,
                 default_position_encoding=receipt["position_encoding"],
+                max_index_bytes=max(1, path.stat().st_size),
             )
+            if source.status == "failed":
+                raise ValueError(
+                    f"SCIP index {path.name} could not be read: "
+                    + "; ".join(f"{d.code}: {d.message}" for d in source.diagnostics)
+                )
             producer = receipt["producer"]
             if (
                 dict(source.analyzer_versions).get(producer["name"])

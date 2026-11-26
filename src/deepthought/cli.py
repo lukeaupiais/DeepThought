@@ -123,6 +123,13 @@ def main(argv=None) -> int:
     subcommands.add_parser(
         "indexers", help="List the pinned SCIP indexers and whether each is installed"
     )
+    edit = subcommands.add_parser(
+        "check-edit",
+        help="Type-check a unified diff against a workspace and list what it breaks",
+    )
+    edit.add_argument("workspace")
+    edit.add_argument("diff", help="Unified diff file, or - for standard input")
+    edit.add_argument("--timeout", type=int, default=900)
     compose = subcommands.add_parser(
         "compose",
         help="Compose supplied analysis JSON artifacts into a local reference graph",
@@ -168,6 +175,27 @@ def main(argv=None) -> int:
             listed = requirements()
             print(json.dumps(listed, sort_keys=True))
             return 0 if all(item["installed"] for item in listed) else 1
+        if args.command == "check-edit":
+            from .edit_check import check_edit
+
+            if args.diff == "-":
+                text = sys.stdin.read()
+            else:
+                with open(args.diff, encoding="utf-8") as handle:
+                    text = handle.read()
+            report = check_edit(args.workspace, text, timeout=args.timeout)
+            print(json.dumps(report, sort_keys=True))
+            for check in report["checks"]:
+                if check["status"] != "checked":
+                    print(
+                        f"{check['language']} {check['project']}: {check['status']}"
+                        f" ({check['reason']})",
+                        file=sys.stderr,
+                    )
+            # 0: nothing breaks; 1: breaks; 3: a check could not run.
+            if not report["complete"]:
+                return 3
+            return 1 if report["breaks"] else 0
         if args.command == "index-scip":
             from .indexers import index_workspace
 
