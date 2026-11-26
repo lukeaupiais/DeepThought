@@ -27,6 +27,7 @@ from .._version import __version__
 from ..data_contracts import (
     resolve_script_module,
 )
+from .. import ts_modules
 from ..engine import analyze_repository, source_languages
 from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
@@ -253,7 +254,9 @@ GO_PAYLOAD_RULES = {
             "resolved",
             "A Go route handler decodes its request body into a value of this "
             "type: gin's Context.Bind/ShouldBind/BindJSON/ShouldBindJSON, "
-            "echo's Context.Bind or fiber's Ctx.BodyParser, or encoding/json's "
+            "echo's Context.Bind, fiber's Ctx.BodyParser or (v3) "
+            "Ctx.Bind().Body, JSON, XML, Form, MultipartForm, MsgPack or CBOR, "
+            "or encoding/json's "
             "Decoder.Decode on json.NewDecoder(r.Body) of the handler's "
             "*http.Request; the Go type checker gives the argument's named "
             "type (through pointers and slices) and its declaration.",
@@ -2574,6 +2577,8 @@ class ServiceContractTool(AnalysisTool):
             exclude=() if skip_patterns is None else tuple(skip_patterns),
         )
         root = self.repo_path.resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
         graphql_resolvers = []
@@ -3393,9 +3398,11 @@ class ServiceContractTool(AnalysisTool):
             if function is None:
                 continue
             inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
-            for direction, (_, type_name), where in handler_payloads(
-                function, content, inside
-            ):
+            for direction, sent, where in handler_payloads(function, content, inside):
+                if sent is None:
+                    payload_unresolved += 1  # an interface value
+                    continue
+                type_name = sent[1]
                 if where is None:
                     continue  # a type of a library, outside the module tree
                 found = declaration(where[0], type_name, where[1])
