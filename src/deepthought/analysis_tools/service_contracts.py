@@ -66,7 +66,7 @@ from ..service_contracts.graphql import (
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.model import HttpRequest, HttpRoute, Unread
 from ..service_contracts.listeners import kratos_ports
-from ..service_contracts.protoc import route_path
+from ..service_contracts.protoc import python_descriptors, route_path
 from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
@@ -113,7 +113,7 @@ from ..service_contracts.web import (
     nest_settings,
     python_routers,
 )
-from ..syntax import identifier, make_parser
+from ..syntax import identifier, make_parser, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -1279,11 +1279,78 @@ CARRIES_MESSAGE_RULE = register_rule(
     )
 )
 
+PROTO_FILE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-file",
+        "resolved",
+        "protoc (grpcio-tools) compiles the repository's .proto file at this path.",
+    )
+)
+PROTO_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-type",
+        "resolved",
+        "protoc's descriptor of a compiled .proto file declares this message "
+        "or enum type (DECLARES), a nested type inside its message (CONTAINS) "
+        "and each field of a message (HAS_FIELD) with its number, type, "
+        "label, map key, oneof and JSON name. Map entry messages are their "
+        "field's map, not a type.",
+    )
+)
+PROTO_FIELD_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.proto-field-type",
+        "resolved",
+        "protoc resolves the message or enum type a field (a map field: its "
+        "value) holds to a type of a compiled .proto file of the repository.",
+    )
+)
+PROTO_GO_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-generated-proto-type",
+        "resolved",
+        "The Go type checker reads the protoimpl.TypeBuilder protoc-gen-go "
+        "writes in a generated file: protobuf decodes its RawDescriptor, and "
+        "its GoTypes give the Go type of each enum and message of that "
+        "descriptor, in protobuf-go's flattened ordering (NumEnums and "
+        "NumMessages must match the descriptor). The Go type is generated "
+        "from the type of that full name in the repository's .proto files.",
+    )
+)
+PROTO_PY_MODULE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.python-generated-proto-module",
+        "resolved",
+        "A Python module passes a bytes literal to AddSerializedFile of a "
+        "descriptor pool, or as serialized_pb to FileDescriptor, imported "
+        "from google.protobuf (protoc's Python generator, read with Python's "
+        "ast); protobuf decodes it, and the module is generated from each "
+        "message or enum of that full name in the repository's .proto files.",
+    )
+)
+PROTO_RPC_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.grpc-method-message",
+        "resolved",
+        "protoc resolves an rpc's request (input_type) or response "
+        "(output_type) to a message of a compiled .proto file of the "
+        "repository; every copy of the rpc agrees.",
+    )
+)
+
 # Rules of this tool's edges that are not contract sites (HANDLES,
 # REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
 # Contract coverage counts sites only, so these may be resolved.
 NON_SITE_RULES = frozenset(
-    {CARRIES_MESSAGE_RULE.rule_id}
+    {
+        CARRIES_MESSAGE_RULE.rule_id,
+        PROTO_FILE_RULE.rule_id,
+        PROTO_TYPE_RULE.rule_id,
+        PROTO_FIELD_TYPE_RULE.rule_id,
+        PROTO_RPC_MESSAGE_RULE.rule_id,
+        PROTO_GO_TYPE_RULE.rule_id,
+        PROTO_PY_MODULE_RULE.rule_id,
+    }
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
@@ -2062,13 +2129,14 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
 def _go_messaging_facts(root, sources):
     """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
     calls}, (GoRoutes, unread), {file: GoPasses}, Fiber c.Next() operands,
-    GoStructs) from the Go type checker: the
+    GoStructs, GoProtoFiles) from the Go type checker: the
     first for the Go sources that import a broker client, the third for
     those whose HTTP handlers may carry payloads
     (``_GO_HTTP_PAYLOAD_IMPORTS``), the fourth the routes of gin, Echo, chi
     and Fiber routers (``go_routes``), then the values each file passes to
-    its own helpers, the parameters Fiber's c.Next() is called on, the last
-    the module's struct types;
+    its own helpers, the parameters Fiber's c.Next() is called on, the
+    module's struct types, and the protoc-gen-go files' descriptors and Go
+    types;
     reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
@@ -2102,11 +2170,20 @@ def _go_messaging_facts(root, sources):
     ]
     if not routers:
         routing = []
-    if not files and not handlers and not routing:
-        return {}, {}, {}, ([], []), {}, set(), ()
+    # protoc-gen-go output: its TypeBuilder names the Go type of each
+    # message and enum of the .proto file.
+    generated = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and c.file.endswith(".go")
+        and b"protoimpl.TypeBuilder" in content
+    ]
+    if not files and not handlers and not routing and not generated:
+        return {}, {}, {}, ([], []), {}, set(), (), ()
     facts = go_facts.collect(
         root,
-        sorted({*files, *handlers, *routing}),
+        sorted({*files, *handlers, *routing, *generated}),
         list(_go_modules(root, sources).values()),
     )
     calls, literals = defaultdict(list), defaultdict(list)
@@ -2155,6 +2232,7 @@ def _go_messaging_facts(root, sources):
         passes,
         fiber_next,
         facts.structs,
+        facts.proto_files,
     )
 
 
@@ -2640,6 +2718,216 @@ def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
+def _proto_type_graph(
+    repo_url,
+    grpc,
+    grpc_names,
+    file_node,
+    nodes,
+    relationships,
+    go_proto_files=(),
+    declaration=None,
+    symbol_node=None,
+    python_modules=(),
+):
+    """ProtoMessage, ProtoField and ProtoEnum nodes of the compiled .proto
+    files, and the rpcs' request and response messages (CARRIES). Copies of
+    one type (a .proto vendored into each service) are one node declared in
+    each copy; when the copies' fields disagree, the node says so and has no
+    fields. The Go types protoc-gen-go generates for them are GENERATED_FROM
+    them, and so are the Python modules protoc generates. Returns the
+    numbers of CARRIES and GENERATED_FROM edges written."""
+    from deepthought.service_contracts.protoc import ProtoMessage
+
+    def key(item):
+        return "message" if isinstance(item, ProtoMessage) else "enum"
+
+    def qualified(kind, full_name):
+        return f"{repo_url}::proto::{kind}::{full_name}"
+
+    copies = defaultdict(list)
+    for item in grpc.proto_types:
+        copies[(key(item), item.full_name)].append(item)
+    labels = {"message": ["ProtoMessage"], "enum": ["ProtoEnum"]}
+
+    def edge(kind, source_labels, source, target_labels, target, rule, extra=None):
+        relationships.append(
+            RelationshipData(
+                kind,
+                source_labels,
+                {"qualified_name": source, "repo_url": repo_url},
+                target_labels,
+                {"qualified_name": target, "repo_url": repo_url},
+                {**(extra or {}), **_evidence(rule)},
+            )
+        )
+
+    def signature(item):
+        if key(item) == "enum":
+            return tuple((n, v) for n, v, _ in item.values)
+        return tuple(
+            (f.name, f.number, f.type, f.kind, f.label, f.map_key, f.oneof)
+            for f in item.fields
+        )
+
+    for (kind, full_name), declared in sorted(copies.items()):
+        declared.sort(key=lambda item: (item.file, item.line))
+        first = declared[0]
+        name = qualified(kind, full_name)
+        agree = len({signature(item) for item in declared}) == 1
+        properties = {
+            "qualified_name": name,
+            "repo_url": repo_url,
+            "name": full_name.rsplit(".", 1)[-1],
+            "display_name": full_name,
+            "full_name": full_name,
+            "package": first.package,
+            "file_path": first.file,
+            "line": first.line,
+            "declared_in": [f"{item.file}:{item.line}" for item in declared],
+            **({"parent": first.parent} if first.parent else {}),
+        }
+        if kind == "enum" and agree:
+            properties["values"] = [f"{n}={v}" for n, v, _ in first.values]
+        if not agree:
+            properties["copies_disagree"] = True
+        nodes.append(NodeData(labels[kind], properties))
+        for item in declared:
+            if item.parent is None:
+                edge(
+                    "DECLARES",
+                    *file_node(item.file),
+                    labels[kind],
+                    name,
+                    PROTO_TYPE_RULE,
+                    {"line": item.line},
+                )
+        if first.parent is not None:
+            edge(
+                "CONTAINS",
+                ["ProtoMessage"],
+                qualified("message", first.parent),
+                labels[kind],
+                name,
+                PROTO_TYPE_RULE,
+            )
+        if kind != "message" or not agree:
+            continue
+        for field in first.fields:
+            field_name = f"{name}::field::{field.name}"
+            nodes.append(
+                NodeData(
+                    ["ProtoField"],
+                    {
+                        "qualified_name": field_name,
+                        "repo_url": repo_url,
+                        "name": field.name,
+                        "display_name": f"{full_name}.{field.name}",
+                        "message": full_name,
+                        "number": field.number,
+                        "type": field.type,
+                        "type_kind": field.kind,
+                        "json_name": field.json_name,
+                        "file_path": first.file,
+                        "line": field.line,
+                        **({"label": field.label} if field.label else {}),
+                        **({"map_key": field.map_key} if field.map_key else {}),
+                        **({"oneof": field.oneof} if field.oneof else {}),
+                        **({"deprecated": True} if field.deprecated else {}),
+                    },
+                )
+            )
+            edge(
+                "HAS_FIELD",
+                ["ProtoMessage"],
+                name,
+                ["ProtoField"],
+                field_name,
+                PROTO_TYPE_RULE,
+                {"number": field.number},
+            )
+            if field.kind != "scalar" and (field.kind, field.type) in copies:
+                edge(
+                    "USES_TYPE",
+                    ["ProtoField"],
+                    field_name,
+                    labels[field.kind],
+                    qualified(field.kind, field.type),
+                    PROTO_FIELD_TYPE_RULE,
+                )
+    carried = 0
+    for (service, method), declared in sorted(grpc.index.methods.items()):
+        for direction, values in (
+            ("request", {m.request for m in declared}),
+            ("response", {m.response for m in declared}),
+        ):
+            if len(values) != 1 or None in values:
+                continue
+            message = values.pop()
+            if ("message", message) not in copies:
+                continue
+            carried += 1
+            edge(
+                "CARRIES",
+                ["GrpcMethod", "Contract"],
+                grpc_names[(service, method)],
+                ["ProtoMessage"],
+                qualified("message", message),
+                PROTO_RPC_MESSAGE_RULE,
+                {"direction": direction},
+            )
+    # Go: protoc-gen-go's TypeBuilder lists, for its file's descriptor, the
+    # Go type of each enum and message; a type whose descriptor the
+    # repository's .proto files also declare is generated from it.
+    from deepthought.service_contracts.protoc import flattened_types
+
+    generated = 0
+    seen = set()
+    for item in go_proto_files:
+        names = flattened_types(item.descriptor, item.enums, item.messages)
+        if names is None:
+            continue
+        for position, full_name in enumerate(names):
+            go_type = item.types[position] if position < len(item.types) else None
+            kind = "enum" if position < item.enums else "message"
+            if go_type is None or (kind, full_name) not in copies:
+                continue
+            file, line, name = go_type
+            definition_id = declaration(file, name, line)
+            if definition_id is None or (definition_id, full_name) in seen:
+                continue
+            seen.add((definition_id, full_name))
+            generated += 1
+            edge(
+                "GENERATED_FROM",
+                *symbol_node(definition_id),
+                labels[kind],
+                qualified(kind, full_name),
+                PROTO_GO_TYPE_RULE,
+                {"file_path": file, "line": line},
+            )
+    # Python: a module protoc's Python generator writes registers its
+    # file's serialized descriptor; the module is generated from each type
+    # that descriptor declares.
+    from deepthought.service_contracts.protoc import declared_types
+
+    for file, descriptors in python_modules:
+        for serialized in descriptors:
+            for kind, full_name in declared_types(serialized):
+                if (kind, full_name) not in copies or (file, full_name) in seen:
+                    continue
+                seen.add((file, full_name))
+                generated += 1
+                edge(
+                    "GENERATED_FROM",
+                    *file_node(file),
+                    labels[kind],
+                    qualified(kind, full_name),
+                    PROTO_PY_MODULE_RULE,
+                )
+    return carried, generated
+
+
 @register_tool
 class ServiceContractTool(AnalysisTool):
     def __init__(self, repo_path):
@@ -2747,8 +3035,9 @@ class ServiceContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(coverage.file, content)
             grpc_sources.append((coverage.file, coverage.language, content))
-            suffix = "." + coverage.file.rsplit(".", 1)[-1]
             key = (coverage.language, suffix if suffix == ".tsx" else "")
             if key not in parsers:
                 parsers[key] = make_parser(coverage.language, suffix)
@@ -2870,6 +3159,7 @@ class ServiceContractTool(AnalysisTool):
             go_passes,
             go_fiber_next,
             go_structs,
+            go_proto_files,
         ) = _go_messaging_facts(root, sources)
         # Go handler declarations by (file, line) of their name.
         go_declarations = defaultdict(list)
@@ -3367,6 +3657,34 @@ class ServiceContractTool(AnalysisTool):
                         ["File"],
                         {"qualified_name": qualified, "repo_url": repo_url},
                         _evidence(GRAPHQL_DOCUMENT_RULE),
+                    )
+                )
+            if path not in files and grpc.proto_readers.get(path) == "protoc":
+                # A .proto file protoc reads: the repository contains it.
+                qualified = f"{repo_url}::{path}::file"
+                files[path] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": qualified,
+                        "repo_url": repo_url,
+                        "path": path,
+                        "file_path": path,
+                        "name": path,
+                        "language": "protobuf",
+                        "file_sha256": grpc.proto_files[path],
+                    },
+                )
+                relationships.append(
+                    RelationshipData(
+                        "CONTAINS",
+                        ["Repository"],
+                        {
+                            "qualified_name": f"{repo_url}::repository",
+                            "repo_url": repo_url,
+                        },
+                        ["File"],
+                        {"qualified_name": qualified, "repo_url": repo_url},
+                        _evidence(PROTO_FILE_RULE),
                     )
                 )
             if path not in files:
@@ -3984,6 +4302,23 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        proto_carried, proto_generated = _proto_type_graph(
+            repo_url,
+            grpc,
+            grpc_names,
+            file_node,
+            nodes,
+            relationships,
+            go_proto_files,
+            declaration,
+            symbol_node,
+            [
+                (c.file, python_descriptors(content.decode("utf-8", "replace")))
+                for c, content, _ in sources
+                if c.language == "python"
+                and (b"AddSerializedFile(" in content or b"serialized_pb=" in content)
+            ],
+        )
         for handler in grpc.handlers:
             labels, source = symbol_node(handler.handler_id)
             relationships.append(
@@ -4312,6 +4647,11 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
                 "grpc_methods_with_message_types": len(grpc_messages),
                 "grpc_message_carriers": len(grpc_carriers),
+                "proto_types": dict(
+                    sorted(Counter(type(t).__name__ for t in grpc.proto_types).items())
+                ),
+                "grpc_proto_message_edges": proto_carried,
+                "proto_generated_types": proto_generated,
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())

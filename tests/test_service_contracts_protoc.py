@@ -72,7 +72,7 @@ class ProtocReaderTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_imports_resolve_across_directories(self):
-        package, methods, bindings = self.read["services/cart/api/shop.proto"]
+        package, methods, bindings, _ = self.read["services/cart/api/shop.proto"]
         self.assertEqual(package, "shop.v1")
         self.assertEqual(
             [(m.full_name, m.line, m.streaming) for m in methods],
@@ -84,7 +84,7 @@ class ProtocReaderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(bindings, [])
-        _, health, _ = self.read["proto/common/v1/common.proto"]
+        _, health, _, _ = self.read["proto/common/v1/common.proto"]
         self.assertEqual([m.full_name for m in health], ["common.v1.Health/Check"])
 
     def test_unresolved_import_is_not_read(self):

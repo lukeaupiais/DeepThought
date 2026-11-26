@@ -1194,6 +1194,99 @@ indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
 
+### Calls through function values
+
+Some calls go through a value rather than a declared name: a callback
+parameter, a function taken from an array, a map or an object of plugins, or
+a hook registered and run later. What such a call runs is whatever function
+flows to it. The engine reads that from the pinned Jelly call graph
+(`@cs-au-dk/jelly` 0.13.0, `npm install -g @cs-au-dk/jelly@0.13.0` or
+`DEEPTHOUGHT_JELLY`; `src/deepthought/js_callgraph.py`). Jelly is a static
+points-to analysis of the analyzed JavaScript and TypeScript files (declaration
+files left out). It is required where those languages are analyzed.
+
+Jelly runs with these options:
+
+- `--ignore-dependencies`: the result depends on the repository's files
+  alone, with or without node_modules.
+- `--no-callgraph-external`, `--no-callgraph-native`,
+  `--no-callgraph-implicit` and `--no-callgraph-require`: Jelly reports only
+  calls whose callee value its analysis finds. It reports no callbacks it
+  assumes unanalyzed or native code makes, and no getter, setter or
+  module-load calls.
+
+Each call that no other rule links gets a CALLS edge `jelly.call-points-to`
+(`resolved`, `dispatch: points-to`, `producer: jelly@0.13.0`) to each
+function Jelly finds. A call whose import the TypeScript compiler finds binds
+nothing (`imported_name_not_declared`) gets none. The call must be a parsed
+call site that starts and ends where Jelly's call expression does. The
+function must be a parsed function or method that ends where Jelly's function
+does and holds its start; `const f = () => {}` counts. An anonymous callback
+is not a declaration and adds nothing. A run that fails or reaches its
+900-second limit adds no edges and is a `jelly_failed` warning. The metadata
+counts `js_points_to_calls` (`sites`, `edges`, `error`).
+
+On ky, 971 call sites gain 987 edges. Most are calls of the `ky` instance that
+`createInstance` returns. On preact, 133 sites gain 139 edges: `h` aliased to
+`createElement`, factory-made `suspend` functions and `c.render` on
+components. Jelly takes about 3 seconds on each. Which callbacks Jelly
+attributes to unanalyzed libraries (`expect(fn)`) was checked on preact's
+tests before those options were set: such edges named the library call as the
+caller, so they are left out.
+
+### NestJS injection
+
+A call `this.p.m()` in a class whose constructor parameter property `p`
+NestJS injects reaches whatever class the module's providers bind to `p`'s
+token. Before this, such a call linked only to the interface or abstract
+method it names, so "who calls" the method the application actually runs
+came back empty. The TypeScript compiler (`tsmodules/resolve.js`, in the same
+programs as module resolution) reads:
+
+- the token of each parameter property: the argument of its
+  `@Inject(token)` (`Inject` imported from `@nestjs/common`; the import is
+  read, so the package need not be installed), or else the class its type
+  names (an interface names none, as in Nest's `design:paramtypes`);
+- each class provider `{provide: token, useClass: C}` written anywhere in
+  the program, including in arrays spread into a module's `providers`.
+
+Tokens and classes are the symbols the checker resolves the names to
+(imports, re-exports and a `const`/`interface` pair of one name followed),
+never their spelling. Each such call then gets a CALLS edge
+`typescript.call-nest-injected-provider` (`resolved`, `dispatch:
+nest-injection`, `producer: typescript@<version>`) to `m` declared by each
+provided class, or inherited through `extends`. This edge sits beside the
+call's own link. A token bound in two modules to two classes links to both.
+`useValue`, `useFactory` and `useExisting` providers, parameters that are
+not properties, and properties assigned in the constructor body are not
+read. The tool metadata counts `nest_injected_calls` (`sites`, `edges`).
+On immich's server, 254 injected properties are bound and 603 call sites
+gain an edge, each to one class.
+
+### Vue single-file components
+
+A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
+is its script. Vue's own parser, `@vue/compiler-sfc` 3.5.45 (the parser Vue's
+build tools and language tools use; `npm install -g @vue/compiler-sfc@3.5.45`,
+or `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its package directory), finds the
+`<script>` and `<script setup>` blocks and their `lang`
+(`src/deepthought/vue_sfc.py`, `vuesfc/blocks.js`). Every byte outside those
+blocks is blanked, line breaks kept, so every line and column of a fact is the
+component's own. The source is read as TypeScript, or as TSX when a block is
+`lang="tsx"` or `"jsx"`. The template and styles are not read, and a block
+written with `src` has no content in the component. The package is required
+when a workspace has a component: a missing or different version is an error,
+not an empty result.
+
+The TypeScript compiler reads the same script as a file `X.vue.ts` (or
+`X.vue.tsx`) beside the component, as Vue's language tools once did, and a
+config's `include` matches components. Its own resolver then resolves
+`import Comp from "./Comp.vue"` and aliases (`@/components/Comp.vue`) to the
+component, and resolves the component's own imports with the options of the
+config that includes it. Every path the compiler writes names the component.
+scip-typescript does not index components, so their calls are bound as in any
+file no index covers.
+
 ## Go
 
 Go sources (`.go`) are analyzed when `go` is selected (`--language go`) and the
@@ -1457,6 +1550,38 @@ tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
 interface, and each interface method DISPATCHES_TO the type's method, so
 impact reaches the callers of an interface method from a changed
 implementation (see "Impact").
+
+Each call through an interface method or a function value also gets the
+targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
+call graph (`callgraph@v0.31.0 -algo=vta -test`, run per package offline from
+the module cache, `deepthought.go_callgraph`) gives, for each dynamic call
+site, the functions and methods that variable type analysis says may run
+there. Each becomes a CALLS edge from the caller with rule `go.call-vta`,
+`dispatch: vta` and `producer: callgraph@v0.31.0`; the site is the parsed
+call whose callee's last name ends at the call's opening parenthesis, and the
+target the parsed function or method of the callee's name whose span holds
+the callee's position. Calls of function values (handlers, callbacks) are
+linked this way only. The tool is required where the analyzed files include a
+`go.mod`: a missing binary, or one not built from x/tools v0.31.0 (`go
+version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
+package of an analyzed Go file is its own program, loaded with its tests,
+since a Go binary is one main package or one package's tests and what they
+import: values of two programs never meet, so a type of one example's main
+package cannot reach a call in another package's tests. VTA follows values
+through every function of a program, code nothing calls included, so each
+package is also run with `-algo=rta` (rapid type analysis from the program's
+main or its tests) and only the edges both report are kept: on chi this drops
+the example handlers' writes into the Compress middleware, which no example
+installs. A library package with neither a main nor tests has nothing to
+reach it from and keeps the VTA edges; any other RTA failure fails the
+package. Packages are named
+one by one, so directories `./...` skips (`_examples/`) are included;
+`testdata` is not. A package the tool cannot load (a dependency missing from
+the module cache, a type error) yields no edges and is reported in the
+warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
+`failed_packages`). The
+method-set DISPATCHES_TO edges above stay until impact is switched to these
+per-site edges.
 
 Nothing is guessed. An interface is left out when an embedded element is a
 type constraint, another module's or a third-party interface, or names no one
@@ -3856,8 +3981,8 @@ linked by the usual HTTP resolution:
   read against the site root.
 
 A path that is not literal is `route:path_not_literal`. Scripts inside HTML
-pages and `.vue` files are not parsed, so clients written there are not
-found.
+pages are not parsed, so clients written there are not found; the script
+blocks of `.vue` components are read (Vue single-file components, above).
 
 Results on 15 repositories (13 cloned for this slice, plus the
 apssouza22/java-microservice corpus):
@@ -4668,6 +4793,59 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   reflection test inputs, and Prisma's gRPC example names an rpc and a
   message `Post`, which protoc rejects (protobuf.js loads it at run time),
   so that example's 14 server links are no longer drawn.
+- **Messages, fields and enums.** Each `.proto` file protoc compiles is a
+  `File` node (`language` `protobuf`, `file_sha256`; the Repository
+  `CONTAINS` it, rule `service-contracts.proto-file`), and the message and
+  enum types its descriptor declares are nodes: `ProtoMessage`
+  (`{repo}::proto::message::{full name}`), `ProtoEnum`
+  (`{repo}::proto::enum::{full name}`, with `values` as `NAME=number`) and,
+  for each field of a message, `ProtoField`
+  (`{message}::field::{name}`) with `number`, `type` (a scalar's name, or
+  the full name of the message or enum it holds), `type_kind` (`scalar`,
+  `message` or `enum`), `label` (`repeated`, `optional`, `required`),
+  `map_key` (a `map<k, v>` field: `type` is the value's), `oneof`,
+  `json_name`, `deprecated` and the line of the field. Edges, all
+  `resolved` from the descriptor (rule `service-contracts.proto-type`
+  unless named): the File `DECLARES` each top-level type; a message
+  `CONTAINS` its nested types and `HAS_FIELD` each field; a field
+  `USES_TYPE` the message or enum it holds when a compiled file of the
+  repository declares it (rule `service-contracts.proto-field-type`;
+  well-known types such as `google.protobuf.Timestamp` stay a name in
+  `type`); and a `GrpcMethod` `CARRIES` its request and response messages
+  with `direction` `request` or `response` (rule
+  `service-contracts.grpc-method-message`). Like methods, the copies of one
+  type that services vendor are one node with every copy in `declared_in`
+  and a `DECLARES` from each file; when the copies' fields or values
+  disagree the node has `copies_disagree` and no fields. Map entry messages
+  are their field's map, not types. The `proto_types` metric counts the
+  types read and `grpc_proto_message_edges` the `CARRIES` edges.
+- **Generated Go types.** The Go type that protoc-gen-go generates for a
+  message or enum is `GENERATED_FROM` that type (rule
+  `service-contracts.go-generated-proto-type`, resolved, with the Go type's
+  `file_path` and `line`). The Go type checker reads the
+  `protoimpl.TypeBuilder` in the generated file's init. Its `DescBuilder`
+  holds the file's serialized descriptor (a `[]byte` literal, or since
+  protoc-gen-go 1.36 a string constant through `unsafe.Slice`), which
+  protobuf decodes. Its `GoTypes` gives the Go type of each enum and then
+  each message, in protobuf-go's flattened ordering: top-level
+  declarations first, then, for each message in depth-first order, the
+  enums or messages nested directly in it. Map entries have no Go type.
+  `NumEnums` and `NumMessages` must match the descriptor. So the link does
+  not depend on how protoc-gen-go names types, or on where the code was
+  generated to (`go_package` often names another import path than the
+  directory the code is committed in). A type links only when a compiled
+  `.proto` file of the repository declares its full name. The
+  `proto_generated_types` metric counts the links.
+- **Generated Python modules.** A module that protoc's Python generator
+  writes registers its file's serialized descriptor: a bytes literal passed
+  to `AddSerializedFile` of a descriptor pool (protobuf 3.20 and later), or
+  as `serialized_pb` to `FileDescriptor` (earlier), on a name the module
+  imports from `google.protobuf`, read with Python's `ast`. protobuf
+  decodes it, and the module's File is `GENERATED_FROM` each message and
+  enum of that descriptor that the repository's `.proto` files declare
+  (rule `service-contracts.python-generated-proto-module`, resolved). The
+  classes are built at import time, so no class declaration links. Generated
+  TypeScript and JavaScript are not linked yet.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),

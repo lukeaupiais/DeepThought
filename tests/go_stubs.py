@@ -437,6 +437,35 @@ STUBS["github.com/rabbitmq/amqp091-go"] = {
         "package amqp\n", "package amqp091\n", 1
     )
 }
+# protobuf-go's runtime, as far as protoc-gen-go's init uses it.
+STUBS["google.golang.org/protobuf"] = {
+    "runtime/protoimpl/impl.go": """package protoimpl
+
+type DescBuilder struct {
+\tGoPackagePath string
+\tRawDescriptor []byte
+\tNumEnums      int32
+\tNumMessages   int32
+\tNumExtensions int32
+\tNumServices   int32
+}
+
+type EnumInfo struct{}
+type MessageInfo struct{}
+
+type TypeBuilder struct {
+\tFile              DescBuilder
+\tGoTypes           []any
+\tDependencyIndexes []int32
+\tEnumInfos         []EnumInfo
+\tMessageInfos      []MessageInfo
+}
+
+type Out struct{}
+
+func (tb TypeBuilder) Build() Out { return Out{} }
+""",
+}
 
 
 def stub_directory(path):
