@@ -123,6 +123,11 @@ class Definition:
     # ``io.Reader``; a union or ``~T`` constraint as written, without spaces).
     # None elsewhere, or when there is none.
     embeds: tuple[str, ...] | None = None
+    # SCIP definitions: the symbols the indexer records this symbol as
+    # implementing (``is_implementation`` relationships: an interface a type
+    # implements, the interface method a method implements). None elsewhere,
+    # or when there is none.
+    implements: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.underlying_type is not None and (
@@ -167,6 +172,12 @@ class Definition:
             or not all(isinstance(name, str) and name for name in self.embeds)
         ):
             raise ValueError("embeds must be a tuple of nonempty strings")
+        if self.implements is not None and (
+            type(self.implements) is not tuple
+            or not self.implements
+            or not all(isinstance(name, str) and name for name in self.implements)
+        ):
+            raise ValueError("implements must be a tuple of nonempty strings")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -913,6 +924,8 @@ class AnalysisResult:
                 del item["signature"]
             if item["embeds"] is None:
                 del item["embeds"]
+            if item["implements"] is None:
+                del item["implements"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -1149,6 +1162,9 @@ class AnalysisResult:
                         "embeds": tuple(item["embeds"])
                         if isinstance(item.get("embeds"), list)
                         else item.get("embeds"),
+                        "implements": tuple(item["implements"])
+                        if isinstance(item.get("implements"), list)
+                        else item.get("implements"),
                     }
                 )
                 for item in data["definitions"]
