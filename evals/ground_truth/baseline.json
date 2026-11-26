@@ -1124,12 +1124,12 @@
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 3609,
-        "not_indexed": 186,
+        "not_indexed": 189,
         "unjudged": 40
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 1634,
-        "not_indexed": 107,
+        "not_indexed": 120,
         "unjudged": 4
       },
       "tree-sitter.call-module-attribute": {
@@ -1147,12 +1147,12 @@
       },
       "tree-sitter.js-call-reexport": {
         "confirmed": 682,
-        "not_indexed": 22,
+        "not_indexed": 33,
         "unjudged": 1
       },
       "tree-sitter.js-call-typed-receiver": {
         "confirmed": 634,
-        "not_indexed": 2
+        "not_indexed": 12
       }
     },
     "confirmed": 6765,
@@ -1161,59 +1161,58 @@
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 34,
-          "expected": 36
+          "confirmed": 271,
+          "expected": 338
         },
         "2": {
-          "confirmed": 42,
-          "expected": 44
+          "confirmed": 501,
+          "expected": 546
         },
         "3": {
-          "confirmed": 26,
-          "expected": 29
+          "confirmed": 591,
+          "expected": 786
         }
       },
-      "confirmed": 102,
-      "expected": 109,
+      "confirmed": 1363,
+      "expected": 1670,
       "extra": 0,
-      "missed": 7,
+      "missed": 307,
       "precision": 1.0,
-      "recall": 0.9358,
+      "recall": 0.8162,
       "seeds": 40,
       "seeds_undeclared": 0,
-      "unjudged": 48
+      "unjudged": 183
     },
     "imports": {
-      "confirmed": 1128,
+      "confirmed": 1196,
       "contradicted": 0,
       "expected": 1203,
       "not_indexed": 32,
       "precision": 1.0,
-      "recall": 0.9377,
-      "unresolved_expected": 1,
-      "unresolved_external": 223
+      "recall": 0.9942,
+      "unresolved_expected": 2,
+      "unresolved_external": 253
     },
     "missed": 704,
     "missed_by_engine_outcome": {
-      "no_call_site": 1,
-      "unresolved:attribute_call": 700,
+      "unresolved:attribute_call": 701,
       "unresolved:not_declared_in_class": 1,
       "unresolved:outside_class": 1,
       "unresolved:receiver_type_unknown": 1
     },
-    "not_indexed": 328,
+    "not_indexed": 365,
     "precision": 1.0,
     "recall": 0.7649,
     "scip": {
       "by_rule": {
         "scip.call-local-symbol": {
-          "confirmed": 800,
+          "confirmed": 801,
           "not_indexed": 37,
           "unjudged": 2
         },
         "scip.call-occurrence": {
-          "confirmed": 6354,
-          "not_indexed": 334,
+          "confirmed": 6355,
+          "not_indexed": 371,
           "unjudged": 41
         },
         "scip.call-overload-implementation": {
@@ -1222,48 +1221,46 @@
           "unjudged": 2
         }
       },
-      "confirmed": 7492,
+      "confirmed": 7494,
       "contradicted": 0,
       "expected": 2994,
       "impact": {
         "by_depth": {
           "1": {
-            "confirmed": 35,
-            "expected": 36
+            "confirmed": 277,
+            "expected": 338
           },
           "2": {
-            "confirmed": 44,
-            "expected": 44
+            "confirmed": 522,
+            "expected": 546
           },
           "3": {
-            "confirmed": 29,
-            "expected": 29
+            "confirmed": 673,
+            "expected": 786
           }
         },
-        "confirmed": 108,
-        "expected": 109,
+        "confirmed": 1472,
+        "expected": 1670,
         "extra": 0,
-        "missed": 1,
+        "missed": 198,
         "precision": 1.0,
-        "recall": 0.9908,
+        "recall": 0.8814,
         "seeds": 40,
         "seeds_undeclared": 0,
-        "unjudged": 51
+        "unjudged": 186
       },
-      "missed": 1,
-      "missed_by_engine_outcome": {
-        "no_call_site": 1
-      },
-      "not_indexed": 373,
+      "missed": 0,
+      "missed_by_engine_outcome": {},
+      "not_indexed": 410,
       "precision": 1.0,
-      "recall": 0.9997,
+      "recall": 1.0,
       "unjudged": 45,
       "unresolved_expected": 10,
-      "unresolved_unjudged": 37348
+      "unresolved_unjudged": 37696
     },
     "unjudged": 45,
-    "unresolved_expected": 721,
-    "unresolved_unjudged": 37409
+    "unresolved_expected": 722,
+    "unresolved_unjudged": 37758
   },
   "httpx": {
     "ambiguous_no_candidates": 1,
@@ -1408,7 +1405,7 @@
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 110,
-        "not_indexed": 629
+        "not_indexed": 633
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 120,
@@ -1455,7 +1452,7 @@
       "recall": 1.0,
       "seeds": 38,
       "seeds_undeclared": 0,
-      "unjudged": 0
+      "unjudged": 113
     },
     "imports": {
       "confirmed": 186,
@@ -1477,11 +1474,62 @@
     },
     "missed": 0,
     "missed_by_engine_outcome": {},
-    "not_indexed": 1340,
+    "not_indexed": 1344,
     "precision": 1.0,
     "recall": 1.0,
+    "scip": {
+      "by_rule": {
+        "scip.call-local-symbol": {
+          "confirmed": 2,
+          "not_indexed": 22
+        },
+        "scip.call-occurrence": {
+          "confirmed": 329,
+          "not_indexed": 837,
+          "unjudged": 1
+        },
+        "scip.call-overload-implementation": {
+          "not_indexed": 481
+        }
+      },
+      "confirmed": 331,
+      "contradicted": 0,
+      "expected": 143,
+      "impact": {
+        "by_depth": {
+          "1": {
+            "confirmed": 65,
+            "expected": 65
+          },
+          "2": {
+            "confirmed": 58,
+            "expected": 58
+          },
+          "3": {
+            "confirmed": 52,
+            "expected": 52
+          }
+        },
+        "confirmed": 175,
+        "expected": 175,
+        "extra": 0,
+        "missed": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "seeds": 38,
+        "seeds_undeclared": 0,
+        "unjudged": 113
+      },
+      "missed": 0,
+      "missed_by_engine_outcome": {},
+      "not_indexed": 1340,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unjudged": 1,
+      "unresolved_unjudged": 12686
+    },
     "unjudged": 1,
-    "unresolved_unjudged": 11392
+    "unresolved_unjudged": 12682
   },
   "messages": {
     "messages-confluent-kafka-go-examples": {
@@ -1521,10 +1569,9 @@
     }
   },
   "preact": {
-    "ambiguous_no_candidates": 38,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 1993,
+        "confirmed": 2031,
         "not_indexed": 13
       },
       "tree-sitter.call-lexical-name": {
@@ -1541,33 +1588,33 @@
         "not_indexed": 5
       }
     },
-    "confirmed": 4904,
+    "confirmed": 4942,
     "contradicted": 0,
     "expected": 3884,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 24,
-          "expected": 24
+          "confirmed": 952,
+          "expected": 1103
         },
         "2": {
-          "confirmed": 23,
-          "expected": 24
+          "confirmed": 1355,
+          "expected": 1493
         },
         "3": {
-          "confirmed": 24,
-          "expected": 25
+          "confirmed": 3663,
+          "expected": 4144
         }
       },
-      "confirmed": 71,
-      "expected": 73,
+      "confirmed": 5970,
+      "expected": 6740,
       "extra": 0,
-      "missed": 2,
+      "missed": 770,
       "precision": 1.0,
-      "recall": 0.9726,
+      "recall": 0.8858,
       "seeds": 28,
       "seeds_undeclared": 0,
-      "unjudged": 475
+      "unjudged": 597
     },
     "imports": {
       "ambiguous_expected": 5,
@@ -1580,14 +1627,13 @@
       "unresolved_expected": 9,
       "unresolved_external": 131
     },
-    "missed": 42,
+    "missed": 4,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_bindings": 38,
       "unresolved:unbound_name": 4
     },
     "not_indexed": 72,
     "precision": 1.0,
-    "recall": 0.9892,
+    "recall": 0.999,
     "scip": {
       "by_rule": {
         "scip.call-local-symbol": {
@@ -1607,23 +1653,23 @@
         "by_depth": {
           "1": {
             "confirmed": 18,
-            "expected": 24
+            "expected": 1103
           },
           "2": {
             "confirmed": 17,
-            "expected": 24
+            "expected": 1493
           },
           "3": {
             "confirmed": 9,
-            "expected": 25
+            "expected": 4144
           }
         },
         "confirmed": 44,
-        "expected": 73,
+        "expected": 6740,
         "extra": 0,
-        "missed": 29,
+        "missed": 6696,
         "precision": 1.0,
-        "recall": 0.6027,
+        "recall": 0.0065,
         "seeds": 28,
         "seeds_undeclared": 0,
         "unjudged": 0
@@ -1638,11 +1684,87 @@
       "recall": 0.2734,
       "unjudged": 1,
       "unresolved_expected": 2830,
-      "unresolved_unjudged": 15312
+      "unresolved_unjudged": 15315
     },
     "unjudged": 1,
     "unresolved_expected": 4,
-    "unresolved_unjudged": 15322
+    "unresolved_unjudged": 15325
+  },
+  "rich": {
+    "ambiguous_includes": 1,
+    "ambiguous_no_candidates": 41,
+    "ambiguous_unjudged": 6,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 2654,
+        "unjudged": 37
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 693,
+        "contradicted": 2
+      },
+      "tree-sitter.call-module-attribute": {
+        "confirmed": 71
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 182
+      },
+      "tree-sitter.python-call-attribute-receiver": {
+        "confirmed": 64
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 16
+      },
+      "tree-sitter.python-call-result-receiver": {
+        "confirmed": 44
+      },
+      "tree-sitter.python-call-super": {
+        "confirmed": 10
+      },
+      "tree-sitter.python-call-typed-receiver": {
+        "confirmed": 829
+      }
+    },
+    "confirmed": 4563,
+    "contradicted": 2,
+    "expected": 5780,
+    "missed": 1354,
+    "missed_by_engine_outcome": {
+      "ambiguous:multiple_bindings": 41,
+      "ambiguous:multiple_declarations": 1,
+      "unresolved:attribute_call": 947,
+      "unresolved:attribute_not_typed": 20,
+      "unresolved:attribute_type_not_declared": 17,
+      "unresolved:base_not_resolved": 17,
+      "unresolved:imported_name_not_declared": 3,
+      "unresolved:local_binding": 307,
+      "unresolved:receiver_type_not_declared": 1
+    },
+    "precision": 0.9996,
+    "recall": 0.7657,
+    "scip": {
+      "by_rule": {
+        "scip.call-occurrence": {
+          "confirmed": 5903,
+          "unjudged": 37
+        },
+        "scip.call-overload-implementation": {
+          "confirmed": 20
+        }
+      },
+      "confirmed": 5923,
+      "contradicted": 0,
+      "expected": 5780,
+      "missed": 0,
+      "missed_by_engine_outcome": {},
+      "precision": 1.0,
+      "recall": 1.0,
+      "unjudged": 37,
+      "unresolved_unjudged": 3517
+    },
+    "unjudged": 37,
+    "unresolved_expected": 1318,
+    "unresolved_unjudged": 3509
   },
   "ripgrep": {
     "ambiguous_includes": 18,

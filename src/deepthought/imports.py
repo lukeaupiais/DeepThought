@@ -46,7 +46,14 @@ _JAVA_TYPES = frozenset({"Class", "Interface", "Enum", "Record", "Annotation"})
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
 _TS_INDEX = ("/index.ts", "/index.tsx", "/index.d.ts")
-_TS_JS_EXTENSIONS = {".js": (".ts", ".tsx", ".d.ts"), ".jsx": (".tsx",)}
+# TypeScript maps an ES module's or CommonJS module's JavaScript extension to
+# its own (.mjs to .mts and .d.mts, .cjs to .cts and .d.cts).
+_TS_JS_EXTENSIONS = {
+    ".js": (".ts", ".tsx", ".d.ts"),
+    ".jsx": (".tsx",),
+    ".mjs": (".mts", ".d.mts"),
+    ".cjs": (".cts", ".d.cts"),
+}
 # JavaScript sources a TypeScript import may reach (as with allowJs), tried
 # after every TypeScript candidate.
 _JS_EXTENSIONLESS = (".js", ".jsx")
@@ -180,7 +187,7 @@ def _typescript(item: Import, files, scripts):
         # A ".js" specifier names the TypeScript source first, then the file.
         candidates = [stem + suffix for suffix in _TS_JS_EXTENSIONS[extension]]
         candidates.append(joined)
-    elif joined.endswith((".ts", ".tsx")):
+    elif joined.endswith((".ts", ".tsx", ".mts", ".cts")):
         candidates = [joined]
     else:
         base = "" if joined == "." else joined

@@ -27,9 +27,11 @@ from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
+    statement_columns,
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
+    extract_column_changes,
     extract_schema_changes,
     extract_foreign_keys,
     is_rollback_migration,
@@ -126,6 +128,27 @@ CONTAINS_RULE = register_rule(
         "The repository has this SQL file (or Prisma schema) at this path.",
     )
 )
+DDL_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-column",
+        "resolved",
+        "sqlglot parses the CREATE TABLE statement that declares this column, "
+        "or the ALTER TABLE ... ADD or RENAME COLUMN (MySQL CHANGE) that gives "
+        "it this name, and every ALTER TABLE of the table's migration set, "
+        "replayed in order: a column a later statement drops or renames is "
+        "left out.",
+    )
+)
+
+TABLE_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.table-has-column",
+        "resolved",
+        "The column belongs to the table in the replayed schema (see "
+        "data-contracts.sql-column).",
+    )
+)
+
 DDL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sql-create-table",
@@ -1199,6 +1222,9 @@ class DataContractTool(AnalysisTool):
         migration_sets, table_sets = defaultdict(list), defaultdict(list)
         foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
         rollbacks, changes_of, ddl_read = [], {}, []
+        # (migration set, table or None for every table) of an ALTER TABLE
+        # no dialect parses: those tables' columns are not known.
+        columns_unknown, columns_unparsed = set(), []
 
         def read_keys(path, content, folder=None):
             """Queue a SQL file's foreign keys and drops for the replay of
@@ -1224,11 +1250,16 @@ class DataContractTool(AnalysisTool):
             else:
                 ddl_read.extend(found)
                 changes_of[path] = extract_schema_changes(path, content)
+                column_changes, alters_unparsed = extract_column_changes(path, content)
                 folder = posixpath.dirname(path)
                 drizzle = (root / folder / "meta" / "_journal.json").is_file()
-                table_sets[folder if drizzle else migration_set(path)].append(
-                    (path, found, changes_of[path][0])
+                key = folder if drizzle else migration_set(path)
+                table_sets[key].append(
+                    (path, found, changes_of[path][0] + column_changes)
                 )
+                for line, altered in alters_unparsed:
+                    columns_unknown.add((key, altered))
+                    columns_unparsed.append((path, line))
                 if drizzle:
                     # drizzle-kit's own record of the schema after the last
                     # migration gives the keys (below), not each migration.
@@ -1249,8 +1280,16 @@ class DataContractTool(AnalysisTool):
             for path, content in migrations:
                 read_keys(path, content, folder)
         tables_dropped = tables_renamed = 0
-        for _, files in sorted(table_sets.items()):
+        for key, files in sorted(table_sets.items()):
             tables, dropped, renamed = replay_tables(files)
+            if (key, None) in columns_unknown:
+                tables = [replace(t, columns_read=False) for t in tables]
+            tables = [
+                replace(t, columns_read=False)
+                if (key, t.name) in columns_unknown
+                else t
+                for t in tables
+            ]
             ddl.extend(tables)
             tables_dropped += dropped
             tables_renamed += renamed
@@ -1342,6 +1381,10 @@ class DataContractTool(AnalysisTool):
 
         definitions = {d.id: d for d in result.definitions}
         tables, nodes, relationships, symbols = {}, [], [], {}
+        column_nodes = {}
+        # {table qualified name: its columns}, for tables whose columns
+        # are all known.
+        table_columns = {}
 
         def table(path, name):
             key = (scope(path), name)
@@ -1382,13 +1425,13 @@ class DataContractTool(AnalysisTool):
                 )
             return [d.kind, "Symbol"], name
 
-        def link(kind, source, target, rule, extra):
+        def link(kind, source, target, rule, extra, labels=("DbTable", "Contract")):
             relationships.append(
                 RelationshipData(
                     kind,
                     source[0],
                     {"qualified_name": source[1], "repo_url": repo_url},
-                    ["DbTable", "Contract"],
+                    list(labels),
                     {"qualified_name": target, "repo_url": repo_url},
                     {**extra, **_evidence(rule)},
                 )
@@ -1398,6 +1441,7 @@ class DataContractTool(AnalysisTool):
         for path in sorted(
             {d.file for d in ddl_read}
             | {d.file for d in ddl}
+            | {file for d in ddl if d.columns_read for _, file, _ in d.columns}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
             | {c.file for c in doctrine_mapped}
@@ -1439,6 +1483,52 @@ class DataContractTool(AnalysisTool):
                 DDL_RULE,
                 {"line": item.line, **({"schema": item.schema} if item.schema else {})},
             )
+            if not item.columns_read:
+                continue
+            owner = table(item.file, item.name)
+            tables[(scope(item.file), item.name)].properties["columns_read"] = True
+            table_columns.setdefault(owner, tuple(c for c, _, _ in item.columns))
+            for column, file, line in item.columns:
+                name = f"{owner}::column::{column}"
+                column_nodes.setdefault(
+                    name,
+                    NodeData(
+                        ["DbColumn", "Contract"],
+                        {
+                            "qualified_name": name,
+                            "repo_url": repo_url,
+                            "name": f"{item.name}.{column}",
+                            "display_name": f"{item.name}.{column}",
+                            "table": item.name,
+                            "column": column,
+                            "protocol": "sql",
+                            "scope": scope(item.file),
+                        },
+                    ),
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_COLUMN",
+                        ["DbTable", "Contract"],
+                        {"qualified_name": owner, "repo_url": repo_url},
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        _evidence(TABLE_COLUMN_RULE),
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "DECLARES",
+                        ["File"],
+                        {
+                            "qualified_name": f"{repo_url}::{file}::file",
+                            "repo_url": repo_url,
+                        },
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {"line": line, **_evidence(DDL_COLUMN_RULE)},
+                    )
+                )
 
         def foreign_key(file, line, owner, referenced, columns, to, on_delete, rule):
             link(
@@ -1849,12 +1939,53 @@ class DataContractTool(AnalysisTool):
                 )
             ]
         )
+        column_counts = Counter()
+
+        def statement_column_links(file, statement, source, rule, place):
+            """READS_COLUMN and WRITES_COLUMN edges of a statement whose
+            tables' columns are known, resolved by sqlglot's optimizer;
+            returns the tables every column reference of which resolved."""
+            schema = {}
+            for name in (*statement.reads, *statement.writes):
+                owner = table(file, name)
+                if owner in table_columns:
+                    schema[name] = table_columns[owner]
+            if not schema:
+                return frozenset()
+            found = statement_columns(statement, schema)
+            if found is None:
+                return frozenset()
+            uses, complete = found
+            column_counts["statements"] += 1
+            column_counts["tables_resolved"] += len(complete)
+            column_counts["tables_unresolved"] += len(set(schema) - complete)
+            for use in uses:
+                column_counts["uses"] += 1
+                link(
+                    "WRITES_COLUMN" if use.writes else "READS_COLUMN",
+                    source,
+                    f"{table(file, use.table)}::column::{use.column}",
+                    rule,
+                    dict(place),
+                    labels=("DbColumn", "Contract"),
+                )
+            return complete
+
         for item in uses:
             sql_counts["statements"] += 1
             if item.statement is None:
                 sql_counts["not_fixed"] += 1
                 continue
             sql_counts[item.statement.reader] += 1
+            source = code(item.file, item.owner_id)
+            place = {"line": item.line, "column": item.column}
+            complete = (
+                ()
+                if item.jpql
+                else statement_column_links(
+                    item.file, item.statement, source, SQL_RULES[item.how], place
+                )
+            )
             for kind, names in (
                 ("READS", item.statement.reads),
                 ("WRITES", item.statement.writes),
@@ -1868,13 +1999,9 @@ class DataContractTool(AnalysisTool):
                         target, extra = next(iter(targets)), {"entity": name}
                     else:
                         target, extra = table(item.file, name), {}
-                    link(
-                        kind,
-                        code(item.file, item.owner_id),
-                        target,
-                        SQL_RULES[item.how],
-                        {**extra, "line": item.line, "column": item.column},
-                    )
+                        if name in complete:
+                            extra["columns_resolved"] = True
+                    link(kind, source, target, SQL_RULES[item.how], {**extra, **place})
         # MyBatis mapper XML: the namespace names the mapper interface.
         mapper_methods = {}
         for d in result.definitions:
@@ -3118,6 +3245,7 @@ class DataContractTool(AnalysisTool):
             + files
             + sorted(symbols.values(), key=lambda n: n.properties["qualified_name"])
             + sorted(tables.values(), key=lambda n: n.properties["qualified_name"])
+            + [column_nodes[name] for name in sorted(column_nodes)]
         )
         status = (
             "partial"
@@ -3205,6 +3333,13 @@ class DataContractTool(AnalysisTool):
                     "ddl_statements": len(ddl_read),
                     "ddl_tables_dropped": tables_dropped,
                     "ddl_tables_renamed": tables_renamed,
+                    "ddl_columns": sum(
+                        len(d.columns) for d in set(ddl) if d.columns_read
+                    ),
+                    "ddl_tables_columns_unknown": sum(
+                        1 for d in set(ddl) if not d.columns_read
+                    ),
+                    "ddl_alter_unparsed": len(columns_unparsed),
                     "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
@@ -3216,6 +3351,7 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
                     "sql_text": sql_counts,
+                    "sql_columns": dict(column_counts),
                     "mybatis_mapper_statements": mybatis_counts,
                     "entity_manager_resolution": entity_counts,
                     "go_type_facts": {
