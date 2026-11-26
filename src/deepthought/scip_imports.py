@@ -308,8 +308,11 @@ def bind_imports(result, indexes, root, paths=None):
                     else:
                         version = go.module(item.file)[0].get(package, version)
                 if files:
+                    # An index may cover files the analysis left out (its
+                    # project spans more than the selected files); only
+                    # analysed files are link targets.
                     for file in sorted(files):
-                        if file != item.file:
+                        if file != item.file and file in languages:
                             links.setdefault(
                                 file, ImportLink(file, LINK_RULES[indexer])
                             )

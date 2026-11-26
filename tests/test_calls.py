@@ -14,7 +14,6 @@ from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
     CALL_JS_MEMBER_CHAIN,
-    CALL_JS_REEXPORT,
     CALL_JS_STATIC_METHOD,
     CALL_JS_TYPED_RECEIVER,
     CALL_LEXICAL_NAME,
@@ -23,6 +22,7 @@ from deepthought.calls import (
     CALL_PYTHON_TYPED_RECEIVER,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
+    CALL_TS_COMPILER_EXPORT,
     PYTHON_CALL_SELF_INHERITED,
     PYTHON_CALL_ATTRIBUTE_RECEIVER,
     PYTHON_CALL_RESULT_RECEIVER,
@@ -30,6 +30,7 @@ from deepthought.calls import (
     resolve_calls,
 )
 from deepthought.models import AnalysisResult, CallSite, FileCoverage
+from deepthought.ts_modules import with_compiler_modules
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PYTHON_READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -46,8 +47,12 @@ def analyze(files, language):
             path = Path(directory) / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-        return analyze_repository(
-            directory, repository_id="fixture", languages=(language,)
+        # JavaScript and TypeScript imports are the compiler's.
+        return with_compiler_modules(
+            analyze_repository(
+                directory, repository_id="fixture", languages=(language,)
+            ),
+            directory,
         )
 
 
@@ -990,7 +995,7 @@ class TypeScriptCallTests(unittest.TestCase):
             with self.subTest(callee=callee):
                 self.assertEqual(
                     found[("main.ts", line, callee)],
-                    ("linked", target, CALL_JS_REEXPORT, None),
+                    ("linked", target, CALL_TS_COMPILER_EXPORT, None),
                 )
         for line, callee in ((9, "anon"), (9, "other"), (10, "shape")):
             with self.subTest(callee=callee):
@@ -1525,12 +1530,16 @@ class TypeScriptCallTests(unittest.TestCase):
                 self.assertEqual(
                     found[("main.ts", line, callee)], ("linked", target, rule, None)
                 )
-        # A name declared and also exported for another declaration is
-        # ambiguous; an imported name exported again is followed.
-        self.assertEqual(found[("main.ts", 6, "both")][:2], ("ambiguous", None))
+        # A name declared and also exported for another declaration is an
+        # error the compiler reports; it binds the later export clause.
+        self.assertEqual(
+            found[("main.ts", 6, "both")][:2], ("linked", "base.ts::other")
+        )
+        # relay.ts imports `helper`, which base.ts exports only under other
+        # names, so the compiler binds nothing for `relayed`.
         self.assertEqual(
             found[("main.ts", 6, "relayed")],
-            ("linked", "base.ts::helper", CALL_JS_REEXPORT, None),
+            ("unresolved", None, None, "imported_name_not_declared"),
         )
         aliases = {d.symbol: d.export_aliases for d in result.definitions}
         self.assertEqual(aliases["Hono"], ("HonoBase",))
@@ -1588,7 +1597,7 @@ class TypeScriptCallTests(unittest.TestCase):
             with self.subTest(callee=callee):
                 self.assertEqual(
                     found[("main.ts", 4, callee)],
-                    ("linked", target, CALL_JS_REEXPORT, None),
+                    ("linked", target, CALL_TS_COMPILER_EXPORT, None),
                 )
         # A namespace exported again is not followed, and an import that is
         # not exported again exports nothing.
@@ -1962,11 +1971,16 @@ class CallDifferentialTests(unittest.TestCase):
         """Independent check: compiler-backed SCIP indexes of the same fixtures."""
         for language in ("python", "typescript"):
             with self.subTest(language=language):
-                result = analyze_repository(FIXTURES / language, repository_id="r")
+                root = FIXTURES / language
+                result = with_compiler_modules(
+                    analyze_repository(root, repository_id="r"), root
+                )
                 self.assertEqual(
                     resolve_calls(result),
                     resolve_calls(
-                        analyze_repository(FIXTURES / language, repository_id="r")
+                        with_compiler_modules(
+                            analyze_repository(root, repository_id="r"), root
+                        )
                     ),
                 )
                 graph = deepthought.compose_graph(
