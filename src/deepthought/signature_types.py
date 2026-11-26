@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .scip_calls import _IndexView, _Lines, _declaration, _key, _to_utf8
-from .syntax import LANGUAGES, make_parser, parse_source
+from .syntax import LANGUAGES, make_parser, parse_source, script_source
 
 # Declarations whose signatures are read, and the ones that are types.
 FUNCTION_KINDS = frozenset({"Function", "Method", "Constructor"})
@@ -70,7 +70,8 @@ def signature_spans(root, file, definitions):
         content = (Path(root) / file).read_bytes()
     except OSError:
         return {}
-    suffix = Path(file).suffix
+    # A Vue component is read as its script blocks.
+    suffix, content = script_source(file, content)
     tree = parse_source(make_parser(language, suffix), language, suffix, content)
     spans = {}
     stack = [tree.root_node]

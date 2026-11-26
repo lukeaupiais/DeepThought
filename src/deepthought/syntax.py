@@ -7,6 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 import posixpath
+from pathlib import PurePosixPath
 import re
 
 from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supertype
@@ -14,7 +15,9 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
     "typescript": (
-        (".ts", ".tsx", ".mts", ".cts"),
+        # A Vue single-file component is read as its script blocks
+        # (deepthought.vue_sfc).
+        (".ts", ".tsx", ".mts", ".cts", ".vue"),
         "tree_sitter_typescript",
         "language_typescript",
     ),
@@ -757,6 +760,24 @@ def prepare_source(language: str, content: bytes) -> bytes:
 _JSX_CLASS = re.compile(rb"(?<=\s)class(?=\s*=[^=>])")
 
 
+def script_source(file, content: bytes):
+    """(suffix, source): what ``make_parser`` and ``parse_source`` read the
+    file ``file`` with ``content`` as. A Vue component (``.vue``) is read as
+    its script blocks, every other byte blanked (``vue_sfc.script_source``),
+    in TypeScript, or TSX when a block is written in TSX or JSX; every
+    offset of a block is the component's own. Any other file is itself."""
+    file = str(file)
+    if not file.endswith(".vue"):
+        return PurePosixPath(file).suffix, content
+    from . import vue_sfc
+
+    component = vue_sfc.component(content)
+    return (
+        ".tsx" if component.jsx else ".ts",
+        vue_sfc.script_source(content, component),
+    )
+
+
 def parse_source(parser, language: str, suffix: str, content: bytes):
     """The tree of ``content``, parsed from ``prepare_source``. In a
     TypeScript file (not TSX) the grammar reads a type member that starts
@@ -765,7 +786,8 @@ def parse_source(parser, language: str, suffix: str, content: bytes):
     So the blank before each such ``<`` on a line an innermost error spans
     (or ends the line before) is read as ``;``, which keeps every offset,
     and that tree is used when it has fewer errors. JavaScript JSX
-    attributes named ``class`` are read the same way (below)."""
+    attributes named ``class`` are read the same way (below). A Vue
+    component is read as ``script_source`` gives it."""
     source = prepare_source(language, content)
     tree = parser.parse(source)
     if not tree.root_node.has_error:
@@ -2985,7 +3007,17 @@ def _js_import_names(node):
     return names
 
 
-_SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+_SCRIPT_SUFFIXES = (
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".vue",
+)
 # The test runners' (Jest, Vitest, Mocha, node:test, Jasmine, Bun) functions
 # that declare a test case or a group of them, and the modifiers written
 # between the function and its arguments (``it.only``, ``test.each(rows)``,

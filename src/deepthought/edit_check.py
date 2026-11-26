@@ -875,14 +875,14 @@ def _declarations(root, file, cache):
     if file in cache:
         return cache[file]
     from .engine import _source_language
-    from .syntax import LANGUAGES, extract, make_parser, parse_source
+    from .syntax import LANGUAGES, extract, make_parser, parse_source, script_source
 
     found = []
     language = _source_language(file, tuple(LANGUAGES))
     if language is not None:
-        suffix = PurePosixPath(file).suffix
         try:
-            content = (Path(root) / file).read_bytes()
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(file, (Path(root) / file).read_bytes())
             tree = parse_source(
                 make_parser(language, suffix), language, suffix, content
             )
@@ -1023,3 +1023,90 @@ def _unique(rows):
             r["message"],
         ),
     )
+
+
+# -- the working copy's own edits ----------------------------------------------
+
+
+def _git(workspace, git_dir):
+    """The git command line for ``workspace``: its own repository, or the
+    separate ``git_dir`` it is the work tree of."""
+    if git_dir is None:
+        return ["git", "-C", str(workspace)]
+    return ["git", "--git-dir", str(git_dir), "--work-tree", str(workspace)]
+
+
+def working_copy_diff(workspace, *, git_dir=None, timeout=120):
+    """The workspace's uncommitted edits against its HEAD commit, new files
+    included, as a unified diff (``git diff`` of a scratch index, so the
+    repository's own index is untouched). Installed packages and nested
+    repositories are left out."""
+    command = _git(workspace, git_dir)
+    with tempfile.TemporaryDirectory(prefix="deepthought-index-") as scratch:
+        environ = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        excluded = [f":(exclude,glob)**/{name}/**" for name in sorted(_SKIPPED)]
+        for step in (
+            ["read-tree", "HEAD"],
+            ["add", "-A", "--", ".", *excluded],
+        ):
+            completed = subprocess.run(
+                command + step,
+                env=environ,
+                capture_output=True,
+                timeout=timeout,
+            )
+            if completed.returncode != 0:
+                raise ValueError(
+                    "the workspace's edits cannot be read from git: "
+                    + completed.stderr.decode(errors="replace").strip()[:500]
+                )
+        completed = subprocess.run(
+            command
+            + ["diff", "--cached", "--no-color", "--no-ext-diff", "--no-renames"]
+            + ["HEAD"],
+            env=environ,
+            capture_output=True,
+            timeout=timeout,
+        )
+    if completed.returncode != 0:
+        raise ValueError(
+            "the workspace's edits cannot be read from git: "
+            + completed.stderr.decode(errors="replace").strip()[:500]
+        )
+    return completed.stdout.decode(errors="replace")
+
+
+def check_working_copy(workspace, *, git_dir=None, timeout=_TIMEOUT):
+    """What the workspace's uncommitted edits break: ``check_edit`` of
+    ``working_copy_diff`` against the workspace as its HEAD commit has it.
+    The report also carries the diff's ``edited_files``; with no edits it
+    says so and checks nothing."""
+    diff = working_copy_diff(workspace, git_dir=git_dir)
+    if not diff.strip():
+        return {
+            "edited_files": [],
+            "checks": [],
+            "complete": True,
+            "unchecked_files": [],
+            "breaks": [],
+            "edit_diagnostics": [],
+            "note": "the workspace has no edits since its HEAD commit",
+        }
+    root = Path(workspace).resolve()
+    with tempfile.TemporaryDirectory(prefix="deepthought-head-") as scratch:
+        # The unedited side: the workspace with its own edits taken out.
+        head = Path(scratch) / "head"
+        _copy(root, head)
+        completed = subprocess.run(
+            ["git", "apply", "-R", "--whitespace=nowarn", "-"],
+            input=diff.encode(),
+            cwd=head,
+            capture_output=True,
+            timeout=120,
+        )
+        if completed.returncode != 0:
+            raise ValueError(
+                "the workspace's edits cannot be taken out again: "
+                + completed.stderr.decode(errors="replace").strip()[:500]
+            )
+        return check_edit(head, diff, timeout=timeout)
