@@ -2487,7 +2487,8 @@ class GraphQueryService:
         for page_number in range(10):
             page = await self._read(
                 "MATCH (e:EdgeCoverage) RETURN e.family AS family, e.protocol AS protocol,"
-                " e.language AS language, e.status AS status, e.reason AS reason"
+                " e.language AS language, e.status AS status, e.reason AS reason,"
+                " e.unresolved_reasons AS unresolved_reasons"
                 " ORDER BY family, protocol, language SKIP $skip LIMIT $fetch_limit",
                 {"skip": page_number * 100},
                 repo_url,
