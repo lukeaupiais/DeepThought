@@ -145,6 +145,27 @@ class GoNew:
 
 
 @dataclass(frozen=True)
+class GoField:
+    """A field of a struct type declared in the module (exported or
+    embedded): the (file, line, name) of the module's named types its type
+    holds, and whether it holds an interface."""
+
+    name: str
+    line: int
+    embedded: bool
+    types: tuple[tuple[str, int, str], ...]
+    interface: bool
+
+
+@dataclass(frozen=True)
+class GoStruct:
+    file: str
+    line: int  # of the type's name
+    name: str
+    fields: tuple[GoField, ...]
+
+
+@dataclass(frozen=True)
 class GoSignature:
     """The named types a function's parameters and results are built from
     (``namedIn`` in gofacts), at the function's name."""
@@ -190,6 +211,7 @@ class GoFacts:
     # assigned from a variable, field or parameter.
     aliases: list[tuple] = field(default_factory=list)
     constructors: list[GoNew] = field(default_factory=list)
+    structs: list[GoStruct] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
@@ -377,20 +399,41 @@ def build(go, timeout=300, program="gofacts"):
     """(path of the ``program`` binary (a directory of this package holding
     main.go) for this source and toolchain, built into the cache directory
     when missing; the toolchain's GOROOT)."""
-    source = resources.files(__package__).joinpath(f"{program}/main.go").read_bytes()
+    directory = resources.files(__package__).joinpath(program)
+    source = directory.joinpath("main.go").read_bytes()
+    # A program with its own go.mod pins its dependencies there (go.sum
+    # holds their checksums); building it downloads them once into the
+    # module cache. Programs without one use the standard library only.
+    module = {
+        name: directory.joinpath(name).read_bytes()
+        for name in ("go.mod", "go.sum")
+        if directory.joinpath(name).is_file()
+    }
     environment = _environment(go)
+    if module:
+        for name in ("GOPROXY", "GOFLAGS"):
+            if name in os.environ:
+                environment[name] = os.environ[name]
+            else:
+                environment.pop(name, None)
+        environment["GOFLAGS"] = "-mod=readonly"
     info = _info(go)
     version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
-    key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
+    key = sha256(
+        source + b"".join(module.values()) + "\0".join(version[:3]).encode()
+    ).hexdigest()[:16]
     binary = _cache_directory() / f"{program}-{key}"
     if binary.is_file():
         return binary, version[3]
     binary.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"deepthought-{program}-") as scratch:
         (Path(scratch) / "main.go").write_bytes(source)
+        for name, content in module.items():
+            (Path(scratch) / name).write_bytes(content)
         output = Path(scratch) / program
         subprocess.run(
-            [go, "build", "-trimpath", "-o", str(output), "main.go"],
+            [go, "build", "-trimpath", "-o", str(output)]
+            + (["."] if module else ["main.go"]),
             cwd=scratch,
             capture_output=True,
             text=True,
@@ -723,6 +766,32 @@ def _read(text, directory, members, facts):
                     item["column"] - 1,
                     _type(item["type"]),
                     tuple((e["key"], _value(e)) for e in item.get("elements") or ()),
+                )
+            )
+        elif kind == "struct":
+            file = relative(item["file"])
+            key = (file, item["line"], "struct")
+            if key in seen:
+                continue  # every package is read, not only the members'
+            seen.add(key)
+            facts.structs.append(
+                GoStruct(
+                    file,
+                    item["line"],
+                    item["type"]["name"],
+                    tuple(
+                        GoField(
+                            f["name"],
+                            f["line"],
+                            bool(f.get("embedded")),
+                            tuple(
+                                (relative(t["file"]), t["line"], t["name"])
+                                for t in f.get("types") or ()
+                            ),
+                            bool(f.get("interface")),
+                        )
+                        for f in item.get("fields") or ()
+                    ),
                 )
             )
         elif kind == "table_name":

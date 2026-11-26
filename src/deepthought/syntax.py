@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -188,6 +192,29 @@ def extract(
     stack = [(tree.root_node, (), False)]
     while stack:
         node, scope, in_class = stack.pop()
+        test = _js_test_case(node, content) if script else None
+        if test is not None:
+            kind, segment, name_node = test
+            symbol = ".".join((*scope, segment))
+            ordinal = ordinals.get((symbol, kind), 0)
+            ordinals[(symbol, kind)] = ordinal + 1
+            definition = Definition(
+                id=identifier(repository_id, file, symbol, kind, ordinal),
+                file=file,
+                symbol=symbol,
+                kind=kind,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
+            )
+            definitions.append(definition)
+            if nodes is not None:
+                nodes[definition.id] = (node, name_node)
+            stack.extend(
+                (child, (*scope, segment), False) for child in reversed(children(node))
+            )
+            continue
         kind = KINDS.get(node.type)
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
@@ -1541,8 +1568,19 @@ def _python_imports(node, content):
 def _typescript_imports(node, content):
     """Yield (specifier, kind, names, local names) for an import or re-export.
 
-    JavaScript ES modules share this syntax; CommonJS require() is not recorded.
+    JavaScript ES modules share this syntax. A ``require("x")`` call
+    (``require``) or an ``import("x")`` call (``dynamic_import``) is recorded
+    too: the module it loads, as the TypeScript compiler records it. The
+    specifier is a string literal, or a template without substitutions; it
+    is require's only argument and import()'s first. A require() that
+    initializes a destructuring declaration (``const { a, b: c } =
+    require("x")``) binds the names it destructures, which the compiler
+    takes as aliases of what the module exports under those names; any
+    other call binds none.
     """
+    if node.type == "call_expression":
+        yield from _import_call(node, content)
+        return
     if node.type not in {"import_statement", "export_statement"}:
         return
     source = node.child_by_field_name("source")
@@ -1597,6 +1635,62 @@ def _typescript_imports(node, content):
         exported = tuple(alias for _, alias in pairs)
     # A re-export binds no local name in the exporting module.
     yield _text(fragments[0], content), "export_from", names, (), exported
+
+
+def _import_call(node, content):
+    function = node.child_by_field_name("function")
+    arguments = node.child_by_field_name("arguments")
+    if function is None or arguments is None:
+        return
+    if function.type == "import":
+        kind = "dynamic_import"
+    elif _text(function, content) == "require":
+        kind = "require"
+    else:
+        return
+    given = arguments.named_children
+    # import() may take import attributes after the specifier.
+    if not given or (kind == "require" and len(given) != 1):
+        return
+    literal = given[0]
+    if literal.type not in {"string", "template_string"}:
+        return
+    parts = literal.named_children
+    if len(parts) != 1 or parts[0].type != "string_fragment":
+        return
+    pairs = _required_names(node, content) if kind == "require" else []
+    yield (
+        _text(parts[0], content),
+        kind,
+        tuple(name for name, _ in pairs),
+        tuple(local for _, local in pairs),
+    )
+
+
+def _required_names(node, content):
+    """(name, local name) for each property ``const { a, b: c } =
+    require("x")`` destructures into a name of its own: ``a`` and ``c``. A
+    nested pattern, a default value, a rest element or a computed or quoted
+    key binds no export by name, so it is left out."""
+    declarator = node.parent
+    if declarator is None or declarator.type != "variable_declarator":
+        return []
+    # A plain name or an array pattern has no property patterns.
+    pairs = []
+    for child in declarator.child_by_field_name("name").named_children:
+        if child.type == "shorthand_property_identifier_pattern":
+            pairs.append((_text(child, content), _text(child, content)))
+        elif child.type == "pair_pattern":
+            key = child.child_by_field_name("key")
+            value = child.child_by_field_name("value")
+            if (
+                key is not None
+                and key.type == "property_identifier"
+                and value is not None
+                and value.type == "identifier"
+            ):
+                pairs.append((_text(key, content), _text(value, content)))
+    return pairs
 
 
 def _go_imports(node, content):
@@ -2040,6 +2134,9 @@ def _rust_modules(node, content, expander=None):
         yield "/".join((*parents, word)), "module", (), (word,)
 
 
+_IMPORT_CALLS = frozenset({"require", "dynamic_import"})
+
+
 def extract_imports(
     tree,
     content: bytes,
@@ -2049,8 +2146,9 @@ def extract_imports(
     *,
     expander: "RustExpander | None" = None,
 ) -> list[Import]:
-    """Static import statements in source order; dynamic loads are not facts
-    here. An ``expander`` reads Rust items written in pass-through macro
+    """Static import statements in source order, and JavaScript and
+    TypeScript ``require()`` and ``import()`` calls of a string literal. An
+    ``expander`` reads Rust items written in pass-through macro
     invocations."""
     children = expander.children if expander else (lambda node: node.named_children)
     visit = {
@@ -2080,11 +2178,16 @@ def extract_imports(
             else None
         )
         for specifier, kind, names, local_names, *exported in found:
-            ordinal = ordinals.get(specifier, 0)
-            ordinals[specifier] = ordinal + 1
+            # The compiler records require() in JavaScript only.
+            if kind == "require" and language != "javascript":
+                continue
+            # Calls are counted apart, so statement identities stay the same.
+            label = "ImportCall" if kind in _IMPORT_CALLS else "Import"
+            ordinal = ordinals.get((label, specifier), 0)
+            ordinals[(label, specifier)] = ordinal + 1
             imports.append(
                 Import(
-                    id=identifier(repository_id, file, specifier, "Import", ordinal),
+                    id=identifier(repository_id, file, specifier, label, ordinal),
                     file=file,
                     specifier=specifier,
                     kind=kind,
@@ -2883,6 +2986,99 @@ def _js_import_names(node):
 
 
 _SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+# The test runners' (Jest, Vitest, Mocha, node:test, Jasmine, Bun) functions
+# that declare a test case or a group of them, and the modifiers written
+# between the function and its arguments (``it.only``, ``test.each(rows)``,
+# ``it.skipIf(cond)``).
+_JS_TEST_FUNCTIONS = {
+    "it": "Test",
+    "test": "Test",
+    "specify": "Test",
+    "bench": "Test",
+    "fit": "Test",
+    "xit": "Test",
+    "xtest": "Test",
+    "describe": "TestSuite",
+    "suite": "TestSuite",
+    "context": "TestSuite",
+    "fdescribe": "TestSuite",
+    "xdescribe": "TestSuite",
+}
+TEST_KINDS = frozenset(_JS_TEST_FUNCTIONS.values())
+_JS_TEST_MODIFIERS = {
+    "only",
+    "skip",
+    "todo",
+    "concurrent",
+    "sequential",
+    "fails",
+    "each",
+    "for",
+    "skipIf",
+    "runIf",
+}
+_JS_CALLBACKS = {"arrow_function", "function_expression", "function"}
+_JS_QUOTE_ESCAPES = {"\\'", '\\"', "\\`", "\\\\"}
+
+
+def _js_test_case(node, content):
+    """(kind, segment, name node) for a statement (or an array element) that
+    declares a test case or a suite: ``it("renders", () => ...)``, ``describe.each(rows)("x", fn)``.
+    The callee is one of the runners' bare functions, optionally with
+    modifiers; the first argument is a string without substitutions and a
+    later one a function. The segment is the callee as written, without
+    modifier arguments, and the name as a JSON string (``it("renders")``),
+    which no identifier can be, so a test case is never a name's target."""
+    if node.type != "call_expression" or node.parent is None:
+        return None
+    # A statement, or an element of a list of them
+    # (`await Promise.all([it("a", fa), it("b", fb)])`).
+    if node.parent.type not in {"expression_statement", "array"}:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    function = node.child_by_field_name("function")
+    if arguments is None or function is None or arguments.type != "arguments":
+        return None
+    parts = []
+    while True:
+        if function.type == "call_expression":
+            # A modifier taking arguments: `.each(rows)`, `.skipIf(cond)`.
+            function = function.child_by_field_name("function")
+            if function is None or function.type != "member_expression":
+                return None
+            continue
+        if function.type == "member_expression":
+            modifier = function.child_by_field_name("property")
+            if modifier is None or _text(modifier, content) not in _JS_TEST_MODIFIERS:
+                return None
+            parts.append(_text(modifier, content))
+            function = function.child_by_field_name("object")
+            if function is None:
+                return None
+            continue
+        break
+    kind = _JS_TEST_FUNCTIONS.get(_text(function, content))
+    if kind is None:
+        return None
+    values = arguments.named_children
+    if len(values) < 2 or not any(v.type in _JS_CALLBACKS for v in values[1:]):
+        return None
+    title = values[0]
+    if title.type not in {"string", "template_string"}:
+        return None
+    name = []
+    for part in title.named_children:
+        text = _text(part, content)
+        if part.type == "string_fragment":
+            name.append(text)
+        elif part.type == "escape_sequence" and text in _JS_QUOTE_ESCAPES:
+            name.append(text[1])
+        else:
+            # A substitution or another escape: the name is not written out.
+            return None
+    name = "".join(name)
+    callee = ".".join((_text(function, content), *reversed(parts)))
+    return kind, f"{callee}({json.dumps(name, ensure_ascii=False)})", title
 
 
 def _js_default_names(root, content):
@@ -5144,7 +5340,12 @@ def _receiver_chain_callee(node, content):
             return None if head is None else f"{head}[]"
         if node.type in {"parenthesized_expression", "non_null_expression"}:
             inner = [c for c in node.named_children if c.type != "comment"]
-            return chain(inner[0]) if len(inner) == 1 else None
+            head = chain(inner[0]) if len(inner) == 1 else None
+            if head is None and node.type == "parenthesized_expression":
+                # `(a ? b : c).m()`, `(x as T).m()`: a receiver no name
+                # describes. Only an index can link the call.
+                return "(…)"
+            return head
         return None
 
     if node is None or node.type not in _SCRIPT_CHAIN:
@@ -5277,14 +5478,13 @@ def extract_call_sites(
         reverse=True,
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
+    tests = {d.id for d in definitions if d.file == file and d.kind in TEST_KINDS}
     python = tree.root_node.type == "module"
     java = tree.root_node.type == "program"
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    script = file.endswith(
-        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
-    )
+    script = file.endswith((*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0]))
     sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
@@ -5352,7 +5552,16 @@ def extract_call_sites(
                 start = (node.start_point.row + 1, node.start_point.column)
                 end = (node.end_point.row + 1, node.end_point.column)
                 # Latest-starting enclosing span is the innermost declaration.
-                caller = next((i for s, e, i in spans if s <= start and end <= e), None)
+                # A test case's own call (`it("x", fn)`, and `it.each(rows)`
+                # in `it.each(rows)("x", fn)`) is not inside it.
+                caller = next(
+                    (
+                        i
+                        for s, e, i in spans
+                        if s <= start and end <= e and not (i in tests and s == start)
+                    ),
+                    None,
+                )
                 ordinal = ordinals.get(callee, 0)
                 ordinals[callee] = ordinal + 1
                 sites.append(
@@ -6020,6 +6229,70 @@ def extract_cargo_manifest(
 _SOURCE_WRAPPERS = {"decorated_definition", "export_statement", "template_declaration"}
 
 
+# Statements whose keyword belongs to the one declaration they hold.
+_SINGLE_DECLARATIONS = {
+    "lexical_declaration",
+    "variable_declaration",
+    "type_declaration",
+}
+# A signature keeps at most this many lines and characters of the head.
+_SIGNATURE_LINES = 5
+_SIGNATURE_CHARACTERS = 400
+
+
+def _declaration_body(node):
+    """The block a declaration's head ends at: its ``body`` field, or that of
+    the function a variable or field holds (``const f = () => {}``); None
+    for a declaration with no body, whose whole text is its head."""
+    body = node.child_by_field_name("body")
+    if body is not None:
+        return body
+    value = node.child_by_field_name("value")
+    if value is not None and value.child_by_field_name("body") is not None:
+        return value.child_by_field_name("body")
+    return None
+
+
+def _end_before_comments(node):
+    """Where a declaration ends, without the comments its node ends with."""
+    children = node.children
+    while children and children[-1].type == "comment":
+        children = children[:-1]
+    return children[-1].end_byte if children else node.end_byte
+
+
+def _head_end(body):
+    """Where a declaration's head ends: before its body, and before the
+    comments the parser puts ahead of it (Python keeps a body's leading
+    comments outside its block)."""
+    before = body.prev_sibling
+    while before is not None and before.type == "comment":
+        before = before.prev_sibling
+    return before.end_byte if before is not None else body.start_byte
+
+
+def _signature(head, own=0):
+    """A declaration's head as written, from its decorators or ``export`` to
+    where its body starts, trailing space removed, bounded to
+    ``_SIGNATURE_LINES`` lines and ``_SIGNATURE_CHARACTERS`` characters (a
+    cut head ends with ``…``). ``own`` is where the declaration itself starts
+    after its decorators: when those would push it past the bound, the first
+    decorator is kept, the others become a ``…`` line, and the declaration
+    follows, so a head always shows the name it declares."""
+    text = head.rstrip()
+    prefix = text[:own]
+    if prefix.count("\n") >= 2 and (
+        text.count("\n") >= _SIGNATURE_LINES or len(text) > _SIGNATURE_CHARACTERS
+    ):
+        first = prefix.split("\n", 1)[0].rstrip()
+        text = first + "\n…\n" + text[own:]
+    lines = text.split("\n")
+    cut = "\n".join(lines[:_SIGNATURE_LINES])
+    if len(cut) > _SIGNATURE_CHARACTERS:
+        cut = cut[:_SIGNATURE_CHARACTERS]
+    return cut if cut == text else cut.rstrip() + "…"
+
+
 def _columns(line: bytes, column: int):
     prefix = line[:column].decode("utf-8")
     return {
@@ -6061,12 +6334,39 @@ def declaration_sources(
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():
+        body = _declaration_body(node)
+        # Without a body the head ends at the declaration's last part; a line
+        # comment after it (``type R = [A, B] // ...``) is not part of it.
+        end = _end_before_comments(node)
+        declared = node.start_byte
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
+        # The head includes TypeScript's ``declare`` and the keyword of a
+        # statement that declares only this (``const f = ...``, Go's
+        # ``type R struct``); comments in the statement are not declarations.
+        start = node
+        while start.parent is not None and (
+            start.parent.type in _SOURCE_WRAPPERS
+            or start.parent.type == "ambient_declaration"
+            or (
+                start.parent.type in _SINGLE_DECLARATIONS
+                and sum(c.type != "comment" for c in start.parent.named_children) == 1
+            )
+        ):
+            start = start.parent
+        start_byte = start.start_byte
+        head = content[
+            start_byte : _head_end(body) if body is not None else end
+        ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
         sources[definition_id] = {
+            # Where the declaration starts after its decorators, in characters.
+            "signature": _signature(
+                head,
+                len(content[start_byte:declared].decode("utf-8")),
+            ),
             "source_code": text,
             "source_sha256": sha256(text.encode()).hexdigest(),
             "source_start_line": node.start_point.row + 1,
