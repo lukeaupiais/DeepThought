@@ -7,7 +7,9 @@ and ``httpx`` module calls, their ``Session``/``Client`` objects and
 ``request``, AngularJS ``$http``, Angular ``HttpClient`` and
 ``httpResource``, WebSocket and SockJS handshakes, and
 Go ``net/http``. A framework or client object is recognised
-only through the file's own imports and bindings; URLs are folded by
+through the file's own imports and bindings, or, for a Python route
+decorator whose router another module defines, through the router the
+scip-python index resolves the receiver name to; URLs are folded by
 ``folding.Folder``.
 """
 
@@ -76,6 +78,7 @@ class _Context:
         self.language = language
         self.folder = Folder(language, self.root, content, externals)
         self.calls_of = None
+        self.python_router_of = None
         # Python and Express: {router name: full prefixes} of the file's
         # mounted routers.
         self.mounts = {}
@@ -129,6 +132,7 @@ class _Context:
         handler_id,
         base_unknown=False,
         payloads=(),
+        receiver_indexed=False,
     ):
         line = node.start_point.row + 1
         if PLACEHOLDER in path:
@@ -150,6 +154,7 @@ class _Context:
                 # path (``_unknown_base``).
                 base_written=base_unknown,
                 payloads=tuple(payloads),
+                receiver_indexed=receiver_indexed,
             )
         )
 
@@ -578,7 +583,14 @@ def extract_python(context):
                 if function.type != "attribute":
                     continue
                 verb = text(function.child_by_field_name("attribute"), content)
-                app = app_of(function.child_by_field_name("object"))
+                owner_node = function.child_by_field_name("object")
+                app = app_of(owner_node)
+                indexed = False
+                if app is None and context.python_router_of is not None:
+                    # A router another module defines, which the index
+                    # resolves the name to (``from app.api import bp``).
+                    app = context.python_router_of(context.file, owner_node)
+                    indexed = app is not None
                 if app is None:
                     continue
                 framework, prefixes = app
@@ -633,6 +645,7 @@ def extract_python(context):
                         handler,
                         base_unknown,
                         payloads=payloads,
+                        receiver_indexed=indexed,
                     )
         elif node.type == "call":
             function = node.child_by_field_name("function")
@@ -2208,6 +2221,7 @@ def extract_web(
     mounts=None,
     axios_imported=None,
     go_routes=None,
+    python_router_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -2221,12 +2235,16 @@ def extract_web(
     ``compose_express_prefixes``); ``axios_imported`` the base URLs of the
     axios instances a script imports by name (``axios_imports``);
     ``go_routes`` the Go file's router routes from the type checker,
-    {(line, column, method): (GoRoute, handler declaration id)}."""
+    {(line, column, method): (GoRoute, handler declaration id)};
+    ``python_router_of(file, receiver node)`` the (framework, full prefixes)
+    of a router another Python module defines, as the SCIP index resolves
+    the receiver name (``_python_router_resolver``), or None."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
     context.calls_of = calls_of
     context.mounts = mounts or {}
+    context.python_router_of = python_router_of
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):

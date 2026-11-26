@@ -438,6 +438,26 @@ ROUTE_RULES = {
             "the prefix given to include_router.",
         )
     ),
+    "flask-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.flask-route-imported-router",
+            "pattern_matched",
+            "A function carries a route decorator whose receiver the scip-python "
+            "index resolves to a Flask app or Blueprint another module binds to "
+            "flask.Flask or flask.Blueprint (a Blueprint imported from its "
+            "package); the url_prefix it is registered with is joined.",
+        )
+    ),
+    "fastapi-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-route-imported-router",
+            "pattern_matched",
+            "A function carries a route decorator whose receiver the scip-python "
+            "index resolves to a FastAPI app or APIRouter another module binds; "
+            "the router's own prefix and the prefixes it is included with are "
+            "joined.",
+        )
+    ),
     "express": register_rule(
         EvidenceRule(
             "service-contracts.express-route",
@@ -1952,7 +1972,10 @@ def _follow_resolver_maps(root, sources, references, repo_url, definitions):
 
 def _python_mounts(sources):
     """{file: {router name: full prefixes}} of Python routers mounted in
-    other routers (``include_router``, ``register_blueprint``)."""
+    other routers (``include_router``, ``register_blueprint``), and
+    {(file, router name): (framework, full prefixes)} of every Python
+    router, for decorators whose receiver the index resolves to a router
+    another module defines (``_python_router_resolver``)."""
     found = {
         coverage.file: python_routers(tree, content)
         for coverage, content, tree in sources
@@ -1962,7 +1985,41 @@ def _python_mounts(sources):
     if any(m for _, m, _ in found.values()):
         for (file, name), prefixes in compose_python_prefixes(found).items():
             mounts.setdefault(file, {})[name] = prefixes
-    return mounts
+    routers = {
+        (file, name): (framework, mounts.get(file, {}).get(name, [own]))
+        for file, (named, _, _) in found.items()
+        for name, (framework, own) in named.items()
+    }
+    return mounts, routers
+
+
+def _python_router_resolver(references, routers):
+    """``resolve(file, receiver)`` for Python route decorators whose
+    receiver is not a router bound in their own file: the (framework, full
+    prefixes) of the router the scip-python index defines the receiver
+    name as (``bp`` imported from the package that makes the Blueprint),
+    else None. Which object a name is, through imports and re-exports, is
+    the index's answer, not a rule over the file's imports."""
+
+    def resolve(file, receiver):
+        if receiver.type != "identifier" or not references.covers(file):
+            return None
+        sites = references.definition_sites(
+            file, receiver.start_point.row + 1, receiver.start_point.column
+        )
+        found = set()
+        for defined_in, line, column in sites or ():
+            text = references.lines.get(defined_in, line)
+            match = re.match(rb"[A-Za-z_][A-Za-z0-9_]*", text[column:])
+            router = routers.get((defined_in, (match or [b""])[0].decode()))
+            if router is not None:
+                found.add((router[0], tuple(router[1])))
+        if len(found) != 1:
+            return None
+        framework, prefixes = found.pop()
+        return framework, list(prefixes)
+
+    return resolve
 
 
 def _composer_framework(root, file, cache):
@@ -3217,7 +3274,10 @@ class ServiceContractTool(AnalysisTool):
             return lists[0]
 
         nest = _nest_applications(root, sources)
-        python_mounts = _python_mounts(sources)
+        python_mounts, python_routers_found = _python_mounts(sources)
+        python_router_of = _python_router_resolver(
+            ScipReferences(result, scip_indexes, root), python_routers_found
+        )
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
@@ -3398,6 +3458,7 @@ class ServiceContractTool(AnalysisTool):
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
                     mounts=python_mounts.get(coverage.file),
+                    python_router_of=python_router_of,
                     go_routes=go_routes.get(coverage.file, {}),
                     externals=(
                         scripts.externals(coverage.file)
@@ -3832,7 +3893,12 @@ class ServiceContractTool(AnalysisTool):
                         "route_id": route.id,
                         "line": route.line,
                         "column": route.column,
-                        **_evidence(ROUTE_RULES[route.framework]),
+                        **_evidence(
+                            ROUTE_RULES[
+                                route.framework
+                                + ("-indexed" if route.receiver_indexed else "")
+                            ]
+                        ),
                     },
                 )
             )
