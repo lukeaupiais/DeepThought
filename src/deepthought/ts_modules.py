@@ -33,6 +33,8 @@ NO_IMPORT = "compiler_no_import"
 NOT_FOUND = "compiler_module_not_found"
 EXTERNAL = "compiler_external_module"
 NOT_ANALYZED = "compiler_target_not_analyzed"
+# Every reason the compiler gives an import it leaves unlinked.
+COMPILER_REASONS = frozenset({NO_IMPORT, NOT_FOUND, EXTERNAL, NOT_ANALYZED})
 _LANGUAGES = {"javascript", "typescript"}
 _HELPER = Path(__file__).with_name("tsmodules") / "resolve.js"
 

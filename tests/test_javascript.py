@@ -290,6 +290,67 @@ class JavaScriptCallTests(unittest.TestCase):
             },
         )
 
+    def test_names_destructured_from_require_link_to_the_modules_exports(self):
+        result = analyze(
+            {
+                "lib.js": "export function make() {}\nexport function other() {}\n",
+                "main.js": (
+                    "const { make, other: o, nested: { deep }, d = 1, ...rest } ="
+                    " require('./lib.js');\n"
+                    "let { ['make']: c } = require('./lib.js');\n"
+                    "var { other: { x } } = require('./lib.js'), w = require('./lib.js');\n"
+                    "make(); o(); deep(); d(); rest(); c(); x(); w(); other();\n"
+                    "const [a] = require('./lib.js'), { make: p } = import('./lib.js');\n"
+                    "a(); p();\n"
+                    "function inner() {\n"
+                    "  const { make: m2 } = require('./lib.js');\n"
+                    "  m2();\n"
+                    "}\n"
+                ),
+            }
+        )
+        # The compiler takes each name of its own as an alias of the
+        # module's export; nested patterns, defaults, rest elements,
+        # computed keys and array patterns alias none, nor does import(),
+        # whose value is a promise.
+        self.assertEqual(
+            [(i.line, i.names, i.local_names) for i in result.imports],
+            [
+                (1, ("make", "other"), ("make", "o")),
+                (2, (), ()),
+                (3, (), ()),
+                (3, (), ()),
+                (5, (), ()),
+                (5, (), ()),
+                (8, ("make",), ("m2",)),
+            ],
+        )
+        sites = {site.id: site for site in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                definitions[r.target_id].symbol if r.target_id else None,
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee != "require"
+        }
+        self.assertEqual(
+            found,
+            {
+                "make": ("make", CALL_IMPORTED_NAME),
+                "o": ("other", CALL_IMPORTED_NAME),
+                "m2": ("make", CALL_IMPORTED_NAME),
+                # Bound by the declaration, but to no export by name.
+                **{
+                    n: (None, None)
+                    for n in ("deep", "d", "rest", "c", "x", "w", "a", "p")
+                },
+                # `other` names the property, not a binding.
+                "other": (None, None),
+            },
+        )
+
     def test_private_names_link_to_the_enclosing_class(self):
         result = analyze(
             {

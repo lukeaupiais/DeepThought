@@ -109,9 +109,13 @@ Tree-sitter extraction records each static import statement as an `Import` fact
 (analysis schema 3): Python `import` and `from ... import`, and TypeScript and
 JavaScript `import ... from` and `export ... from`. A TypeScript or JavaScript
 `import("x")` call (kind `dynamic_import`) and a JavaScript `require("x")` call
-(kind `require`) are facts too, binding no names, when the specifier is a string
-literal or a template without substitutions: the calls the TypeScript compiler
-records as imports. It records `require()` in JavaScript files only, so the
+(kind `require`) are facts too, when the specifier is a string literal or a
+template without substitutions: the calls the TypeScript compiler records as
+imports. They bind no names, except a `require()` that initializes an object
+destructuring (`const { a, b: c } = require("x")`), which binds `a` and `c` to
+the module's exports `a` and `b`, as the compiler takes them (aliases of those
+exports). A nested pattern, default value, rest element or computed key binds
+none. It records `require()` in JavaScript files only, so the
 parser does too. Other dynamic loads, such as `importlib`, are not facts here. Calls are numbered
 apart from statements in their IDs, so each statement keeps the ID it had
 before calls were recorded. `deepthought.imports.resolve_imports`
@@ -264,35 +268,50 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
 the name), `scip_external` (a symbol defined outside the index),
 `scip_target_not_declaration` (a definition no parsed declaration names, such
 as a variable) or `multiple_declarations` (more than one target, with the
-candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+candidates). The parser's rules are not used for it. Three scip-python 0.6.8
 faults are guarded: in a Python file, a target whose name is not the name
 written at the call, unless an import binds that name to it (the index may
-follow a star re-export to the wrong function), and an external target for
+follow a star re-export to the wrong function), an external target for
 `self.x()` when the enclosing class or a repository base declares `x` (the
-index may name a builtin). Both are `scip_suspect_target`: the parser's link
-stands if it has one, otherwise the call stays unlinked. In a JavaScript or
-TypeScript file, a `scip_external` call that the TypeScript compiler binds
+index may name a builtin), and more than one target (the index names a
+function nested in a method by the class alone, `Group#decorator().`, so
+same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
+occurrence for (scip-python skips code it treats as unreachable), are answered
+by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
+language server's go-to-definition at the callee's last name gives the
+declaration, linked as `pyright.call-definition` with `producer:
+pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+`pyright_external` or `pyright_target_not_declaration`. The parser's link is
+never kept over the index. Pyright is required: binding a covered Python file
+without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
+`pyright-langserver` beside it). In a JavaScript or
+TypeScript file, a `scip_external` or `scip_target_not_declaration` call that
+the TypeScript compiler binds
 through an import (`call-imported-name`, `call-module-attribute`,
 `typescript.call-compiler-export`, `typescript.call-declaration-file`) keeps
 the compiler's link. scip-typescript 0.6.2 leaves a package that imports
 itself by name (preact's `compat/` importing `preact`) to `node_modules`, and
 calls those symbols external. The compiler resolves the same import to the
-workspace file the package's `exports` name. Files no index covers
+workspace file the package's `exports` name. scip-typescript also records a
+name destructured from `require()` as a variable of its own, where the
+compiler follows it to the module's export. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
 target file and line, parser target file and line, reason, rule). The
 tool's `call_resolution_by_resolver` metric counts call outcomes separately for
-`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
-(the parser's link kept over a suspect index target), `typescript` (the
-compiler's link kept over an external index target) and `tree-sitter` (files
-no index covers).
+`scip` (the index decided, its "nothing here" included), `pyright` (a Python
+call the index named wrongly or missed), `scip_suspect_parser` (the parser's
+link kept over a suspect index target), `typescript` (the compiler's link kept
+over an index target it does not follow) and `tree-sitter` (files no index
+covers).
 
 | Rule | Links |
 |---|---|
@@ -5371,6 +5390,37 @@ complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
 
+`describe_snapshot(repo, snapshot_id=...)` (CLI `snapshot`, MCP
+`describeSnapshot`) gives one complete snapshot's own facts: its repository and
+ID, scope, capabilities and analysis status, with one item holding its content
+hash, tool, completion time and commits. Raw Cypher answers leave these out, so
+a reader takes them from here once.
+
+The item's `coverage` lists the snapshot's `EdgeCoverage` nodes, sorted by
+family, protocol and language. TreeSitterTool writes one per analyzed language
+and family, `CALLS` and `IMPORTS` (qualified name
+`<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
+families. Each says whether a deterministic resolver (a compiler-backed SCIP
+index, pyright or the TypeScript compiler) decided the family's sites. The
+compiler decides a JavaScript or TypeScript import it resolves
+(`typescript.compiler-module`) or leaves unlinked (a `compiler_*` reason), and a
+call bound through its exports (`typescript.*` rules, or a covered call whose
+compiler link stands over the index):
+
+| Field | Meaning |
+|---|---|
+| `status` | `linked` (every file of the language with such sites), `partial` (some), `not_linked` (none), `no_sites` (the language has none) |
+| `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
+| `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
+| `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+
+A file that failed to parse is not counted. Imports in other languages are
+decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
+`no_sites`). An empty
+`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
+lists are; `describeSnapshot` decodes it.
+
 ## Incremental re-indexing
 
 The original updater found changed files from Git history and patched one graph
@@ -5512,7 +5562,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots`, `describeSnapshot` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
@@ -5547,6 +5597,11 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,
+and `analysis_status` when the snapshot's analysis did not wholly succeed
+(`partial`, for example). It does not repeat the repository, snapshot, scope
+and capabilities with every call; `describeSnapshot` (CLI `snapshot`) gives
+them once.
 
 ## Verification and validation
 
