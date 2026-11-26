@@ -3021,9 +3021,9 @@ class DataContractTool(AnalysisTool):
         # GORM columns: the fields of each model struct as GORM's schema
         # parser takes them, named by GORM's own tag parsing and naming.
         gorm_columns_counts = Counter()
-        go_structs = {s.type: s for s in facts.structs}
+        go_structs = {s.type: s for s in facts.models}
         gorm_model_structs = {}
-        for s_ in facts.structs:
+        for s_ in facts.models:
             key = (s_.file.rpartition("/")[0], s_.type[1])
             if key in gorm_targets:
                 gorm_model_structs[key] = s_
