@@ -298,3 +298,67 @@ def route_payloads(references, trees, file, payloads, path_parameters):
         key = key if embed or len(bodies) > 1 else None
         found.extend(("request", c, key) for c in classes)
     return found, unresolved
+
+
+def class_fields(references, trees, definition):
+    """[(field name or None, line, classes, unresolved)] of a class: for
+    each attribute its body annotates (``data: list[ItemPublic]``, not a
+    ClassVar), the repository's classes the annotation names, read as
+    route annotations are; and the repository's classes it derives from
+    (name None), whose fields are its own. ``unresolved`` counts the names
+    the index records no reference for."""
+    reader = _Reader(references, trees)
+    node = reader._class_node(definition)
+    if node is None:
+        return []
+    file = definition.file
+    content = trees[file][0]
+    found = []
+    bases = node.child_by_field_name("superclasses")
+    for base in [] if bases is None else bases.named_children:
+        if base.type not in ("identifier", "attribute"):
+            continue
+        classes = reader.classes(file, base)
+        if classes:
+            found.append((None, base.start_point.row + 1, classes, 0))
+    body = node.child_by_field_name("body")
+    for statement in [] if body is None else body.named_children:
+        if statement.type != "expression_statement" or not statement.named_children:
+            continue
+        assignment = statement.named_children[0]
+        if assignment.type != "assignment":
+            continue
+        left = assignment.child_by_field_name("left")
+        annotation = assignment.child_by_field_name("type")
+        if left is None or annotation is None or left.type != "identifier":
+            continue
+        generic = reader._generic(
+            annotation.named_children[0]
+            if annotation.type == "type" and annotation.named_child_count == 1
+            else annotation
+        )
+        if generic is not None:
+            symbols = _symbols_at(references, file, generic[0])
+            if symbols and any(
+                name == "ClassVar" and module in ("typing", "typing_extensions")
+                for module, name in symbols
+            ):
+                continue
+        names, _ = reader.names(file, annotation)
+        classes, unresolved = [], 0
+        for name in names:
+            resolved = reader.classes(file, name)
+            if resolved is None:
+                unresolved += 1
+                continue
+            classes.extend(resolved)
+        if classes or unresolved:
+            found.append(
+                (
+                    text(left, content),
+                    left.start_point.row + 1,
+                    tuple(classes),
+                    unresolved,
+                )
+            )
+    return found

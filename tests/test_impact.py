@@ -30,6 +30,7 @@ READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
 )
 JAVA_READY = importlib.util.find_spec("tree_sitter_java")
 GO_READY = importlib.util.find_spec("tree_sitter_go")
+TS_READY = importlib.util.find_spec("tree_sitter_typescript")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
@@ -104,6 +105,37 @@ GRPC_CLIENT = {
     "\t_ = report(client)\n"
     "}\n",
 }
+# The same client in TypeScript, against grpc-tools' generated declarations:
+# SCIP resolves the stub call and the types each signature names.
+TS_GRPC_CLIENT = {
+    "package.json": '{"name": "guide", "version": "1.0.0", "private": true}\n',
+    "tsconfig.json": '{"compilerOptions": {"strict": true}, "include": ["**/*.ts"]}\n',
+    "pb/guide.proto": GRPC_CLIENT["pb/guide.proto"],
+    "pb/guide_pb.d.ts": "export class Point {\n  getX(): number;\n}\n"
+    "export class Feature {\n  getName(): string;\n}\n",
+    "pb/guide_grpc_pb.d.ts": 'import { Point, Feature } from "./guide_pb";\n'
+    "export class GuideClient {\n"
+    "  constructor(address: string, credentials: unknown);\n"
+    "  getFeature(request: Point, callback: "
+    "(error: Error | null, response: Feature) => void): void;\n"
+    "}\n",
+    "client.ts": 'import * as services from "./pb/guide_grpc_pb";\n'
+    'import { Point, Feature } from "./pb/guide_pb";\n'
+    "\n"
+    'const client = new services.GuideClient("localhost:50051", null);\n'
+    "\n"
+    "export function lookup(point: Point, done: (f: Feature) => void): void {\n"
+    "  client.getFeature(point, (error, feature) => done(feature));\n"
+    "}\n"
+    "\n"
+    "export function named(x: number): void {\n"
+    "  lookup(new Point(), (f) => console.log(f.getName(), x));\n"
+    "}\n"
+    "\n"
+    "export function report(): void {\n"
+    "  named(1);\n"
+    "}\n",
+}
 # Two services joined by one HTTP contract: StatsReader.read requests the
 # route StatsController.latest handles.
 SERVICES = {
@@ -161,14 +193,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ).consume()
 
-    async def write(self, tool, files, name):
+    async def write(self, tool, files, name, **options):
         repo = "impact-" + uuid4().hex
         self.repos.append(repo)
         with tempfile.TemporaryDirectory() as directory:
             for path, content in files.items():
                 (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
                 (Path(directory) / path).write_text(content)
-            output = await tool(directory).analyze(repo)
+            output = await tool(directory).analyze(repo, **options)
         written = await WriteCoordinator(
             self.manager.driver, database=self.manager.database
         ).write_tool_output(name, output, repo)
@@ -206,9 +238,61 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("app.py", 3, "resolved", ["CALLS", "CALLS", "CALLS"]),
             ],
         )
+        # The storage label every node carries is left out.
+        self.assertEqual(
+            sorted(impact["items"][0]["element"]["labels"]), ["Function", "Symbol"]
+        )
         for item in impact["items"]:
+            self.assertNotIn("GraphNode", item["element"]["labels"])
             self.assertTrue(all(len(e["edge_id"]) == 64 for e in item["edges"]))
             self.assertTrue(all(e["rule_id"] for e in item["edges"]))
+        # Each dependent carries its line span, signature and the lines of
+        # its own calls toward the change; each step of its path names the
+        # declarations it joins and the line of the call.
+        top = next(i for i in impact["items"] if i["element"]["name"] == "top")
+        self.assertEqual(
+            (
+                top["element"]["start_line"],
+                top["element"]["end_line"],
+                top["element"]["signature"],
+                top["element"]["top_level"],
+                top["lines"],
+            ),
+            (12, 13, "def top():", False, [13]),
+        )
+        self.assertEqual(
+            [
+                (e["from"]["name"], e["line"], e["to"]["name"], e["to"]["start_line"])
+                for e in top["edges"]
+            ],
+            [("top", 13, "use", 9), ("use", 10, "helper", 5)],
+        )
+        # A dependent calling the change several times lists each line once,
+        # in order.
+        repeated, snapshot2, names2 = await self.write(
+            TreeSitterTool,
+            {
+                "lib.py": "def helper():\n    return 1\n",
+                "use.py": "from lib import helper\n\ndef many():\n"
+                + "".join("    helper()\n" for _ in range(6))
+                + "    helper()\n    helper()\n",
+            },
+            "tree-sitter",
+        )
+        many = await self.service.get_impact(
+            names2["helper"], repeated, snapshot_id=snapshot2
+        )
+        self.assertEqual(
+            [(i["element"]["name"], i["lines"]) for i in many["items"]],
+            [("many", list(range(4, 12)))],
+        )
+        module = next(i for i in impact["items"] if i["depth"] == 3)
+        self.assertTrue(module["element"]["top_level"])
+        self.assertEqual(module["lines"], [15])
+        self.assertEqual(
+            [(e["from"]["name"], e["from"]["top_level"]) for e in module["edges"]][0],
+            ("(top level of file)", True),
+        )
         shallow = await self.service.get_impact(
             names["helper"], repo, snapshot_id=snapshot, max_depth=1
         )
@@ -221,6 +305,57 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(strict["items"], [])
         self.assertEqual(strict["status"], "unsupported_or_unobserved")
         self.assertIn("Absence does not prove", strict["semantics"])
+
+    async def test_tests_depend_on_code_their_fixtures_call(self):
+        repo, snapshot, names = await self.write(
+            TreeSitterTool,
+            {
+                "app.py": "def make():\n    return 1\n",
+                "tests/conftest.py": "import pytest\n\nfrom app import make\n\n"
+                "@pytest.fixture\ndef thing():\n    return make()\n",
+                "tests/test_app.py": "def test_thing(thing):\n    assert thing\n",
+            },
+            "tree-sitter",
+        )
+        impact = await self.service.get_impact(
+            names["make"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("thing", 1, "resolved", ["CALLS"]),
+                ("test_thing", 2, "pattern_matched", ["USES_FIXTURE", "CALLS"]),
+            ],
+        )
+        self.assertEqual(impact["items"][1]["source_roles"], ["test"])
+
+    async def test_endpoints_depend_on_the_fastapi_dependencies_they_inject(self):
+        from test_fastapi_dependencies import OCCURRENCES, SOURCES, scip_index
+
+        # A file that does not parse would leave the analysis incomplete.
+        sources = {p: t for p, t in SOURCES.items() if p != "app/broken.py"}
+        found = {p: o for p, o in OCCURRENCES.items() if p in sources}
+        with tempfile.TemporaryDirectory() as scratch:
+            indexes = (scip_index(sources, found, scratch),)
+            repo, snapshot, names = await self.write(
+                TreeSitterTool,
+                sources,
+                "tree-sitter",
+                languages=("python",),
+                scip_indexes=indexes,
+            )
+        impact = await self.service.get_impact(
+            names["Params"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("b", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("c", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("d", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("f", 1, "resolved", ["USES_DEPENDENCY"]),
+            ],
+        )
 
     async def test_direct_and_transitive_dependents_with_source_roles(self):
         files = dict(SOURCES)
@@ -268,11 +403,42 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             [(i["element"]["path"], i["impact"]) for i in no_tests["items"]],
             [("app.py", "direct"), ("examples/demo.py", "transitive")],
         )
-        for bad in ([], ["docs"], "test"):
+        no_generated = await self.service.get_impact(
+            names["helper"],
+            repo,
+            snapshot_id=snapshot,
+            exclude_roles=["generated", "test"],
+        )
+        self.assertEqual(no_generated["exclude_roles"], ["generated", "test"])
+        self.assertTrue(
+            all("test" not in i["source_roles"] for i in no_generated["items"])
+        )
+        for bad in ([], ["docs"], "test", ["generated", "docs"]):
             with self.assertRaises(ValueError):
                 await self.service.get_impact(
                     names["helper"], repo, snapshot_id=snapshot, exclude_roles=bad
                 )
+
+    async def test_generated_dependents_have_the_generated_role(self):
+        sources = {
+            "base.py": "def helper():\n    return 1\n",
+            "app.py": "from base import helper\n\n\ndef use():\n    return helper()\n",
+            "demo_pb2.py": "# Generated by the protocol buffer compiler.  DO NOT EDIT!\n"
+            "from base import helper\n\n\ndef built():\n    return helper()\n",
+        }
+        repo, snapshot, names = await self.write(TreeSitterTool, sources, "tree-sitter")
+        impact = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+        roles = {i["element"]["name"]: i["source_roles"] for i in impact["items"]}
+        self.assertEqual(roles["built"], ["generated"])
+        self.assertEqual(roles["use"], [])
+        kept = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot, exclude_roles=["generated"]
+        )
+        self.assertEqual(
+            {i["element"]["name"] for i in kept["items"]}, set(roles) - {"built"}
+        )
 
     async def test_change_set_includes_members_and_subtypes_count(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
@@ -282,13 +448,48 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         # Base.run belongs to the change set, so its callers do not appear as
         # dependents of it; Child depends on Base through INHERITS_FROM.
         self.assertEqual(
-            self.rows(impact), [("Child", 1, "name_matched", ["INHERITS_FROM"])]
+            self.rows(impact), [("Child", 1, "resolved", ["INHERITS_FROM"])]
         )
         self.assertEqual(impact["items"][0]["changed"], names["Base"])
         files = await self.service.get_file_impact(
             "base.py", repo, snapshot_id=snapshot
         )
-        self.assertEqual(self.rows(files), [("app.py", 1, "name_matched", ["IMPORTS"])])
+        # scip-python resolves app.py's absolute import of base.
+        self.assertEqual(self.rows(files), [("app.py", 1, "resolved", ["IMPORTS"])])
+
+    async def test_answers_say_which_named_files_changed_since(self):
+        repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in SOURCES.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            service = GraphQueryService(
+                self.manager.driver, database=self.manager.database, workspace=directory
+            )
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            self.assertEqual(impact["freshness"]["status"], "current")
+            self.assertGreater(impact["freshness"]["files_checked"], 0)
+            edited, removed = sorted(SOURCES)[:2]
+            (Path(directory) / edited).write_text(SOURCES[edited] + "\n# edited\n")
+            (Path(directory) / removed).unlink()
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            named = {
+                item["element"]["file_path"] or item["element"]["path"]
+                for item in impact["items"]
+            }
+            freshness = impact["freshness"]
+            self.assertEqual(freshness["status"], "changed")
+            self.assertEqual(set(freshness.get("changed_files", [])), {edited} & named)
+            self.assertEqual(set(freshness.get("missing_files", [])), {removed} & named)
+        # Without a workspace nothing is checked, and answers say nothing.
+        plain = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+        self.assertNotIn("freshness", plain)
 
     async def test_bounds_and_budget(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
@@ -298,7 +499,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1024
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1536
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
@@ -324,9 +525,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages, whole["items"])
         # A byte budget that cuts the list leaves the rest to the next page.
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=2048
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=4096
         )
         self.assertTrue(small["truncated"])
+        self.assertTrue(small["items"])
         self.assertEqual(small["next_offset"], small["returned"])
         rest = await self.service.get_impact(
             names["helper"],
@@ -343,9 +545,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_strongest_path_wins_over_shortest(self):
         # c.py imports pkg.a directly by absolute name (name_matched) and
-        # through b.py by relative imports (resolved).
+        # through b.py by relative imports (resolved). Without an index, the
+        # absolute import keeps its path rule, which only matches the name.
+        class PathRulesOnly(TreeSitterTool):
+            async def analyze(self, repo_url, **kwargs):
+                return await super().analyze(repo_url, scip_indexes=(), **kwargs)
+
         repo, snapshot, _ = await self.write(
-            TreeSitterTool,
+            PathRulesOnly,
             {
                 "pkg/__init__.py": "",
                 "pkg/a.py": "X = 1\n",
@@ -566,9 +773,13 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(
-            impact["forward_relations"], ["HANDLES", "PUBLISHES", "WRITES"]
+            impact["forward_relations"],
+            ["HANDLES", "PUBLISHES", "WRITES", "WRITES_COLUMN"],
         )
-        self.assertIn("forwards over HANDLES", impact["semantics"])
+        self.assertIn(
+            "forwards over HANDLES, PUBLISHES, WRITES, WRITES_COLUMN edges",
+            impact["semantics"],
+        )
         # Edges are listed from the dependent towards the change.
         # From the handler, the contract hops are pattern matched.
         handler = await self.service.get_impact(
@@ -646,6 +857,45 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             [("StatsController.latest", ["HANDLES"])],
         )
         self.assertFalse(impact["providers_truncated"])
+        # Providers are named as declarations, with the lines of their
+        # edges to the contract; clients carry the lines of their requests.
+        self.assertEqual(
+            [
+                (
+                    p["kind"],
+                    p["file_path"],
+                    p["start_line"],
+                    p["end_line"],
+                    p["signature"],
+                    p["top_level"],
+                    p["lines"],
+                    p["source_roles"],
+                )
+                for p in impact["providers"]
+            ],
+            [
+                (
+                    "Method",
+                    "stats/src/main/java/s/StatsController.java",
+                    6,
+                    7,
+                    '@GetMapping("/latest")\n  public String latest()',
+                    False,
+                    [6],
+                    [],
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                (i["element"]["name"], i["element"]["signature"], i["lines"])
+                for i in impact["items"]
+            ],
+            [
+                ("StatsReader.read", "public String read()", [5]),
+                ("StatsReader.twice", "public String twice()", [6]),
+            ],
+        )
         self.assertEqual(
             [
                 (row[0], row[1], row[3], item["impact"])
@@ -748,6 +998,45 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(actions["named"], (2, "must_change"))
         self.assertEqual(actions["report"], (3, "retest"))
         self.assertEqual(actions["main"], (4, "retest"))
+
+    @unittest.skipUnless(TS_READY, "Provision the typescript grammar")
+    async def test_typescript_contract_messages_come_from_the_stub_signature(self):
+        from deepthought.analysis_tools.service_contracts import ServiceContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in TS_GRPC_CLIENT.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(
+                repo, languages={"typescript"}
+            )
+            contracts = await ServiceContractTool(Path(directory)).analyze(repo)
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, contracts], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        method = next(n.properties for n in contracts.nodes if "GrpcMethod" in n.labels)
+        self.assertEqual(
+            (method["request_message"], method["response_message"]),
+            ("guide.Point", "guide.Feature"),
+        )
+        self.assertNotIn("message_types", method)
+        impact = await self.service.get_contract_impact(
+            method["qualified_name"], repo, snapshot_id=snapshot, max_depth=5
+        )
+        actions = {
+            item["element"]["name"]: (item["depth"], item["action"])
+            for item in impact["items"]
+            if item["element"]["name"]
+        }
+        # named builds the Point lookup's signature takes; report only calls
+        # named, whose signature names no message.
+        self.assertEqual(actions["lookup"], (1, "must_change"))
+        self.assertEqual(actions["named"], (2, "must_change"))
+        self.assertEqual(actions["report"], (3, "retest"))
 
     async def test_contract_impact_action_is_unknown_without_message_types(self):
         repo = "impact-" + uuid4().hex
@@ -853,6 +1142,94 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("totals", 2, ["READS", "REFERENCES_TABLE"]),
             ],
         )
+
+    async def test_column_impact_separates_readers_writers_and_unknown(self):
+        from deepthought.analysis_tools.data_contracts import DataContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        files = {
+            "pyproject.toml": '[project]\nname = "shop"\n',
+            "db/schema.sql": "CREATE TABLE users (id int, email text, name text);\n",
+            "shop/store.py": "import sqlite3\n"
+            "\n"
+            "def find(conn, key):\n"
+            '    return conn.execute("SELECT email FROM users WHERE id = ?", (key,))\n'
+            "\n"
+            "def names(conn):\n"
+            '    return conn.execute("SELECT name FROM users")\n'
+            "\n"
+            "def set_email(conn, value):\n"
+            '    conn.execute("UPDATE users SET email = ?, name = ?", (value, value))\n'
+            "\n"
+            "def odd(conn):\n"
+            '    return conn.execute("SELECT nope FROM users")\n'
+            "\n"
+            "def page(conn):\n"
+            "    return find(conn, 1)\n"
+            "\n"
+            "def save(conn):\n"
+            '    set_email(conn, "x")\n',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in files.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(repo, languages={"python"})
+            tables = await DataContractTool(Path(directory)).analyze(
+                repo, languages=["python"]
+            )
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, tables], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        found = await self.service.search_contracts(
+            "users.email", repo, snapshot_id=snapshot, kind="DbColumn"
+        )
+        self.assertEqual([i["name"] for i in found["items"]], ["users.email"])
+        impact = await self.service.get_contract_impact(
+            found["items"][0]["qualified_name"], repo, snapshot_id=snapshot
+        )
+        # The writer and the declaring file are the change set.
+        self.assertEqual(
+            [
+                (p["file_path"] if p["top_level"] else p["name"], p["relations"])
+                for p in impact["providers"]
+            ],
+            [("db/schema.sql", ["DECLARES"]), ("set_email", ["WRITES_COLUMN"])],
+        )
+        # The reader must change; callers of the reader and of the writer
+        # re-test; names reads other columns of users and is not affected.
+        self.assertEqual(
+            sorted(
+                (item["element"]["name"], item["depth"], item["action"])
+                for item in impact["items"]
+                if item["element"].get("kind") == "Function"
+            ),
+            [
+                ("find", 1, "must_change"),
+                ("page", 2, "retest"),
+                ("save", 1, "retest"),
+            ],
+        )
+        # The writer's other column (name) is not a dependent, nor a way to
+        # its readers (names).
+        self.assertEqual(
+            [
+                item["element"]["name"]
+                for item in impact["items"]
+                if "DbColumn" in item["element"]["labels"]
+                or item["element"]["name"] == "names"
+            ],
+            [],
+        )
+        # odd names no column of users: whether it uses email is unknown.
+        self.assertEqual(
+            [(u["name"], u["relations"]) for u in impact["unresolved_users"]],
+            [("odd", ["READS"])],
+        )
+        self.assertFalse(impact["unresolved_users_truncated"])
 
     @staticmethod
     def rows_edges(response):

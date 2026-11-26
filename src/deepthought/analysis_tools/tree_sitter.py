@@ -19,8 +19,17 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
+from ..generated_files import generated_files
 from .. import scip_calls
-from ..scip_calls import bind_calls
+from ..signature_types import signature_types
+from ..scip_calls import ScipReferences, bind_calls
+from .. import scip_bases
+from ..edge_coverage import edge_coverage
+from ..fastapi_dependencies import dependency_uses
+from ..pytest_fixtures import FixtureUse
+from ..python_ast_facts import ast_facts
+from ..python_runtime import read_ast_facts
+from .. import scip_imports
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -62,6 +71,82 @@ NESTS_RULE = register_rule(
     )
 )
 
+PACKAGE_RULES = {
+    rule.rule_id: rule
+    for rule in (
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_PYTHON_IMPORT_PACKAGE,
+                "resolved",
+                "scip-python (pyright) resolves the module an absolute import "
+                "names to an installed distribution or the standard library, "
+                "which the index names with its version; the package's own "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_GO_IMPORT_PACKAGE,
+                "resolved",
+                "scip-go (the go command's package loading) resolves the import "
+                "path to a package of another module, or of the standard "
+                "library, which the index names with the module's version; its "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_SCRIPT_IMPORT_PACKAGE,
+                "resolved",
+                "scip-typescript (the TypeScript compiler's module resolution) "
+                "resolves the specifier to a file of an npm package, which the "
+                "index names with the version its package.json declares; the "
+                "package's files are not analyzed.",
+            )
+        ),
+    )
+}
+FIXTURE_PARAMETER_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-parameter",
+        "pattern_matched",
+        "A test or fixture parameter names a pytest fixture, found as pytest "
+        "looks it up: the class, the module, then conftest.py in each "
+        "directory up to the root (deepthought.pytest_fixtures).",
+    )
+)
+FIXTURE_MARK_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-usefixtures",
+        "pattern_matched",
+        "@pytest.mark.usefixtures on a test or test class names a pytest "
+        "fixture, found as pytest looks it up.",
+    )
+)
+FIXTURE_AUTOUSE_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-autouse",
+        "pattern_matched",
+        "A pytest fixture declared autouse=True in the test's class, module or "
+        "a conftest.py above it, which pytest runs for every test that sees it.",
+    )
+)
+_FIXTURE_RULES = {
+    "parameter": FIXTURE_PARAMETER_RULE,
+    "usefixtures": FIXTURE_MARK_RULE,
+    "autouse": FIXTURE_AUTOUSE_RULE,
+}
+DEPENDENCY_RULE = register_rule(
+    EvidenceRule(
+        "fastapi.depends",
+        "resolved",
+        "The SCIP index resolves a call to FastAPI's own Depends or Security, "
+        "and the dependency written in it to one parsed declaration "
+        "(deepthought.fastapi_dependencies); FastAPI calls it for the "
+        "endpoint, router or dependency the call belongs to.",
+    )
+)
+
 UNLINKED_CALL_RULE = register_rule(
     EvidenceRule(
         "tree-sitter.call-site-unlinked",
@@ -69,6 +154,18 @@ UNLINKED_CALL_RULE = register_rule(
         "The parse tree places this call inside the declaration (or at the top "
         "level of the file); no call rule links it to exactly one declaration, "
         "for the reason the call site records.",
+    )
+)
+
+SIGNATURE_TYPE_RULE = register_rule(
+    EvidenceRule(
+        "scip.signature-type-reference",
+        "resolved",
+        "A SCIP index records a reference inside the declaration's signature "
+        "(the parse tree's span of the declaration up to its body: receiver, "
+        "type parameters, parameters with their annotations and defaults, "
+        "result type) to a symbol it defines at a type declaration of the "
+        "repository (class, interface, struct, type alias, enum).",
     )
 )
 
@@ -155,6 +252,36 @@ IMPORT_RULES = {
                 "types names a declaration file that is not analyzed; the link "
                 "is to the JavaScript file of the same name beside it, which the "
                 "declaration file describes by convention.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_PYTHON_IMPORT_MODULE,
+                "resolved",
+                "scip-python (pyright) resolves the module an absolute import "
+                "names from the interpreter's search path (the project's source "
+                "roots, installed dependencies, the standard library) to a "
+                "document of the index, which is the analyzed file.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_GO_IMPORT_MODULE,
+                "resolved",
+                "scip-go (the go command's package loading, through go.mod and "
+                "replace directives) resolves the import path to a package whose "
+                "files the index defines; the link reaches each of its non-test "
+                "files.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_SCRIPT_IMPORT_MODULE,
+                "resolved",
+                "scip-typescript (the TypeScript compiler's module resolution, "
+                "through tsconfig, package.json and workspaces) resolves the "
+                "specifier to a document of the index, which is the analyzed "
+                "file.",
             )
         ),
         register_rule(
@@ -564,6 +691,26 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[scip_bases.SCIP_PYTHON_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_PYTHON_BASE,
+        "resolved",
+        "scip-python records, at the last name of a base written in a Python "
+        "class statement, a reference to the symbol of exactly one class "
+        "declared in the analyzed files: the base as Python's import and name "
+        "lookup bind it.",
+    )
+)
+BASE_RULES[scip_bases.SCIP_TYPESCRIPT_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_TYPESCRIPT_BASE,
+        "resolved",
+        "scip-typescript records, at the last name of an extends or implements "
+        "entry of a TypeScript or JavaScript class or interface, a reference "
+        "to the symbol of exactly one class or interface declared in the "
+        "analyzed files: the base as the TypeScript compiler binds it.",
+    )
+)
 BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_SUPERTRAIT,
@@ -630,6 +777,13 @@ def _call_name(callee):
     """The name a call site calls: the last name of its callee
     (``c.req.param`` calls ``param``)."""
     return callee.rsplit(".", 1)[-1]
+
+
+def _count(values):
+    counts = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _evidence(rule):
@@ -782,16 +936,52 @@ class TreeSitterTool(AnalysisTool):
             for r in import_rules.resolve_imports(result)
             if r.reason != import_rules.RESOLUTION_CONFIGURATION
         )
+        # Imports in files an index covers resolve as the language's own
+        # tooling resolves them; external modules name their package.
+        languages_by_file = {c.file: c.language for c in result.coverage}
+        language_of = {
+            item.id: languages_by_file.get(item.file) for item in result.imports
+        }
+        scip_bound = scip_imports.bind_imports(
+            result,
+            scip_indexes,
+            self.repo_path,
+            {r.import_id: r for r in resolutions},
+        )
+        resolutions = tuple(
+            scip_bound[r.import_id][0] if r.import_id in scip_bound else r
+            for r in resolutions
+        )
         undisclosed = {}
         for resolution in resolutions:
             if resolution.status != "linked":
                 item = imports[resolution.import_id]
-                undisclosed.setdefault(item.file, {}).setdefault(
-                    resolution.status + "_imports", set()
-                ).add(item.specifier)
+                key = (
+                    "external_imports"
+                    if resolution.reason == scip_imports.EXTERNAL
+                    else resolution.status + "_imports"
+                )
+                undisclosed.setdefault(item.file, {}).setdefault(key, set()).add(
+                    item.specifier
+                )
         declared_packages = {
             item.file: {item.kind: item.name} for item in result.packages
         }
+        # Linguist's rules (and the repository's own linguist-generated
+        # attributes) say which files a generator wrote; nothing is parsed
+        # when the analysis failed.
+        generated = (
+            {}
+            if result.status == "failed"
+            else generated_files(
+                self.repo_path,
+                [
+                    c.file
+                    for c in result.coverage
+                    if c.status in {"analyzed", "partial"}
+                ],
+            )
+        )
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -812,6 +1002,11 @@ class TreeSitterTool(AnalysisTool):
                             else {}
                         ),
                         **declared_packages.get(coverage.file, {}),
+                        **(
+                            {"generated_by": generated[coverage.file]}
+                            if coverage.file in generated
+                            else {}
+                        ),
                         **{
                             key: sorted(values)
                             for key, values in sorted(
@@ -905,6 +1100,98 @@ class TreeSitterTool(AnalysisTool):
                         {"line": inner.line, **_evidence(NESTS_RULE)},
                     )
                 )
+        # Tests and fixtures depend on the pytest fixtures they request.
+        python_files = {
+            c.file: (self.repo_path / c.file).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for c in result.coverage
+            if c.language == "python"
+        }
+        # The pytest and FastAPI rules read Python's ast, in the newest
+        # Python the repository declares; a file it still cannot parse is
+        # reported.
+        if python_files:
+            facts, reader = read_ast_facts(self.repo_path, python_files)
+        else:
+            facts, reader = ast_facts({}), None
+        interpreter = ".".join(facts["python"].split(".")[:2])
+        unparsed = facts["unparsed"]
+        by_line = {
+            (d.file, d.line): d
+            for d in result.definitions
+            if d.kind in {"Function", "Method", "Class"}
+        }
+        for use in (
+            FixtureUse(
+                **{
+                    **f,
+                    "consumer": tuple(f["consumer"]),
+                    "fixture": tuple(f["fixture"]),
+                }
+            )
+            for f in facts["fixtures"]
+        ):
+            consumer = by_line.get(use.consumer)
+            fixture = by_line.get(use.fixture)
+            if consumer is None or fixture is None:
+                continue
+            relationships.append(
+                RelationshipData(
+                    "USES_FIXTURE",
+                    [consumer.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                        "repo_url": repo_url,
+                    },
+                    [fixture.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{fixture.file}::{fixture.symbol}::{fixture.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "name": use.name,
+                        **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
+        # Endpoints and routers depend on the FastAPI dependencies they inject.
+        references = ScipReferences(result, scip_indexes, self.repo_path)
+        for use in dependency_uses(facts["dependencies"], references):
+            file, line = use.consumer
+            if line is None:
+                source = (["File"], files[file])
+            else:
+                consumer = by_line.get(use.consumer)
+                if consumer is None:
+                    continue
+                source = (
+                    [consumer.kind, "Symbol"],
+                    f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                )
+            target = use.dependency
+            relationships.append(
+                RelationshipData(
+                    "USES_DEPENDENCY",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [target.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{target.file}::{target.symbol}::{target.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "column": use.column,
+                        "name": use.name,
+                        "injector": use.injector,
+                        **({"alias": use.alias} if use.alias else {}),
+                        **_evidence(DEPENDENCY_RULE),
+                        **_produced(references.tool(file)),
+                    },
+                )
+            )
         for resolution in resolutions:
             item = imports[resolution.import_id]
             for link in resolution.links:
@@ -925,6 +1212,46 @@ class TreeSitterTool(AnalysisTool):
                             "names": list(item.names),
                             "line": item.line,
                             **_evidence(IMPORT_RULES[link.rule_id]),
+                        },
+                    )
+                )
+        packages = {}
+        for import_id, (_, found) in sorted(scip_bound.items()):
+            item = imports[import_id]
+            for package in found:
+                name = (
+                    f"{repo_url}::{package.ecosystem}-package::"
+                    f"{package.name}::{package.version}"
+                )
+                if name not in packages:
+                    packages[name] = package
+                    nodes.append(
+                        NodeData(
+                            ["ExternalPackage"],
+                            {
+                                "qualified_name": name,
+                                "repo_url": repo_url,
+                                "name": package.name,
+                                "version": package.version,
+                                "ecosystem": package.ecosystem,
+                            },
+                        )
+                    )
+                relationships.append(
+                    RelationshipData(
+                        "IMPORTS_PACKAGE",
+                        ["File"],
+                        {"qualified_name": files[item.file], "repo_url": repo_url},
+                        ["ExternalPackage"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {
+                            "import_id": item.id,
+                            "specifier": item.specifier,
+                            "import_kind": item.kind,
+                            "names": list(item.names),
+                            "modules": list(package.modules),
+                            "line": item.line,
+                            **_evidence(PACKAGE_RULES[package.rule_id]),
                         },
                     )
                 )
@@ -1031,9 +1358,31 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        named_types = signature_types(result, scip_indexes, self.repo_path)
+        for fact in named_types:
+            relationships.append(
+                RelationshipData(
+                    "SIGNATURE_USES",
+                    [kinds[fact.definition_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[fact.definition_id],
+                        "repo_url": repo_url,
+                    },
+                    [kinds[fact.type_id], "Symbol"],
+                    {"qualified_name": qualified[fact.type_id], "repo_url": repo_url},
+                    {
+                        "line": fact.line,
+                        "column": fact.column,
+                        **_evidence(SIGNATURE_TYPE_RULE),
+                    },
+                )
+            )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
-        for resolution in base_rules.resolve_supertypes(result):
+        for base_binding in scip_bases.bind_supertypes(
+            result, base_rules.resolve_supertypes(result), references
+        ):
+            resolution = base_binding.resolution
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
@@ -1057,6 +1406,7 @@ class TreeSitterTool(AnalysisTool):
                         "heritage": item.kind,
                         "line": item.line,
                         "column": item.column,
+                        **_produced(base_binding.producer),
                         **_evidence(BASE_RULES[resolution.rule_id]),
                     },
                 )
@@ -1129,6 +1479,38 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
+        # Which families a deterministic resolver linked, per language.
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                {key: value[0] for key, value in binding.producers.items()},
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                # Every import is decided by the parser's rules.
+                {},
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1144,6 +1526,16 @@ class TreeSitterTool(AnalysisTool):
             if result.status == "failed"
             else [],
             warnings=[d["message"] for d in diagnostics]
+            + [
+                f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                "is read from it"
+                for file, error in unparsed.items()
+            ]
+            + [
+                f"python_interpreter_unavailable: {error}"
+                for error in (reader.errors if reader else ())
+            ]
             if result.status != "failed"
             else [],
             custom_metrics={
@@ -1159,13 +1551,34 @@ class TreeSitterTool(AnalysisTool):
                 "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
+                # Of those, the imports an index decided, by language.
+                "scip_imports": {
+                    language: _count(
+                        r.reason or r.status
+                        for key, (r, _) in scip_bound.items()
+                        if language_of[key] == language
+                    )
+                    for language in sorted({language_of[key] for key in scip_bound})
+                },
+                "external_packages": len(packages),
                 "call_resolution": dict(sorted(call_counts.items())),
                 "call_resolution_by_resolver": {
                     resolver: dict(sorted(counts.items()))
                     for resolver, counts in sorted(resolver_counts.items())
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "signature_types": len(named_types),
                 "go_implementations": len(implementations),
+                "python_ast_unparsed": {
+                    "python": interpreter,
+                    "files": sorted(unparsed),
+                },
+                "python_interpreter": {
+                    "version": facts["python"],
+                    "declared": list(reader.declared) if reader else [],
+                    "managed": bool(reader and reader.executable),
+                    "errors": list(reader.errors) if reader else [],
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,
