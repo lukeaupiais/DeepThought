@@ -3,7 +3,10 @@
 grpcio-tools ships protoc and the well-known types. Each file is compiled
 to a FileDescriptorSet with source info, and its services, rpcs, streaming
 kinds and the lines of the rpc names come from the descriptor, so the
-compiler, not a pattern, decides what the file declares.
+compiler, not a pattern, decides what the file declares. So do its message
+and enum types: each message's fields (number, scalar or the message or
+enum type it holds, repeated/optional, map key, oneof, JSON name) and each
+enum's values, nested ones included.
 
 protoc needs the files a .proto imports. The import paths are relative to
 an include root, which the repository does not name; a root is found by
@@ -41,6 +44,30 @@ _STREAMING = {
     (False, True): "server",
     (True, True): "bidi",
 }
+# FileDescriptorProto.message_type / enum_type, DescriptorProto.field /
+# nested_type / enum_type, EnumDescriptorProto.value: source-info path
+# components.
+_MESSAGE, _ENUM = 4, 5
+_FIELD, _NESTED, _NESTED_ENUM, _VALUE = 2, 3, 4, 2
+# FieldDescriptorProto.Type numbers to their .proto names.
+_SCALARS = {
+    1: "double",
+    2: "float",
+    3: "int64",
+    4: "uint64",
+    5: "int32",
+    6: "fixed64",
+    7: "fixed32",
+    8: "bool",
+    9: "string",
+    12: "bytes",
+    13: "uint32",
+    15: "sfixed32",
+    16: "sfixed64",
+    17: "sint32",
+    18: "sint64",
+}
+_GROUP, _MESSAGE_TYPE, _ENUM_TYPE = 10, 11, 14
 _IMPORT = re.compile(r'(?m)^\s*import\s+(?:public\s+|weak\s+)?"([^"]+)"\s*;')
 _TIMEOUT = 60
 _VERBS = ("get", "put", "post", "delete", "patch")
@@ -56,6 +83,47 @@ class HttpBinding:
     path: str  # the template as written: /v1/{name=shelves/*}:get
     file: str
     line: int
+
+
+@dataclass(frozen=True)
+class ProtoField:
+    """A field of a message, as protoc compiled it."""
+
+    name: str
+    number: int
+    line: int
+    # A scalar's .proto name (string, int64), or the fully qualified name of
+    # the message or enum it holds (pkg.Point).
+    type: str
+    kind: str  # scalar | message | enum
+    label: str | None  # repeated | optional | required, or None
+    json_name: str
+    # map<key, value>: the key's scalar name; type and kind are the value's.
+    map_key: str | None = None
+    oneof: str | None = None
+    deprecated: bool = False
+
+
+@dataclass(frozen=True)
+class ProtoMessage:
+    """A message type of a compiled .proto file; nested ones too."""
+
+    full_name: str  # pkg.Outer.Inner
+    package: str
+    file: str
+    line: int
+    fields: tuple  # ProtoField
+    parent: str | None = None  # the enclosing message's full name
+
+
+@dataclass(frozen=True)
+class ProtoEnum:
+    full_name: str
+    package: str
+    file: str
+    line: int
+    values: tuple  # (name, number, line)
+    parent: str | None = None
 
 
 class ProtocMissing(RuntimeError):
@@ -261,8 +329,100 @@ def _methods(descriptor, path):
     return package, methods, bindings
 
 
+def _types(descriptor, path):
+    """[ProtoMessage | ProtoEnum] a compiled file declares, nested ones
+    included (map entries are a field's map, not a message)."""
+    lines = {
+        tuple(location.path): location.span[0] + 1
+        for location in descriptor.source_code_info.location
+    }
+    package = descriptor.package
+    found = []
+
+    def named(prefix, name):
+        return f"{prefix}.{name}" if prefix else name
+
+    def enum(item, location, prefix, parent):
+        full = named(prefix, item.name)
+        found.append(
+            ProtoEnum(
+                full,
+                package,
+                path,
+                lines.get(location, 1),
+                tuple(
+                    (value.name, value.number, lines.get((*location, _VALUE, v), 1))
+                    for v, value in enumerate(item.value)
+                ),
+                parent,
+            )
+        )
+
+    def message(item, location, prefix, parent):
+        full = named(prefix, item.name)
+        entries = {
+            f".{full}.{nested.name}": nested
+            for nested in item.nested_type
+            if nested.options.map_entry
+        }
+        fields = []
+        for f, field in enumerate(item.field):
+            label = {1: None, 2: "required", 3: "repeated"}.get(field.label)
+            if field.proto3_optional or (
+                field.label == 1 and descriptor.syntax in ("", "proto2")
+            ):
+                label = "optional"
+            oneof = None
+            if field.HasField("oneof_index") and not field.proto3_optional:
+                oneof = item.oneof_decl[field.oneof_index].name
+            map_key, value = None, field
+            entry = (
+                entries.get(field.type_name) if field.type == _MESSAGE_TYPE else None
+            )
+            if entry is not None:
+                key, value = entry.field[0], entry.field[1]
+                map_key, label = _SCALARS.get(key.type, str(key.type)), None
+            if value.type in (_MESSAGE_TYPE, _GROUP):
+                kind, type_name = "message", value.type_name.lstrip(".")
+            elif value.type == _ENUM_TYPE:
+                kind, type_name = "enum", value.type_name.lstrip(".")
+            else:
+                kind, type_name = "scalar", _SCALARS.get(value.type, str(value.type))
+            fields.append(
+                ProtoField(
+                    field.name,
+                    field.number,
+                    lines.get((*location, _FIELD, f), 1),
+                    type_name,
+                    kind,
+                    label,
+                    field.json_name,
+                    map_key,
+                    oneof,
+                    bool(field.options.deprecated),
+                )
+            )
+        found.append(
+            ProtoMessage(
+                full, package, path, lines.get(location, 1), tuple(fields), parent
+            )
+        )
+        for n, nested in enumerate(item.nested_type):
+            if not nested.options.map_entry:
+                message(nested, (*location, _NESTED, n), full, full)
+        for e, nested in enumerate(item.enum_type):
+            enum(nested, (*location, _NESTED_ENUM, e), full, full)
+
+    for m, item in enumerate(descriptor.message_type):
+        message(item, (_MESSAGE, m), package, None)
+    for e, item in enumerate(descriptor.enum_type):
+        enum(item, (_ENUM, e), package, None)
+    return found
+
+
 def read_protos(root, protos, texts):
-    """{path: (package, [ProtoMethod], [HttpBinding])} of the .proto files
+    """{path: (package, [ProtoMethod], [HttpBinding], [ProtoMessage |
+    ProtoEnum])} of the .proto files
     protoc compiles; ``texts`` are their contents. grpcio-tools and
     protobuf are required: without them this raises ``ProtocMissing``
     rather than reading nothing."""
@@ -287,7 +447,7 @@ def read_protos(root, protos, texts):
             includes += [r for r in roots[path] if r not in includes]
         found = _split(root, paths, includes, roots, well_known)
         for path, descriptor in found.items():
-            read[path] = _methods(descriptor, path)
+            read[path] = (*_methods(descriptor, path), _types(descriptor, path))
     return read
 
 
@@ -316,3 +476,112 @@ def route_path(template):
         return "/".join(parts)
 
     return _VARIABLE.sub(expand, template)
+
+
+def _flattened(serialized):
+    """(enums, messages): the full names of the enum and message types a
+    serialized FileDescriptorProto declares, each in protobuf-go's
+    flattened ordering (top-level declarations first, then, for each
+    message in depth-first order, the ones nested directly in it); map
+    entry messages included. None when it does not parse."""
+    from google.protobuf import descriptor_pb2
+    from google.protobuf.message import DecodeError
+
+    descriptor = descriptor_pb2.FileDescriptorProto()
+    try:
+        descriptor.ParseFromString(serialized)
+    except DecodeError:
+        return None
+    prefix = descriptor.package
+
+    def named(parent, name):
+        return f"{parent}.{name}" if parent else name
+
+    walk = []
+
+    def visit(items, parent):
+        for item in items:
+            full = named(parent, item.name)
+            walk.append((item, full))
+            visit(item.nested_type, full)
+
+    visit(descriptor.message_type, prefix)
+    enums = [named(prefix, e.name) for e in descriptor.enum_type]
+    messages = [named(prefix, m.name) for m in descriptor.message_type]
+    for item, full in walk:
+        enums.extend(named(full, e.name) for e in item.enum_type)
+        messages.extend(named(full, m.name) for m in item.nested_type)
+    return enums, messages
+
+
+def flattened_types(serialized, enums, messages):
+    """The fully qualified names of the enum and message types a serialized
+    FileDescriptorProto declares, in the order protobuf-go's TypeBuilder
+    lists their Go types (GoTypes): the file's enums, then its messages, in
+    protobuf-go's flattened ordering. Map entry messages are listed too;
+    their Go type is nil. None when the descriptor does not parse or does
+    not declare ``enums`` enums and ``messages`` messages."""
+    found = _flattened(serialized)
+    if found is None or len(found[0]) != enums or len(found[1]) != messages:
+        return None
+    return found[0] + found[1]
+
+
+def declared_types(serialized):
+    """[(kind, full name)] of the enums and messages (map entries too) a
+    serialized FileDescriptorProto declares; [] when it does not parse."""
+    found = _flattened(serialized)
+    if found is None:
+        return []
+    return [("enum", n) for n in found[0]] + [("message", n) for n in found[1]]
+
+
+def python_descriptors(source):
+    """The serialized FileDescriptorProtos a Python module generated by
+    protoc's Python generator registers, read with Python's ast: the bytes
+    literal passed to ``AddSerializedFile`` of a descriptor pool, or as
+    ``serialized_pb`` to ``FileDescriptor``, on a name the module imports
+    from ``google.protobuf`` (descriptor_pool or descriptor)."""
+    import ast
+
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+    imported = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "google.protobuf":
+            for alias in node.names:
+                imported[alias.asname or alias.name] = alias.name
+    found = []
+
+    def root(expression):
+        while isinstance(expression, (ast.Attribute, ast.Call)):
+            expression = (
+                expression.value
+                if isinstance(expression, ast.Attribute)
+                else expression.func
+            )
+        return expression.id if isinstance(expression, ast.Name) else None
+
+    def literal(expression):
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, bytes):
+            return expression.value
+        return None
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        module = imported.get(root(node.func.value))
+        if node.func.attr == "AddSerializedFile" and module == "descriptor_pool":
+            data = literal(node.args[0]) if node.args else None
+        elif node.func.attr == "FileDescriptor" and module == "descriptor":
+            data = next(
+                (literal(k.value) for k in node.keywords if k.arg == "serialized_pb"),
+                None,
+            )
+        else:
+            continue
+        if data is not None:
+            found.append(data)
+    return found

@@ -6,7 +6,13 @@ import subprocess
 import tempfile
 import unittest
 
-from deepthought.edit_check import TOP_LEVEL, check_edit, parse_diff
+from deepthought.edit_check import (
+    TOP_LEVEL,
+    check_edit,
+    check_working_copy,
+    parse_diff,
+    working_copy_diff,
+)
 
 
 def _diff(path, before, after):
@@ -327,6 +333,121 @@ class PythonEditTest(unittest.TestCase):
                 ("shapes/report.py", 6, "Report.total"),
             ],
         )
+
+
+def _git(*args, cwd=None):
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+@unittest.skipUnless(shutil.which("go"), "needs the go toolchain")
+class WorkingCopyTest(unittest.TestCase):
+    """The agent edits the files in place: the check reads its edits from git."""
+
+    lib = "package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
+    files = {
+        "go.mod": "module example.com/calc\n\ngo 1.21\n",
+        "calc.go": lib,
+        "use.go": "package calc\n\nfunc Twice(x int) int {\n\treturn Add(x, x)\n}\n",
+    }
+
+    def _edit(self, root):
+        _write(
+            root,
+            {
+                "calc.go": self.lib.replace("a, b int", "a, b, c int"),
+                # A new file the edit adds, with its own call.
+                "more.go": "package calc\n\nvar three = Add(1, 1, 1)\n",
+                # Installed packages are not edits.
+                "node_modules/x/index.js": "module.exports = 1\n",
+            },
+        )
+
+    def _assert_breaks(self, result):
+        self.assertTrue(result["complete"], result["checks"])
+        self.assertEqual(result["edited_files"], ["calc.go", "more.go"])
+        self.assertEqual(result["edit_diagnostics"], [])
+        self.assertEqual(
+            [(b["file"], b["line"], b["declaration"]) for b in result["breaks"]],
+            [("use.go", 4, "Twice")],
+        )
+
+    def test_checks_the_edits_in_the_repository(self):
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, self.files)
+            _git("init", "-q", cwd=root)
+            _git("add", "-A", cwd=root)
+            _git("commit", "-qm", "base", cwd=root)
+            clean = check_working_copy(root)
+            self.assertEqual(clean["breaks"], [])
+            self.assertIn("no edits", clean["note"])
+            self._edit(root)
+            result = check_working_copy(root)
+            # The repository's own index and files are untouched.
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn(" M calc.go", status)
+            self.assertIn("?? more.go", status)
+            self.assertIn("c int", (Path(root) / "calc.go").read_text())
+        self._assert_breaks(result)
+
+    @unittest.skipUnless(
+        __import__("importlib").util.find_spec("mcp"), "Provision the mcp extra"
+    )
+    def test_the_mcp_tool_checks_the_working_copy(self):
+        import asyncio
+        import json
+        from unittest.mock import patch
+
+        from deepthought.graph_mcp import create_server
+
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, self.files)
+            _git("init", "-q", cwd=root)
+            _git("add", "-A", cwd=root)
+            _git("commit", "-qm", "base", cwd=root)
+            self._edit(root)
+            with patch.dict(os.environ, {"DEEPTHOUGHT_WORKSPACE": root}):
+                server = create_server()
+            result = asyncio.run(server.call_tool("checkEdit", {"max_elements": 5}))
+            # A proposed diff is checked on top of the edited working copy.
+            use = self.files["use.go"]
+            proposed = _diff("use.go", use, use.replace("Add(x, x)", "Add(x, x, 0)"))
+            fixed = asyncio.run(server.call_tool("checkEdit", {"diff": proposed}))
+
+        def text(called):  # (content, structured) in newer mcp releases
+            content = called[0] if isinstance(called, tuple) else called
+            return json.loads(content[0].text)
+
+        report = text(result)
+        self.assertEqual(report["status"], "succeeded")
+        self.assertEqual(report["total_breaks"], 1)
+        self._assert_breaks(report)
+        fixed = text(fixed)
+        self.assertEqual(fixed["edited_files"], ["use.go"])
+        self.assertEqual(fixed["breaks"], [])
+
+    def test_checks_a_work_tree_whose_git_dir_is_elsewhere(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root, git_dir = Path(scratch) / "work", Path(scratch) / "repo.git"
+            _write(root, self.files)
+            tree = ["--git-dir", str(git_dir), "--work-tree", str(root)]
+            _git("init", "-q", "--bare", str(git_dir))
+            _git(*tree, "add", "-A")
+            _git(*tree, "commit", "-qm", "base")
+            self._edit(root)
+            diff = working_copy_diff(root, git_dir=git_dir)
+            self.assertNotIn("node_modules", diff)
+            result = check_working_copy(root, git_dir=git_dir)
+        self._assert_breaks(result)
 
 
 if __name__ == "__main__":
