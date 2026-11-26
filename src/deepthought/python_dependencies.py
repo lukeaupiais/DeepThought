@@ -112,10 +112,11 @@ def declared(root):
 
 
 def _toml(path):
+    """The TOML document at ``path``, or None when it cannot be read."""
     try:
         import tomllib
-    except ImportError:  # Python 3.10
-        return None
+    except ImportError:  # Python 3.10: the tomli backport, a dependency there
+        import tomli as tomllib
     try:
         return tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
@@ -226,13 +227,8 @@ def _requirement_lines(path, root, seen=None):
 def _pyproject(path):
     if not path.is_file():
         return []
-    try:
-        import tomllib
-    except ImportError:  # Python 3.10
-        return []
-    try:
-        document = tomllib.loads(path.read_text())
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+    document = _toml(path)
+    if document is None:
         return []
     project = document.get("project", {})
     found = list(project.get("dependencies", []))
@@ -331,7 +327,39 @@ def _typing_stubs(packages):
     ]
 
 
-def install(root, scratch, *, environ=None, timeout=600):
+def workspace_distributions(workspace):
+    """The distributions the workspace's own projects build
+    (``[project].name``, ``[tool.poetry].name``), by normalized name, each
+    with the requirements its ``[project].dependencies`` declares: a
+    requirement on one is the workspace's own source, never a release
+    installed over it, and its dependencies are installed in its place."""
+    names = {}
+    for relative in project_directories(workspace):
+        path = Path(workspace) / relative / "pyproject.toml"
+        if not path.is_file():
+            continue
+        document = _toml(path)
+        if document is None:
+            continue
+        needs = [
+            r
+            for r in document.get("project", {}).get("dependencies", [])
+            if isinstance(r, str) and _REQUIREMENT.match(r)
+        ]
+        for name in (
+            document.get("project", {}).get("name"),
+            document.get("tool", {}).get("poetry", {}).get("name"),
+        ):
+            if isinstance(name, str) and name.strip():
+                names[_normalized(name)] = needs
+    return names
+
+
+def _normalized(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def install(root, scratch, *, environ=None, timeout=600, provided=()):
     """Install the declared dependencies under ``scratch``.
 
     Returns ``{"status", "python", "projects", "lockfiles", "requirements",
@@ -346,6 +374,9 @@ def install(root, scratch, *, environ=None, timeout=600):
     (some requirements, or their dependencies, have no installable wheel) or
     ``failed`` (none could be installed, or pip is unavailable). ``bin``
     holds the empty interpreter scip-python runs, ``site`` the packages.
+    A requirement on a distribution in ``provided`` (the workspace's own,
+    see ``workspace_distributions``) is listed under ``provided`` and not
+    installed; that distribution's own requirements are, in its place.
     """
     scratch = Path(scratch)
     env = dict(os.environ if environ is None else environ)
@@ -358,7 +389,25 @@ def install(root, scratch, *, environ=None, timeout=600):
         capture_output=True,
         timeout=120,
     )
-    requirements = declared(root)
+    provided = (
+        dict(provided)
+        if isinstance(provided, dict)
+        else {name: [] for name in provided}
+    )
+
+    def own(requirement):
+        name = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", requirement)
+        return name is not None and _normalized(name.group(0)) in provided
+
+    requirements, skipped = set(), []
+    for requirement in declared(root):
+        if own(requirement):
+            skipped.append(requirement)
+            name = _normalized(re.match(r"[A-Za-z0-9._-]+", requirement).group(0))
+            requirements.update(r for r in provided[name] if not own(r))
+        else:
+            requirements.add(requirement)
+    requirements = sorted(requirements)
     outcome = {
         "projects": project_directories(root),
         "lockfiles": lockfiles(root),
@@ -369,6 +418,7 @@ def install(root, scratch, *, environ=None, timeout=600):
         "failed": [],
         "without_dependencies": [],
         "stubs": [],
+        "provided": skipped,
         "detail": None,
         "bin": str(environment / ("Scripts" if os.name == "nt" else "bin")),
         "site": str(site),
