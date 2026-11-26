@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -5282,9 +5286,7 @@ def extract_call_sites(
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    script = file.endswith(
-        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
-    )
+    script = file.endswith((*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0]))
     sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
