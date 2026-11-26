@@ -299,9 +299,16 @@ def _environment(spec, root, environ, platform=None, dependencies=None):
         env["PYTHONPATH"] = os.pathsep.join(roots)
     if spec.name == "scip-go":
         env.update(_go_environment(platform or GO_PLATFORM))
+        if dependencies is not None:
+            env.update(_go_cache_environment(dependencies))
     if spec.name == "scip-typescript":
         env.update(PNPM_ENVIRONMENT)
     return env
+
+
+def _go_cache_environment(prepared):
+    """The go command reads modules only from the downloaded cache."""
+    return {"GOMODCACHE": prepared["modcache"], "GOPROXY": "off"}
 
 
 # scip-typescript --pnpm-workspaces runs `pnpm ls`. pnpm 9.7 and later switch
@@ -676,6 +683,12 @@ def run_indexer(
             )
             argv = [a for a in argv if a != "--infer-tsconfig"] + [str(config)]
         dependencies = None
+        if spec.name == "scip-go":
+            prepared = _prepared_go_modules(
+                root, Path(dependencies_dir or scratch), environ, timeout
+            )
+            dependencies = {"modcache": prepared["modcache"]}
+            run.dependencies = prepared["modules"].get(module or ".")
         if spec.name == "scip-python":
             from .python_dependencies import install
 
@@ -843,6 +856,25 @@ def _prepared_packages(root, directory, environ, timeout):
     target = directory / "typescript-packages"
     target.mkdir(parents=True, exist_ok=True)
     prepared = prepare(root, target, environ=environ, timeout=timeout)
+    record.write_text(json.dumps(prepared))
+    return prepared
+
+
+def _prepared_go_modules(root, directory, environ, timeout):
+    """What the workspace's Go modules require, downloaded once per
+    ``directory`` (see ``deepthought.go_dependencies``)."""
+    from .go_dependencies import download
+
+    record = directory / "go-modules.json"
+    if record.is_file():
+        return json.loads(record.read_text())
+    prepared = download(
+        root,
+        go_modules(root) or ["."],
+        directory / "go-modules",
+        environ=environ,
+        timeout=timeout,
+    )
     record.write_text(json.dumps(prepared))
     return prepared
 
@@ -1227,6 +1259,14 @@ def _index_workspace(
     # compiles them.
     constrained = set()
     platforms = None
+    if go_runs:
+        # The go command lists packages from the same downloaded modules.
+        environ = {
+            **(os.environ if environ is None else environ),
+            **_go_cache_environment(
+                _prepared_go_modules(root, Path(packages), environ, timeout)
+            ),
+        }
     for module, run in sorted(go_runs.items()):
         if run.status != "indexed":
             continue
@@ -1263,6 +1303,7 @@ def _index_workspace(
                 files=chosen,
                 module=module,
                 platform=platform,
+                dependencies_dir=packages,
             )
             runs.append(extra)
             for path in extra.documents:
@@ -1291,12 +1332,7 @@ def _index_workspace(
                 "status": "covered",
                 "indexer": run.indexer,
                 # Covered, but library calls may bind nowhere: say so.
-                **(
-                    {"warning": "dependencies_unavailable"}
-                    if run.dependencies is not None
-                    and run.dependencies["status"] in {"partial", "failed"}
-                    else {}
-                ),
+                **_dependency_warning(run),
             }
         elif path in passes:
             coverage[path] = {
@@ -1316,6 +1352,8 @@ def _index_workspace(
                 "status": "uncovered",
                 "indexer": run.indexer,
                 "reason": reason,
+                # scip-go fails a module whose required modules are missing.
+                **_dependency_warning(run),
                 **(
                     {"outside_tsconfig_pass": second.reason}
                     if second is not None
@@ -1334,6 +1372,15 @@ def _index_workspace(
         "coverage": coverage,
         "uncovered": sum(1 for c in coverage.values() if c["status"] != "covered"),
     }
+
+
+def _dependency_warning(run):
+    if run.dependencies is not None and run.dependencies["status"] in {
+        "partial",
+        "failed",
+    }:
+        return {"warning": "dependencies_unavailable"}
+    return {}
 
 
 # Reasons a file has no index because an indexer did not do its job: the run

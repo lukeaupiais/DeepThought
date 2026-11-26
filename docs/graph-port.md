@@ -2571,6 +2571,28 @@ directory, manager, command, lockfile digest and outcome, and the installed
 package count; a failed install gives each covered file
 `warning: dependencies_unavailable`.
 
+scip-go loads each package with `go/packages`, which reads a required module
+from the module cache. A missing module failed a whole module under 0.1.26; 0.2.7
+indexes it but attributes its symbols wrongly. Before
+scip-go runs, each Go module of the workspace has the go command download
+what it needs to build and test its packages (`deepthought.go_dependencies`):
+`go mod download -json` from the module's directory, into a module cache in a
+scratch directory, with `GOWORK=off` and `-modcacherw`. The go command is
+given a copy of the module's `go.mod` and `go.sum` (`-modfile`), so the
+checksums it verifies are the module's and any it adds go to the copy; the
+workspace and the machine's own module cache are left as they were. The go
+command reads its usual settings (`GOPROXY`, `GOPRIVATE`, `GONOSUMDB`), so a
+mirror works, and downloading runs no module's code. A module with
+`vendor/modules.txt` downloads nothing. Modules are downloaded once per
+`index_workspace`, for every scip-go run, platform passes included, and
+scip-go and the go command's package listing then read only that cache, with
+`GOPROXY=off`. Before, scip-go downloaded what it lacked itself, into the
+machine's cache, without a record. The run and receipt record
+`dependencies`: `status` (`none`, `present`, `downloaded`, `partial`,
+`failed`), the `go.sum` digest, the number of modules downloaded and each
+`path@version` that could not be. A partial or failed download gives each of
+the module's files `warning: dependencies_unavailable`, covered or not.
+
 On full-stack-fastapi-template (77e550a), whose only JavaScript lockfile is
 a root `bun.lock`, the install used to be an unlocked `npm install`: 103 of
 386 packages landed at other versions than the lock's. bun now installs all
