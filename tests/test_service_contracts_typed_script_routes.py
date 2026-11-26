@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
+from typescript_ready import needs_typescript
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_javascript"
@@ -128,6 +129,7 @@ def routes(indexed):
 
 
 @unittest.skipUnless(READY, "tree-sitter JavaScript grammar is not installed")
+@needs_typescript
 class TypedScriptRouteTest(unittest.TestCase):
     def test_routes_are_the_methods_the_index_resolves(self):
         found, rules = routes(indexed=True)
