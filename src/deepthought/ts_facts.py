@@ -41,6 +41,13 @@ class TsFacts:
     modules: dict = field(default_factory=dict)  # (file, specifier) -> file
     failures: dict = field(default_factory=dict)  # file -> names not resolved
     rejected_configs: list = field(default_factory=list)
+    # {file: {(start byte, end byte): ((file, name, line, column), ...)}}: the
+    # repository's declarations of the named types a parameter or return
+    # type written on a decorated method carries.
+    types: dict = field(default_factory=dict)
+    # {file: {(start byte, end byte): names}}: the names written in such a
+    # type that the compiler resolves to no declaration.
+    unresolved_types: dict = field(default_factory=dict)
 
 
 def _cache_directory():
@@ -131,6 +138,17 @@ def collect(root, files, defines=(), *, timeout=1800):
             facts.failures[item["file"]] = item["failures"]
         elif "module" in item:
             facts.modules[(item["file"], item["module"])] = item["resolved"]
+        elif "types" in item:
+            if item.get("unresolved"):
+                facts.unresolved_types.setdefault(item["file"], {})[
+                    (item["start"], item["end"])
+                ] = item["unresolved"]
+            facts.types.setdefault(item["file"], {})[(item["start"], item["end"])] = (
+                tuple(
+                    (t["file"], t["name"], t["line"], t["column"])
+                    for t in item["types"]
+                )
+            )
         elif "program" in item:
             facts.programs[item["file"]] = item["program"]
         else:
