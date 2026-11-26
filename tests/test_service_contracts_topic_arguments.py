@@ -9,6 +9,7 @@ import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
+from typescript_ready import needs_typescript
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_typescript"
@@ -67,6 +68,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class TopicArgumentTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
