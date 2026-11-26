@@ -40,7 +40,7 @@ from .http import PLACEHOLDER
 from .script_constants import fold_through_calls
 from .stomp_clients import bound_kinds, value_kind
 from .spring import _Imports, _annotations, _arguments, _Values
-from .web import _js_modules, _js_object, _python_imports
+from .web import _js_modules, _js_object, _python_imports, _type_span
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,10 @@ class MessageEndpoint:
     # The calls ("file:line") that pass the destination to the parameter of
     # the function around the site, when that is where it comes from.
     argument_from: tuple = ()
+    # (direction, start byte, end byte, body key) of the types a handler writes for
+    # the message ("request") and its reply ("response"), which the
+    # TypeScript compiler resolves (CARRIES).
+    payloads: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,7 @@ class _Sites:
         client,
         declaration_id=None,
         argument_from=(),
+        payloads=(),
     ):
         line = node.start_point.row + 1
         if PLACEHOLDER in destination:
@@ -149,6 +154,7 @@ class _Sites:
                 destination=destination,
                 client=client,
                 argument_from=tuple(argument_from),
+                payloads=tuple(payloads),
             )
         )
 
@@ -1254,6 +1260,54 @@ def _nest_clients(root, content, modules):
     return {name for name, kinds in found.items() if kinds == {True}}
 
 
+def _nest_message_payloads(method, modules, content, kind):
+    """(direction, start, end, None) of the types a Nest pattern handler writes
+    for the message (its parameter decorated ``@Payload()``, else its first
+    parameter when that has no decorator, as Nest passes the data first)
+    and, for a ``@MessagePattern``, its reply (the return type)."""
+    found = []
+    parameters = method.child_by_field_name("parameters")
+    written = [] if parameters is None else parameters.named_children
+
+    def decorators(parameter):
+        return [
+            d.named_children[0].child_by_field_name("function")
+            for d in parameter.named_children
+            if d.type == "decorator"
+            and d.named_children
+            and d.named_children[0].type == "call_expression"
+        ]
+
+    data = next(
+        (
+            p
+            for p in written
+            if any(
+                f is not None
+                and f.type == "identifier"
+                and text(f, content) == "Payload"
+                and _imported_from("Payload", modules, _NEST_MICROSERVICES)
+                for f in decorators(p)
+            )
+        ),
+        None,
+    )
+    if (
+        data is None
+        and written
+        and not any(d.type == "decorator" for d in written[0].named_children)
+    ):
+        data = written[0]
+    span = None if data is None else _type_span(data.child_by_field_name("type"))
+    if span is not None:
+        found.append(("request", *span, None))
+    if kind == "message":
+        span = _type_span(method.child_by_field_name("return_type"))
+        if span is not None:
+            found.append(("response", *span, None))
+    return tuple(found)
+
+
 def extract_nest_microservices(sites, language):
     """NestJS microservice patterns: ``@MessagePattern``/``@EventPattern``
     handlers of controllers consume, and a client's ``send``/``emit``
@@ -1308,6 +1362,7 @@ def extract_nest_microservices(sites, language):
                 ):
                     continue
                 kind = "message" if name == "MessagePattern" else "event"
+                payloads = _nest_message_payloads(member, modules, content, kind)
                 route = _nest_route(
                     arguments[0] if arguments else None, folder, content, objects
                 )
@@ -1318,6 +1373,7 @@ def extract_nest_microservices(sites, language):
                     f"{kind}:{route}",
                     "nestjs-microservices",
                     sites.declaration(member),
+                    payloads=payloads,
                 )
     clients = _nest_clients(root, content, modules)
     if not clients:
