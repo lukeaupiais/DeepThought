@@ -108,6 +108,7 @@ Every engine call resolution is judged at its source position:
 | contradicted | linked, and the oracle names other targets (including `local` or `external`) |
 | unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
 | not_indexed | linked in a file the oracle did not index |
+| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, so never confirmed; contradicted instead when the oracle names other targets there |
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of
@@ -288,16 +289,26 @@ a package that is not installed, is external.
 | hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 516 | 487 | 0 | 1.0 | 0.9438 |
+| preact | 516 | 499 | 0 | 1.0 | 0.9671 |
+
+The engine's JavaScript and TypeScript imports are scored as it resolves them:
+through the TypeScript compiler (`deepthought.ts_modules`). The compiler
+resolves a package with a `types` field to its declaration file, so preact's
+imports are scored over an analysis that also takes its TypeScript files
+(`import_languages` in the manifest), while its calls are still scored over
+JavaScript alone; the judge stays the JavaScript truth. The 94 preact imports
+counted `not_indexed` are those of the `.d.ts` files this adds, which the truth
+does not judge.
 
 Every external import is left unresolved (click 320, ky 121, hono 223,
 preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
 groups:
 
-- dynamic `import()` calls: ky 4, hono 5, preact 7;
-- imports in hono's benchmark packages: 69;
+- dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
+- imports in hono's benchmark packages, whose `.mts` files the parser does not
+  read: 69;
 - preact's `require()` calls: 8;
-- static imports in preact's demo folder, which no project includes: 8.
+- side-effect imports of stylesheets in preact's demo folder: 2.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 
@@ -1102,6 +1113,11 @@ follows CALLS, INHERITS_FROM and IMPLEMENTS backwards to depth 3, the way
 `get_impact` does. The files of the dependents it finds are the prediction,
 and the commit's other edited files are the outcome. The baseline is a plain
 text search: every file that contains one of the seed names as a whole word.
+A third line, `impact_injection`, also follows the edges through which a
+framework injects code: USES_FIXTURE from tests to their pytest fixtures and
+USES_DEPENDENCY from endpoints to their FastAPI dependencies, as `get_impact`
+does. The `impact` line keeps the
+code relations alone, so the results below stay comparable.
 
 ```sh
 python tools/replay_history.py CLONE --language python --commits 30 --revision REV
@@ -1283,6 +1299,23 @@ object, or a member the compiler cannot name (a spread, a computed value)
 yields no row. Passed as `--possible-calls`, these make a dependent reached
 only through them unjudged: hono gains one `# unjudged` row
 (`detectLanguage` for the cookie parser), ky and preact none.
+
+A test case is an anonymous function passed to a call, such as
+`it('sums', () => { add(1, 2) })` inside `describe(...)`. scip-typescript
+gives it no symbol, so its calls were dropped and no test was ever a
+dependent. `node tools/ts_callback_regions.cjs TYPESCRIPT_JS ROOT` (files on
+stdin) parses each file with the TypeScript compiler and lists every
+function or arrow that is a call argument and is not inside a named
+callable, with the line of its call and its span. Passed as
+`--initializers`, each one in a file the call truth indexes is a caller of
+the calls it holds (the innermost one wins) and a `# node`, keyed by its
+call's line, the line the engine declares a test case on. It is never a
+seed or a target. A callback inside a named function (`xs.map((x) => f(x))`
+in `g`) still belongs to `g`. Whether a callback runs the callbacks inside
+it (`act(() => ...)` in an `it`, an `it` in a `describe`) is not ruled on:
+a dependent reached only that way is an `# unjudged` row. hono's truth
+grows from 149 to 1710 dependents (221 unjudged) and preact's from 101 to
+6768 (518 unjudged); ky's call truth indexes no tests, so it is unchanged.
 
 Go call truth comes from scip-go, so a separate oracle checks it with the
 compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the

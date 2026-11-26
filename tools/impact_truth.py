@@ -378,6 +378,27 @@ def call_graph(nodes, calls, aliases=None, name_line_inside=False, regions=()):
     return incoming
 
 
+def enclosing_regions(regions):
+    """{region: {the region around it}} over (file, owner line, first, last)
+    regions, keyed as call_graph keys them.
+
+    A callback inside another (an act(() => ...) in an it(...), an it(...)
+    in a describe(...)) is passed to a call the oracle does not see run, so
+    whether the enclosing one runs it is not ruled on: derive adds these
+    edges to the widened graph only, and a dependent reached only through
+    one is unjudged."""
+    edges = defaultdict(set)
+    for file, owner, first, last in regions:
+        around = [
+            (b - a, line)
+            for f, line, a, b in regions
+            if f == file and a <= first and last <= b and (a, b) != (first, last)
+        ]
+        if around and min(around)[1] != owner:
+            edges[(file, owner)].add((file, min(around)[1]))
+    return dict(edges)
+
+
 def reach(incoming, seed, max_depth):
     """{dependent: depth} by reverse breadth-first search from ``seed``."""
     depth = {seed: 0}
@@ -476,6 +497,7 @@ def derive(
     possible_calls=(),
     initializers=None,
     dispatch=None,
+    nested_regions=False,
 ):
     from ground_truth import read_truth
 
@@ -513,9 +535,12 @@ def derive(
                 possible.setdefault(site, set()).add((*impl, "callable"))
     widened = (
         call_graph(nodes, possible, aliases, language != "python", regions)
-        if possible_calls or dispatch
+        if possible_calls or dispatch or nested_regions
         else incoming
     )
+    if nested_regions:
+        for region, parents in enclosing_regions(regions).items():
+            widened.setdefault(region, set()).update(parents)
     rows, unjudged = [], []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
         reached = reach(incoming, seed, max_depth)
@@ -644,6 +669,7 @@ def score(
     with) is one the oracle never saw: unjudged, not extra.
     """
     from deepthought.calls import resolve_calls
+    from deepthought.syntax import TEST_KINDS
 
     known = {}
     known.update(nodes or {})
@@ -671,6 +697,11 @@ def score(
     }
 
     def oracle_node(d):
+        # A test case's symbol is its runner call written out
+        # (`describe("x").it.each("y")`), not the oracle's label
+        # (`it.each([...])("y")`); both key it by the line of its call.
+        if d.kind in TEST_KINDS and (d.file, d.line) in known:
+            return (d.file, d.line, known[(d.file, d.line)])
         name = name_of(d)
         candidates = named.get((d.file, name), ())
         lines = [n for n in candidates if d.line <= n <= d.end_line]
@@ -695,6 +726,7 @@ def score(
 
     definitions = {d.id: d for d in result.definitions}
     node_of = {i: oracle_node(d) for i, d in definitions.items()}
+    folded = set()
     if fold_nested:
         # Outermost first, so an enclosing declaration is already read.
         order = sorted(definitions.values(), key=lambda d: (d.line - d.end_line, d.id))
@@ -715,15 +747,44 @@ def score(
                     # does name (a method) is never merged into another.
                     if node_of[inner.id][:2] in known:
                         node_of[d.id] = node_of[inner.id]
+                        folded.add(d.id)
             by_file[d.file].append(d)
     sites = {s.id: s for s in result.call_sites}
-    incoming = defaultdict(set)
+    # A table-driven test case (`it.each(rows)("x", fn)`) holds its rows,
+    # where the engine puts the calls inside them; the oracle's node is the
+    # test callback only, so it never rules on a call in the rows (the
+    # arrows a table passes for the callback to run).
+    starts = {
+        (site.file, site.line, site.column): site
+        for site in result.call_sites
+        if site.callee.endswith(".each")
+    }
+    rows = {}
+    for d in definitions.values():
+        site = starts.get((d.file, d.line, d.column))
+        if d.kind in TEST_KINDS and site is not None:
+            rows[d.id] = (site.line, site.column, site.end_line, site.end_column)
+
+    def in_rows(site):
+        span = rows.get(site.caller_id)
+        return span is not None and (
+            span[:2] < (site.line, site.column)
+            and (site.end_line, site.end_column) <= span[2:]
+        )
+
+    # A call into a folded declaration is one the oracle cannot see (the
+    # index makes the callee local): the caller of a local helper is not a
+    # caller of the callable that encloses it. Dependents reached only
+    # through such a call are unjudged.
+    incoming, strict = defaultdict(set), defaultdict(set)
     for r in resolve_calls(result) if resolutions is None else resolutions:
         site = sites[r.call_id]
         if r.status == "linked" and site.caller_id in node_of:
             source, target = node_of[site.caller_id], node_of[r.target_id]
             if source != target:
                 incoming[target].add(source)
+                if r.target_id not in folded and not in_rows(site):
+                    strict[target].add(source)
     engine_nodes = set(node_of.values())
     # An unjudged row names the oracle's line for a callable (its name
     # line); an engine node the truth does not otherwise list keeps its
@@ -741,6 +802,24 @@ def score(
             start <= ln <= end for start, end in spans.get(node, ()) for ln in lines
         )
 
+    # A test case the engine declares holds the anonymous callbacks inside
+    # it (expect(() => f()), an it in a describe), which the oracle keeps as
+    # their own nodes. Whether the test case runs one is not ruled on
+    # (enclosing_regions), so an engine test case that encloses an oracle
+    # dependent of the seed, judged or not, is unjudged rather than extra.
+    test_nodes = {node_of[i] for i, d in definitions.items() if d.kind in TEST_KINDS}
+
+    def encloses_dependent(seed, node, expected):
+        if node not in test_nodes:
+            return False
+        lines = {ln for f, ln, _ in expected if f == node[0]}
+        lines |= unjudged_lines.get((*seed[:2], node[0]), set())
+        return any(
+            start <= ln <= end and ln != node[1]
+            for start, end in spans.get(node, ())
+            for ln in lines
+        )
+
     totals = {"seeds": len(truth), "seeds_undeclared": 0}
     counts = {"expected": 0, "confirmed": 0, "missed": 0, "extra": 0, "unjudged": 0}
     by_depth = defaultdict(lambda: {"expected": 0, "confirmed": 0})
@@ -750,9 +829,10 @@ def score(
         if seed not in engine_nodes:
             totals["seeds_undeclared"] += 1
             samples["seeds_undeclared"].append(list(seed))
-            reached = {}
+            reached = direct = {}
         else:
             reached = {k: v for k, v in reach(incoming, seed, max_depth).items() if v}
+            direct = reach(strict, seed, max_depth)
         counts["expected"] += len(expected)
         for node, depth in expected.items():
             by_depth[depth]["expected"] += 1
@@ -766,6 +846,8 @@ def score(
             if node not in expected and (
                 (nodes and node[:2] not in nodes)
                 or is_unjudged(seed, node)
+                or encloses_dependent(seed, node, truth[seed])
+                or node not in direct
                 or (indexed is not None and node[0] not in indexed)
             ):
                 counts["unjudged"] += 1
@@ -818,7 +900,8 @@ def main(argv=None):
         "--initializers",
         type=Path,
         help="code outside callables that runs as part of a class "
-        "(JavaMethodSpans.java --initializers): its calls belong to the class",
+        "(JavaMethodSpans.java --initializers): its calls belong to the class; "
+        "or anonymous callbacks (ts_callback_regions.cjs), callers of their own",
     )
     derive_cmd.add_argument(
         "--dispatch",
@@ -828,6 +911,17 @@ def main(argv=None):
         "of an interface method are listed as unjudged",
     )
     args = parser.parse_args(argv)
+    # scip-typescript gives a function inside another a local symbol, so
+    # the truth lists every node to tell those apart from unlisted ones.
+    scripts = args.language in {"typescript", "javascript"}
+    initializers = read_initializers(args.initializers) if args.initializers else None
+    if scripts and initializers:
+        # Anonymous callbacks (tools/ts_callback_regions.cjs) in a file the
+        # call truth covers: elsewhere no call of theirs is known.
+        from ground_truth import read_truth
+
+        indexed = read_truth(args.calls)[1]
+        initializers = {k: v for k, v in initializers.items() if k[0] in indexed}
     rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
         args.calls,
@@ -839,12 +933,17 @@ def main(argv=None):
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
         args.possible_calls,
-        read_initializers(args.initializers) if args.initializers else None,
+        initializers,
         read_dispatch(args.dispatch) if args.dispatch else None,
+        scripts,
     )
-    # scip-typescript gives a function inside another a local symbol, so
-    # the truth lists every node to tell those apart from unlisted ones.
-    scripts = args.language in {"typescript", "javascript"}
+    if scripts and initializers:
+        # The callbacks are callers the truth can name, so an engine
+        # declaration there (a test case) is judged.
+        nodes = {
+            **{(f, ln): (name, a, b) for (f, ln, a, b), name in initializers.items()},
+            **nodes,
+        }
     write(rows, sys.stdout, aliases, nodes if scripts else None, unjudged)
     return 0
 

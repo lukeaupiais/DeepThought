@@ -154,6 +154,31 @@ class GraphTransportIntegrationTests(unittest.TestCase):
             )
         )
 
+    def assert_described(self, described):
+        self.assertEqual(
+            (described["repo_url"], described["snapshot_id"], described["scope"]),
+            (self.repo, self.snapshot, "repository_snapshot"),
+        )
+        self.assertIn("definitions", described["capabilities"])
+        self.assertIn("analysis_status", described)
+        (item,) = described["items"]
+        self.assertEqual(
+            sorted(item),
+            ["commits", "completed_at", "content_hash", "coverage", "tool_name"],
+        )
+        # The fixture's one Python file has no call or import.
+        self.assertEqual(
+            [
+                (c["family"], c["language"], c["status"], c["resolver"])
+                for c in item["coverage"]
+            ],
+            [
+                ("CALLS", "python", "no_sites", []),
+                ("IMPORTS", "python", "no_sites", []),
+            ],
+        )
+        self.assertTrue(item["content_hash"])
+
     def test_cli_index_search_context_structure_and_cypher(self):
         selected = self.command("search", *self.scope_args(), "--query", "")
         self.assert_declarations(selected)
@@ -174,7 +199,9 @@ class GraphTransportIntegrationTests(unittest.TestCase):
             "--allow-database-scope",
         )
         self.assertEqual(message["items"], [{"value": "transport-check"}])
-        self.assertEqual(message["scope"], "database")
+        # Only the answer; the snapshot's facts are read once, below.
+        self.assertEqual(sorted(message), ["items", "returned", "status", "truncated"])
+        self.assert_described(self.command("snapshot", *self.scope_args()))
         denied = self.command(
             "cypher",
             *self.scope_args(),
@@ -236,6 +263,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                         self.assertEqual(initialized.serverInfo.name, "DeepThought")
                         tools = (await session.list_tools()).tools
                         expected = {
+                            "describeSnapshot",
                             "diffSnapshots",
                             "explainEdge",
                             "findImplementations",
@@ -271,7 +299,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             expected.add("queryGraph")
                         self.assertEqual({tool.name for tool in tools}, expected)
                         for tool in tools:
-                            if tool.name == "explainEdge":
+                            if tool.name in {"explainEdge", "describeSnapshot"}:
                                 # One edge per identity; no element bound applies.
                                 self.assertNotIn(
                                     "max_elements", tool.inputSchema["properties"]
@@ -317,6 +345,42 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             )
                             self.assertEqual(
                                 result["items"], [{"count": len(self.expected)}]
+                            )
+                            self.assertEqual(
+                                sorted(result),
+                                ["items", "returned", "status", "truncated"],
+                            )
+                            self.assert_described(await call("describeSnapshot"))
+                            rows = await session.call_tool(
+                                "queryGraph",
+                                {
+                                    "repository_id": self.repo,
+                                    "snapshot_id": self.snapshot,
+                                    "query": "MATCH (n:Symbol) RETURN count(n) AS count",
+                                    "parameters": {},
+                                },
+                            )
+                            # JSON rows keep their structured content.
+                            self.assertEqual(
+                                rows.structuredContent["items"],
+                                [{"count": len(self.expected)}],
+                            )
+                            spoken = await session.call_tool(
+                                "queryGraph",
+                                {
+                                    "repository_id": self.repo,
+                                    "snapshot_id": self.snapshot,
+                                    "query": "MATCH (n:Symbol) RETURN count(n) AS count",
+                                    "parameters": {},
+                                    "format": "text",
+                                },
+                            )
+                            self.assertFalse(spoken.isError)
+                            self.assertEqual(
+                                [i.text for i in spoken.content if i.type == "text"],
+                                [
+                                    f"1 result: every one this query matched.\n- count {len(self.expected)}"
+                                ],
                             )
                             denied = await session.call_tool(
                                 "queryGraph",
