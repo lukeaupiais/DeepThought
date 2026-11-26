@@ -92,7 +92,7 @@ class ResultTextTests(unittest.TestCase):
         self.assertEqual(
             text.splitlines(),
             [
-                "4 results (all of them).",
+                "4 results: every one this query matched.",
                 "Each of the following calls Command.InheritedFlags (command.go:1744):",
                 "- Command.HasInheritedFlags (command.go:1816) at line 1817",
                 "- writeFlags (bash_completions.go:551) at line 580",
@@ -176,6 +176,118 @@ class ResultTextTests(unittest.TestCase):
         self.assertIn("- Handler (type alias, src/types.ts:12)", text)
         self.assertIn("- Context.json (src/context.ts:700)", text)
 
+    def test_source_text_is_an_indented_block_after_the_row(self):
+        source = "def helper():\n    return 1\n"
+        one = render(response([{"source": source, "n": TARGET}]))
+        self.assertEqual(
+            one.splitlines()[1:],
+            [
+                "- Command.InheritedFlags (command.go:1744); source:",
+                "    def helper():",
+                "        return 1",
+            ],
+        )
+        many = render(
+            response(
+                [
+                    {"file": "a.py", "source": source},
+                    {"file": "a.py", "source": "x = 1\n"},
+                ]
+            )
+        )
+        self.assertIn("- source:\n    x = 1", many)
+
+    def test_files_changed_since_the_snapshot_are_said_after_the_count(self):
+        changed = dict(
+            response([{"n": TARGET}]),
+            freshness={
+                "status": "changed",
+                "files_checked": 2,
+                "changed_files": ["command.go"],
+                "missing_files": ["old.go"],
+            },
+        )
+        self.assertEqual(
+            render(changed).splitlines()[1],
+            "Changed since the graph was built: edited command.go; removed old.go. "
+            "Lines in these files may have moved: read them in source.",
+        )
+        current = dict(response([{"n": TARGET}]), freshness={"status": "current"})
+        self.assertNotIn("Changed", render(current))
+
+    def test_coverage_names_unlinked_sites_by_reason(self):
+        record = {
+            "family": "CALLS",
+            "language": "go",
+            "status": "linked",
+            "unresolved_reasons": '{"scip_no_occurrence": 3, "receiver_type_unknown": 1}',
+        }
+        text = render(
+            response([{"r": link("CALLS", WRITE, TARGET, line=580)}]),
+            coverage=[record],
+            query="MATCH ()-[r:CALLS]->() RETURN r",
+        )
+        self.assertTrue(
+            text.endswith(
+                "Coverage: CALLS in go: complete, compiler-checked (unlinked sites: "
+                "receiver_type_unknown 1, scip_no_occurrence 3)."
+            ),
+            text,
+        )
+
+    def test_external_packages_read_with_ecosystem_and_version(self):
+        package = {
+            "element_id": "pkg",
+            "labels": ["ExternalPackage"],
+            "properties": {
+                "ecosystem": "pypi",
+                "name": "requests",
+                "version": "2.32.3",
+            },
+        }
+        source = file_node("f", "app/client.py")
+        text = render(
+            response([{"r": link("IMPORTS_PACKAGE", source, package)}]),
+            nodes={"f": source, "pkg": package},
+        )
+        self.assertIn(
+            "- app/client.py (file) imports the package requests 2.32.3 (pypi package)",
+            text,
+        )
+
+    def test_coverage_names_languages_with_gaps_that_returned_nothing(self):
+        # A site the graph lacks is lacking from the results too, so a
+        # language with no results can still be where the missing ones are.
+        coverage = [
+            {"family": "CALLS", "language": "go", "status": "linked"},
+            {
+                "family": "CALLS",
+                "language": "csharp",
+                "status": "not_linked",
+                "reason": "parser_rules",
+            },
+        ]
+        text = render(
+            response([{"r": link("CALLS", WRITE, TARGET, line=580)}]),
+            coverage=coverage,
+            query="MATCH ()-[r:CALLS]->() RETURN r",
+        )
+        self.assertTrue(
+            text.endswith(
+                "Coverage: CALLS in csharp (none returned): may be incomplete "
+                "(parser_rules), check the source; CALLS in go: complete, "
+                "compiler-checked."
+            ),
+            text,
+        )
+
+    def test_generated_files_say_so(self):
+        gen = file_node("g", "api/v1/service.pb.go")
+        gen["properties"]["generated_by"] = "linguist"
+        self.assertIn(
+            "- api/v1/service.pb.go (file, generated)", render(response([{"f": gen}]))
+        )
+
     def test_a_column_null_in_every_result_is_said_once(self):
         rows = [{"n": TARGET, "signature": None}, {"n": HAS, "signature": None}]
         self.assertIn("Same for every result: signature none.", render(response(rows)))
@@ -207,7 +319,7 @@ class ResultTextTests(unittest.TestCase):
         self.assertEqual(
             render(response(rows)).splitlines(),
             [
-                "4 results (all of them).",
+                "4 results: every one this query matched.",
                 "Same for every result: status linked.",
                 "file a.go:",
                 "  - line 3, 9, 12",
