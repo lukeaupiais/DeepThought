@@ -694,6 +694,45 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             [("StatsController.latest", ["HANDLES"])],
         )
         self.assertFalse(impact["providers_truncated"])
+        # Providers are named as declarations, with the lines of their
+        # edges to the contract; clients carry the lines of their requests.
+        self.assertEqual(
+            [
+                (
+                    p["kind"],
+                    p["file_path"],
+                    p["start_line"],
+                    p["end_line"],
+                    p["signature"],
+                    p["top_level"],
+                    p["lines"],
+                    p["source_roles"],
+                )
+                for p in impact["providers"]
+            ],
+            [
+                (
+                    "Method",
+                    "stats/src/main/java/s/StatsController.java",
+                    6,
+                    7,
+                    '@GetMapping("/latest")\n  public String latest()',
+                    False,
+                    [6],
+                    [],
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                (i["element"]["name"], i["element"]["signature"], i["lines"])
+                for i in impact["items"]
+            ],
+            [
+                ("StatsReader.read", "public String read()", [5]),
+                ("StatsReader.twice", "public String twice()", [6]),
+            ],
+        )
         self.assertEqual(
             [
                 (row[0], row[1], row[3], item["impact"])
