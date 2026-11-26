@@ -18,6 +18,10 @@ are where the oracle says the name leads, with a kind:
   external   a symbol defined outside the repository (library, builtin)
   local      a local binding (parameter, loop variable, local function):
              the line that binds it
+  alias      an in-repository function, method or type reached through a
+             Python local bound once to a plain name (``f = obj.m``,
+             ``g = f``), or through a classmethod's ``cls``: each line that
+             defines it, followed through the index's own occurrences
 
 Only calls with a callable target are *expected* (the recall denominator);
 the others let a link at that position be judged right or wrong.
@@ -270,6 +274,7 @@ def derive(workspace, index):
             locations |= {
                 (file, line, "callable") for file, line, _ in defined.get(owner, ())
             }
+    follow = _alias_follower(source, defined, text_of)
     expected = {}
     for r in source.references:
         if r.line != r.end_line:
@@ -310,8 +315,14 @@ def derive(workspace, index):
             # builtin `set`: an attribute is never a top-level builtin
             # (except on the `builtins` module), so the row is unjudged.
             continue
-        if native in defined:
+        if followed := follow.cls(native):
+            targets = followed
+        elif native in defined:
             targets = defined[native]
+        elif r.native_id.startswith("local ") and (
+            followed := follow(r.file, r.native_id)
+        ):
+            targets = followed
         elif r.native_id.startswith("local "):
             # scip-typescript names a local class's constructor
             # `local N`<constructor>`().` without defining it: the call
@@ -331,6 +342,98 @@ def derive(workspace, index):
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
     return expected, indexed
+
+
+_ALIAS = re.compile(r"\s*=\s*([A-Za-z_][\w.]*)\s*(?:#.*)?$")
+_CLS = re.compile(r"\s*(?:async\s+)?def\s+(\w+)\s*\(\s*$")
+
+
+def _alias_follower(source, defined, text_of):
+    """``follow(file, local)``: where a scip-python local leads when it is
+    bound once, either to a plain name (``_Span = Span``, ``f = obj.m``,
+    ``g = f``) or as a classmethod's (or ``__new__``'s) ``cls``. Returns
+    ``{(file, line, "alias")}``, ``{("-", 0, "external")}``, or None when
+    the local is rebound or bound to anything else. Only the index's own
+    occurrences are used: the reference that ends the right-hand side, and
+    the method defined on the ``def`` line for ``cls``."""
+    binds, refs, methods = {}, {}, {}
+    for d in source.definitions:
+        if d.native_id and d.file.endswith(".py"):
+            if d.native_id.startswith("local "):
+                binds.setdefault((d.file, d.native_id), []).append(d)
+            elif d.native_id.endswith(")."):
+                methods.setdefault((d.file, d.line), []).append(d.native_id)
+    for r in source.references:
+        if r.line == r.end_line and r.file.endswith(".py"):
+            refs.setdefault((r.file, r.line), []).append(r)
+
+    def located(native):
+        if native not in defined:
+            return None
+        return {(f, line, "alias") for f, line, _ in defined[native]}
+
+    def follow(file, local, depth=0):
+        bound = binds.get((file, local), [])
+        if len(bound) != 1 or depth > 8:
+            return None
+        d = bound[0]
+        lines = text_of(file)
+        if d.line > len(lines) or not lines[d.line - 1].isascii():
+            return None
+        text = lines[d.line - 1]
+        before, name = text[: d.column], text[d.column : d.end_column]
+        if not before.strip():
+            match = _ALIAS.match(text, d.end_column)
+            if not match:
+                return None
+            end = match.end(1)
+            for r in refs.get((file, d.line), ()):
+                if r.end_column == end and r.column >= match.start(1):
+                    if r.native_id.startswith("local "):
+                        return follow(file, r.native_id, depth + 1)
+                    return located(r.native_id) or {("-", 0, "external")}
+            return None
+        header = _CLS.match(before)
+        if name != "cls" or not header:
+            return None
+        if header.group(1) != "__new__" and "@classmethod" not in decorators(
+            file, d.line
+        ):
+            return None
+        for native in methods.get((file, d.line), ()):
+            owner = native[: native.rfind("#") + 1]
+            if owner and native[len(owner) :] == header.group(1) + "().":
+                return located(owner)
+        return None
+
+    def cls(native):
+        """A classmethod's (or ``__new__``'s) ``cls`` parameter, which
+        scip-python names ``C#m().(cls)``: the class ``C#``."""
+        match = _CLS_PARAMETER.fullmatch(native)
+        if not match or not match.group(1).startswith("scip-python "):
+            return None
+        owner, method = match.group(1), match.group(2)
+        if method != "__new__" and not any(
+            "@classmethod" in decorators(file, line)
+            for file, line, _ in defined.get(f"{owner}{method}().", ())
+        ):
+            return None
+        return located(owner)
+
+    def decorators(file, line):
+        lines, found = text_of(file), []
+        for number in range(line - 1, 0, -1):
+            above = lines[number - 1].strip() if number <= len(lines) else ""
+            if not above.startswith("@"):
+                break
+            found.append(above)
+        return found
+
+    follow.cls = cls
+    return follow
+
+
+_CLS_PARAMETER = re.compile(r"(.*#)(\w+)\(\)\.\(cls\)")
 
 
 _MODIFIERS = re.compile(
