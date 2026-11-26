@@ -29,6 +29,11 @@
 // method, with the repository's declarations of the named types it
 // carries (declaredTypes).
 //
+// {"file", "proto": {...}} lines name the protobuf types generated code
+// declares (protoFacts): protoc-gen-js's goog.exportSymbol, protobuf-es's
+// fileDesc/messageDesc/enumDesc descriptors, Message<"name"> types and
+// typeName properties, and ts-proto's protobufPackage.
+//
 // Globals a build defines (the Angular CLI "define" option) are given as
 // DEFINES, a JSON list of [directory, {name: value}]: an ambient
 // `declare const NAME` without initializer takes the value the innermost
@@ -753,6 +758,203 @@ function declaredTypes(checker, file, offset, out) {
   visit(file);
 }
 
+// The module an identifier is bound to, as the checker resolves it: an
+// import (namespace, default or named) or a const/var initialized with
+// require("m"), through local aliases. {module, name}: name is the
+// imported name, null for the module itself; null when not bound to one.
+function moduleOf(checker, node, depth) {
+  if (!node || depth > 6) return null;
+  if (ts.isPropertyAccessExpression(node)) {
+    const base = moduleOf(checker, node.expression, depth + 1);
+    return base && base.name === null ? { module: base.module, name: node.name.text } : null;
+  }
+  if (!ts.isIdentifier(node)) return null;
+  const symbol = checker.getSymbolAtLocation(node);
+  const declaration = symbol && symbol.declarations && symbol.declarations[0];
+  if (!declaration) return null;
+  if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) {
+    const spec = declaration.parent.parent.moduleSpecifier || (declaration.parent && declaration.parent.moduleSpecifier);
+    const literal = ts.isImportClause(declaration) ? declaration.parent.moduleSpecifier : spec;
+    if (!literal || !ts.isStringLiteral(literal)) return null;
+    return { module: literal.text, name: ts.isImportClause(declaration) ? "default" : null };
+  }
+  if (ts.isImportSpecifier(declaration)) {
+    const literal = declaration.parent.parent.parent.moduleSpecifier;
+    if (!literal || !ts.isStringLiteral(literal)) return null;
+    return { module: literal.text, name: (declaration.propertyName || declaration.name).text };
+  }
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    const init = declaration.initializer;
+    if (
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === "require" &&
+      init.arguments.length === 1 &&
+      ts.isStringLiteral(init.arguments[0])
+    ) {
+      return ts.isIdentifier(declaration.name) ? { module: init.arguments[0].text, name: null } : null;
+    }
+    if (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init)) {
+      return moduleOf(checker, init, depth + 1);
+    }
+  }
+  return null;
+}
+
+const PROTOBUF_ES = "@bufbuild/protobuf";
+const CODEGEN = new Set(["@bufbuild/protobuf/codegenv1", "@bufbuild/protobuf/codegenv2"]);
+
+// The protobuf types generated code declares, from the generators' own
+// registrations:
+//   - protoc-gen-js (google-protobuf; grpc-web and grpc-tools use it):
+//     goog.exportSymbol("proto.<full name>", ...), goog bound to
+//     require("google-protobuf");
+//   - protobuf-es 2: const f = fileDesc("<base64 FileDescriptorProto>"),
+//     and const XSchema = messageDesc(f, i, ...) / enumDesc(f, i, ...),
+//     whose indexes walk the descriptor; type X = Message<"<full name>">;
+//   - protobuf-es 1: a class extending Message with
+//     static readonly typeName = "<full name>", and
+//     proto3.util.setEnumType(E, "<full name>", ...);
+//   - ts-proto: export const protobufPackage = "<package>".
+function protoFacts(checker, file, out) {
+  function line(node) {
+    return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+  }
+  function declared(node) {
+    // The declaration an identifier or type reference names: (file, name, line).
+    const symbol = node && checker.getSymbolAtLocation(node);
+    let target = symbol;
+    if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
+    const declaration = target && target.declarations && target.declarations[0];
+    if (!declaration || !declaration.name) return null;
+    const source = declaration.getSourceFile();
+    return {
+      file: relative(source.fileName),
+      name: declaration.name.getText(source),
+      line: source.getLineAndCharacterOfPosition(declaration.name.getStart(source)).line + 1,
+    };
+  }
+  function emitProto(item) {
+    emit({ file: out, proto: item });
+  }
+  function indexes(args) {
+    const path = [];
+    for (const arg of args) {
+      if (!ts.isNumericLiteral(arg)) return null;
+      path.push(Number(arg.text));
+    }
+    return path;
+  }
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      const base = moduleOf(checker, node.expression.expression, 0);
+      const first = node.arguments[0];
+      if (
+        method === "exportSymbol" &&
+        base &&
+        base.module === "google-protobuf" &&
+        base.name === null &&
+        first &&
+        ts.isStringLiteral(first) &&
+        first.text.startsWith("proto.")
+      ) {
+        emitProto({ generator: "protoc-gen-js", full: first.text.slice(6), line: line(node) });
+      }
+      if (method === "setEnumType" && node.arguments.length >= 2 && ts.isStringLiteral(node.arguments[1])) {
+        const util = node.expression.expression;
+        const owner = ts.isPropertyAccessExpression(util) ? moduleOf(checker, util.expression, 0) : null;
+        const target = declared(first);
+        if (owner && owner.module === PROTOBUF_ES && target) {
+          emitProto({ generator: "protobuf-es", full: node.arguments[1].text, kind: "enum", ...target });
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const init = node.initializer;
+      if (ts.isCallExpression(init)) {
+        const callee = moduleOf(checker, init.expression, 0);
+        if (callee && CODEGEN.has(callee.module)) {
+          const [first, ...rest] = init.arguments;
+          if (callee.name === "fileDesc" && first && ts.isStringLiteral(first)) {
+            emitProto({ generator: "protobuf-es", descriptor: first.text, name: node.name.text, line: line(node.name) });
+          }
+          if ((callee.name === "messageDesc" || callee.name === "enumDesc") && first && ts.isIdentifier(first)) {
+            const path = indexes(rest);
+            const owner = declared(first);
+            if (path && owner) {
+              const kind = callee.name === "messageDesc" ? "message" : "enum";
+              const item = { generator: "protobuf-es", kind, owner, path, name: node.name.text, line: line(node.name) };
+              // GenMessage<X> / GenEnum<X>: the generated type X too.
+              const type = node.type;
+              if (type && ts.isTypeReferenceNode(type) && type.typeArguments && type.typeArguments.length >= 1) {
+                const argument = type.typeArguments[0];
+                const named = ts.isTypeReferenceNode(argument) ? declared(argument.typeName) : null;
+                if (named) item.type = named;
+              }
+              emitProto(item);
+            }
+          }
+        }
+      }
+      if (
+        ts.isStringLiteral(init) &&
+        node.name.text === "protobufPackage" &&
+        ts.isVariableDeclarationList(node.parent) &&
+        node.parent.flags & ts.NodeFlags.Const &&
+        ts.isVariableStatement(node.parent.parent) &&
+        (node.parent.parent.modifiers || []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+      ) {
+        emitProto({ generator: "ts-proto", package: init.text, line: line(node.name) });
+      }
+    }
+    if (ts.isTypeAliasDeclaration(node)) {
+      const parts = ts.isIntersectionTypeNode(node.type) ? node.type.types : [node.type];
+      for (const part of parts) {
+        if (!ts.isTypeReferenceNode(part) || !part.typeArguments || part.typeArguments.length !== 1) continue;
+        const ref = moduleOf(checker, part.typeName, 0);
+        const argument = part.typeArguments[0];
+        if (
+          ref &&
+          ref.module === PROTOBUF_ES &&
+          ref.name === "Message" &&
+          ts.isLiteralTypeNode(argument) &&
+          ts.isStringLiteral(argument.literal)
+        ) {
+          emitProto({ generator: "protobuf-es", kind: "message", full: argument.literal.text, name: node.name.text, line: line(node.name), file: out });
+        }
+      }
+    }
+    if (ts.isClassDeclaration(node) && node.name) {
+      const extendsMessage = (node.heritageClauses || []).some(
+        (clause) =>
+          clause.token === ts.SyntaxKind.ExtendsKeyword &&
+          clause.types.some((t) => {
+            const ref = moduleOf(checker, t.expression, 0);
+            return ref && ref.module === PROTOBUF_ES && ref.name === "Message";
+          }),
+      );
+      if (extendsMessage) {
+        for (const member of node.members) {
+          if (
+            ts.isPropertyDeclaration(member) &&
+            member.name &&
+            ts.isIdentifier(member.name) &&
+            member.name.text === "typeName" &&
+            (member.modifiers || []).some((m) => m.kind === ts.SyntaxKind.StaticKeyword) &&
+            member.initializer &&
+            ts.isStringLiteral(member.initializer)
+          ) {
+            emitProto({ generator: "protobuf-es", kind: "message", full: member.initializer.text, name: node.name.text, line: line(node.name), file: out });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+}
+
 const done = new Set();
 for (const [config, names, options] of programs()) {
   const program = ts.createProgram({ rootNames: names, options });
@@ -774,5 +976,6 @@ for (const [config, names, options] of programs()) {
       }
     }
     analyze(program, checker, file, new Set());
+    protoFacts(checker, file, rel);
   }
 }
