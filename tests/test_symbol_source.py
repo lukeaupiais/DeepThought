@@ -13,6 +13,7 @@ from deepthought import analyze_repository
 from deepthought.analysis_tools import TreeSitterTool
 from deepthought.analysis_tools.tree_sitter import _declaration_sources
 from deepthought.storage.graph.writer import _prepare
+from deepthought.syntax import _signature
 
 READY = all(
     importlib.util.find_spec(m)
@@ -117,6 +118,95 @@ class SymbolSourceTests(unittest.TestCase):
             nodes["Outer.run.inner"]["source_code"],
             'def inner():\n            return "é"',
         )
+
+    def test_signatures_are_the_head_up_to_the_body(self):
+        files = {
+            "a.py": (
+                "@dec(1)\ndef f(a: int,\n      b: str = 'x') -> bool:\n    return True\n"
+                "class C(Base):\n    def m(self): pass\n"
+                "def long(\n" + "".join(f"    a{i},\n" for i in range(9)) + "):\n"
+                "    pass\n"
+                "def wide(" + ", ".join(f"argument{i}" for i in range(60)) + "): pass\n"
+                "def noted(a):  # why\n    # first\n    # second\n    return a\n"
+                + "".join(f"@option('--o{i}')\n" for i in range(6))
+                + "def command(ctx, o0):\n    pass\n"
+                "class Group:\n    @a\n    @b\n    def short(self): pass\n"
+            ),
+            "b.ts": (
+                "export async function g<T>(x: T): Promise<T> { return x }\n"
+                "export const h = (a: number) => { return a }\n"
+                "interface I { p(): void }\n"
+                "export type U = string | number\n"
+                "let one = 1, two = (x: number) => { return x }\n"
+                "declare type D = number\n"
+                "declare abstract class K { }\n"
+                "const commented = (a: number): number => a // why\n"
+                "type Route<T> = [RegExp, T] // [pattern, handler]\n"
+            ),
+        }
+        output, _ = self.analyze(files, ("python", "typescript"))
+        nodes = symbols(output)
+        self.assertEqual(
+            {name: nodes[name]["signature"] for name in ("f", "C", "C.m", "g", "h")},
+            {
+                "f": "@dec(1)\ndef f(a: int,\n      b: str = 'x') -> bool:",
+                "C": "class C(Base):",
+                "C.m": "def m(self):",
+                "g": "export async function g<T>(x: T): Promise<T>",
+                # The statement's keyword belongs to its one declaration.
+                "h": "export const h = (a: number) =>",
+            },
+        )
+        # Decorators that would push a declaration past the cut keep the
+        # first one and the declaration itself; a few stay whole.
+        self.assertEqual(
+            nodes["command"]["signature"], "@option('--o0')\n…\ndef command(ctx, o0):"
+        )
+        self.assertEqual(
+            nodes["Group.short"]["signature"], "@a\n    @b\n    def short(self):"
+        )
+        # Comments ahead of a Python body are the body's, not the head's.
+        self.assertEqual(nodes["noted"]["signature"], "def noted(a):")
+        # Without a body, the whole declaration is its head.
+        self.assertEqual(nodes["I.p"]["signature"], "p(): void")
+        self.assertEqual(nodes["U"]["signature"], "export type U = string | number")
+        # `declare` is part of the head; trailing comments are not, and a
+        # comment in a statement does not count as a second declaration.
+        self.assertEqual(nodes["D"]["signature"], "declare type D = number")
+        self.assertEqual(nodes["K"]["signature"], "declare abstract class K")
+        self.assertEqual(
+            nodes["commented"]["signature"], "const commented = (a: number): number =>"
+        )
+        self.assertEqual(nodes["Route"]["signature"], "type Route<T> = [RegExp, T]")
+        # A statement declaring more than one name keeps its keyword out.
+        self.assertEqual(nodes["two"]["signature"], "two = (x: number) =>")
+        # A long head is cut at 400 characters, or at five lines.
+        self.assertEqual(len(nodes["wide"]["signature"]), 401)
+        self.assertTrue(nodes["wide"]["signature"].endswith("…"))
+        self.assertEqual(_signature("x" * 400), "x" * 400)
+        self.assertEqual(_signature("x" * 401), "x" * 400 + "…")
+        self.assertEqual(
+            nodes["long"]["signature"],
+            "def long(\n    a0,\n    a1,\n    a2,\n    a3,…",
+        )
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_go"), "Provision the Go grammar"
+    )
+    def test_go_signatures_keep_the_type_keyword(self):
+        output, _ = self.analyze(
+            {
+                "go.mod": "module m\n\ngo 1.22\n",
+                "c.go": (
+                    "package c\n\nfunc (r *R) M(a int) (int, error) {\n"
+                    "\treturn a, nil\n}\n\ntype R struct {\n\tA int\n}\n"
+                ),
+            },
+            ("go",),
+        )
+        nodes = symbols(output)
+        self.assertEqual(nodes["R.M"]["signature"], "func (r *R) M(a int) (int, error)")
+        self.assertEqual(nodes["R"]["signature"], "type R struct {\n\tA int\n}")
 
     def test_text_is_taken_only_from_the_analyzed_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -262,6 +352,20 @@ class SymbolSourceQueryTests(unittest.IsolatedAsyncioTestCase):
         )
         properties = found["items"][0]["element"]["properties"]
         self.assertEqual(properties["name"], "Outer")
+        # The head stays: a lookup can end at the graph.
+        self.assertEqual(properties["signature"], "export class Outer")
+        searched = await self.service.search_elements(
+            "duplicate", self.repo, snapshot_id=base
+        )
+        self.assertEqual(
+            {i["element"]["signature"] for i in searched["items"]},
+            {"function duplicate()"},
+        )
+        listed = await self.service.search_elements("", self.repo, snapshot_id=base)
+        self.assertIn(
+            "export class Outer",
+            {i["element"]["signature"] for i in listed["items"]},
+        )
         for key in (
             "source_code",
             "source_sha256",

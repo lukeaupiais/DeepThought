@@ -6227,6 +6227,70 @@ def extract_cargo_manifest(
 _SOURCE_WRAPPERS = {"decorated_definition", "export_statement", "template_declaration"}
 
 
+# Statements whose keyword belongs to the one declaration they hold.
+_SINGLE_DECLARATIONS = {
+    "lexical_declaration",
+    "variable_declaration",
+    "type_declaration",
+}
+# A signature keeps at most this many lines and characters of the head.
+_SIGNATURE_LINES = 5
+_SIGNATURE_CHARACTERS = 400
+
+
+def _declaration_body(node):
+    """The block a declaration's head ends at: its ``body`` field, or that of
+    the function a variable or field holds (``const f = () => {}``); None
+    for a declaration with no body, whose whole text is its head."""
+    body = node.child_by_field_name("body")
+    if body is not None:
+        return body
+    value = node.child_by_field_name("value")
+    if value is not None and value.child_by_field_name("body") is not None:
+        return value.child_by_field_name("body")
+    return None
+
+
+def _end_before_comments(node):
+    """Where a declaration ends, without the comments its node ends with."""
+    children = node.children
+    while children and children[-1].type == "comment":
+        children = children[:-1]
+    return children[-1].end_byte if children else node.end_byte
+
+
+def _head_end(body):
+    """Where a declaration's head ends: before its body, and before the
+    comments the parser puts ahead of it (Python keeps a body's leading
+    comments outside its block)."""
+    before = body.prev_sibling
+    while before is not None and before.type == "comment":
+        before = before.prev_sibling
+    return before.end_byte if before is not None else body.start_byte
+
+
+def _signature(head, own=0):
+    """A declaration's head as written, from its decorators or ``export`` to
+    where its body starts, trailing space removed, bounded to
+    ``_SIGNATURE_LINES`` lines and ``_SIGNATURE_CHARACTERS`` characters (a
+    cut head ends with ``…``). ``own`` is where the declaration itself starts
+    after its decorators: when those would push it past the bound, the first
+    decorator is kept, the others become a ``…`` line, and the declaration
+    follows, so a head always shows the name it declares."""
+    text = head.rstrip()
+    prefix = text[:own]
+    if prefix.count("\n") >= 2 and (
+        text.count("\n") >= _SIGNATURE_LINES or len(text) > _SIGNATURE_CHARACTERS
+    ):
+        first = prefix.split("\n", 1)[0].rstrip()
+        text = first + "\n…\n" + text[own:]
+    lines = text.split("\n")
+    cut = "\n".join(lines[:_SIGNATURE_LINES])
+    if len(cut) > _SIGNATURE_CHARACTERS:
+        cut = cut[:_SIGNATURE_CHARACTERS]
+    return cut if cut == text else cut.rstrip() + "…"
+
+
 def _columns(line: bytes, column: int):
     prefix = line[:column].decode("utf-8")
     return {
@@ -6268,12 +6332,39 @@ def declaration_sources(
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():
+        body = _declaration_body(node)
+        # Without a body the head ends at the declaration's last part; a line
+        # comment after it (``type R = [A, B] // ...``) is not part of it.
+        end = _end_before_comments(node)
+        declared = node.start_byte
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
+        # The head includes TypeScript's ``declare`` and the keyword of a
+        # statement that declares only this (``const f = ...``, Go's
+        # ``type R struct``); comments in the statement are not declarations.
+        start = node
+        while start.parent is not None and (
+            start.parent.type in _SOURCE_WRAPPERS
+            or start.parent.type == "ambient_declaration"
+            or (
+                start.parent.type in _SINGLE_DECLARATIONS
+                and sum(c.type != "comment" for c in start.parent.named_children) == 1
+            )
+        ):
+            start = start.parent
+        start_byte = start.start_byte
+        head = content[
+            start_byte : _head_end(body) if body is not None else end
+        ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
         sources[definition_id] = {
+            # Where the declaration starts after its decorators, in characters.
+            "signature": _signature(
+                head,
+                len(content[start_byte:declared].decode("utf-8")),
+            ),
             "source_code": text,
             "source_sha256": sha256(text.encode()).hexdigest(),
             "source_start_line": node.start_point.row + 1,

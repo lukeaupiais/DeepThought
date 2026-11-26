@@ -181,7 +181,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges into a declaration, each with evidence and rule."""
+        """Get stored CALLS edges into a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_callers(
             qualified_name,
             repository_id,
@@ -199,7 +199,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges out of a declaration, each with evidence and rule."""
+        """Get stored CALLS edges out of a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_calls(
             qualified_name,
             repository_id,
@@ -237,6 +237,8 @@ def create_server():
         Each dependent's ``action`` says what the ``change`` needs of it: for
         a ``signature`` change, ``must_change`` at depth 1 and ``retest``
         deeper; for a ``behaviour`` change (body only), ``retest``.
+
+        ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it.
         """
         return await ctx.request_context.lifespan_context.get_impact(
             qualified_name,
@@ -346,7 +348,7 @@ def create_server():
         ctx: Context,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get declarations directly nested in a declaration (CONTAINS), with evidence."""
+        """Get declarations directly nested in a declaration (CONTAINS), with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_members(
             qualified_name,
             repository_id,
@@ -362,7 +364,7 @@ def create_server():
         ctx: Context,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get the declaration a declaration is directly nested in, with evidence."""
+        """Get the declaration a declaration is directly nested in, with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_owner(
             qualified_name,
             repository_id,
@@ -379,7 +381,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get the bases a class or interface names (INHERITS_FROM), with evidence."""
+        """Get the bases a class or interface names (INHERITS_FROM), with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_base_types(
             qualified_name,
             repository_id,
@@ -397,7 +399,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get classes and interfaces naming this one as a base, with evidence."""
+        """Get classes and interfaces naming this one as a base, with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_subtypes(
             qualified_name,
             repository_id,
@@ -538,14 +540,16 @@ def create_server():
         snapshot_id: str,
         ctx: Context,
         file_path: str | None = None,
+        target: str | None = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them."""
+        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them. Each call site names its caller (the function, method or file around it, with its line span and signature) and whether that file is a test or an example. `target` (a qualified name, or `file:line` of the declaration) keeps only calls of that one declaration, leaving out same-named members of other types."""
         return await ctx.request_context.lifespan_context.get_call_sites(
             name,
             repository_id,
             snapshot_id=snapshot_id,
             file_path=file_path,
+            target=target,
             limit=max_elements,
         )
 
