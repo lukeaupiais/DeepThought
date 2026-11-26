@@ -2901,7 +2901,8 @@ class GraphQueryService:
                         missing += 1
                         reasons.append(
                             f"The graph has no {kind} '{name}' ({kind}s: "
-                            + ", ".join(sorted(known)[:40])
+                            # GraphNode is the shared identity label (#421).
+                            + ", ".join(sorted(known - {"GraphNode"})[:40])
                             + ")."
                         )
                 if paths:
