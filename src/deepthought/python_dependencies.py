@@ -112,10 +112,11 @@ def declared(root):
 
 
 def _toml(path):
+    """The TOML document at ``path``, or None when it cannot be read."""
     try:
         import tomllib
-    except ImportError:  # Python 3.10
-        return None
+    except ImportError:  # Python 3.10: the tomli backport, a dependency there
+        import tomli as tomllib
     try:
         return tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
@@ -226,13 +227,8 @@ def _requirement_lines(path, root, seen=None):
 def _pyproject(path):
     if not path.is_file():
         return []
-    try:
-        import tomllib
-    except ImportError:  # Python 3.10
-        return []
-    try:
-        document = tomllib.loads(path.read_text())
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+    document = _toml(path)
+    if document is None:
         return []
     project = document.get("project", {})
     found = list(project.get("dependencies", []))
@@ -325,11 +321,8 @@ def workspace_distributions(workspace):
         path = Path(workspace) / relative / "pyproject.toml"
         if not path.is_file():
             continue
-        try:
-            import tomllib
-
-            document = tomllib.loads(path.read_text())
-        except (ImportError, ValueError, UnicodeDecodeError):
+        document = _toml(path)
+        if document is None:
             continue
         needs = [
             r

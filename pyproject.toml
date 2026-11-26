@@ -16,7 +16,12 @@ dependencies = ["pglast==8.9", "protobuf==7.35.1", "sqlglot==30.35.0"]
 [project.optional-dependencies]
 neo4j = ["neo4j==5.28.8"]
 mcp = ["mcp>=1.6,<2", "neo4j==5.28.8"]
-python = ["tree-sitter==0.25.2", "tree-sitter-python==0.25.0"]
+# tomli reads pyproject.toml on Python 3.10 for the projects' dependencies.
+python = [
+  "tree-sitter==0.25.2",
+  "tree-sitter-python==0.25.0",
+  "tomli==2.2.1; python_version < '3.11'",
+]
 typescript = ["tree-sitter==0.25.2", "tree-sitter-typescript==0.23.2"]
 javascript = ["tree-sitter==0.25.2", "tree-sitter-javascript==0.25.0"]
 go = ["tree-sitter==0.25.2", "tree-sitter-go==0.25.0"]
