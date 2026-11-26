@@ -100,6 +100,14 @@ type fact struct {
 	Table     string     `json:"table,omitempty"`
 	Package   string     `json:"package,omitempty"`
 	Message   string     `json:"message,omitempty"`
+	// call: the types of the callee's results, the protobuf messages its
+	// arguments and results carry, and where its name is written; signature: the named types of a function's parameters and
+	// results.
+	ResultTypes []*namedType `json:"result_types,omitempty"`
+	Messages    []*namedType `json:"messages,omitempty"`
+	NameLine    int          `json:"name_line,omitempty"`
+	NameColumn  int          `json:"name_column,omitempty"`
+	Types       []*namedType `json:"types,omitempty"`
 }
 
 func ignored(name string) bool {
@@ -290,11 +298,108 @@ func main() {
 	}
 }
 
-// facts prints the call and TableName facts of one file.
+// namedIn is the named types a parameter or result type is built from:
+// through pointers, slices, arrays, maps, channels, variadic parameters and
+// the type arguments of generic types (grpc.ServerStreamingClient[Feature]),
+// not into struct fields or function types.
+func namedIn(t types.Type, named func(types.Type) *namedType) []*namedType {
+	switch u := types.Unalias(t).(type) {
+	case *types.Pointer:
+		return namedIn(u.Elem(), named)
+	case *types.Slice:
+		return namedIn(u.Elem(), named)
+	case *types.Array:
+		return namedIn(u.Elem(), named)
+	case *types.Chan:
+		return namedIn(u.Elem(), named)
+	case *types.Map:
+		return append(namedIn(u.Key(), named), namedIn(u.Elem(), named)...)
+	}
+	n := named(t)
+	if n == nil {
+		return nil
+	}
+	found := []*namedType{n}
+	if generic, ok := types.Unalias(t).(*types.Named); ok {
+		for i := 0; i < generic.TypeArgs().Len(); i++ {
+			found = append(found, namedIn(generic.TypeArgs().At(i), named)...)
+		}
+	}
+	return found
+}
+
+// protoMessage reports whether t is a protobuf message type: its pointer
+// has the ProtoReflect method that protoc-gen-go generates for every
+// message (google.golang.org/protobuf/reflect/protoreflect.ProtoMessage).
+func protoMessage(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(n), true, n.Obj().Pkg(), "ProtoReflect")
+	method, ok := obj.(*types.Func)
+	return ok && method.Type().(*types.Signature).Params().Len() == 0
+}
+
+// messagesIn is the protobuf message types a type is built from, as namedIn
+// walks it.
+func messagesIn(t types.Type, named func(types.Type) *namedType) []*namedType {
+	found := []*namedType{}
+	var walk func(types.Type)
+	walk = func(t types.Type) {
+		switch u := types.Unalias(t).(type) {
+		case *types.Pointer:
+			walk(u.Elem())
+			return
+		case *types.Slice:
+			walk(u.Elem())
+			return
+		case *types.Array:
+			walk(u.Elem())
+			return
+		case *types.Chan:
+			walk(u.Elem())
+			return
+		case *types.Map:
+			walk(u.Key())
+			walk(u.Elem())
+			return
+		case *types.Named:
+			if protoMessage(u) {
+				if n := named(u); n != nil {
+					found = append(found, n)
+				}
+			}
+			for i := 0; i < u.TypeArgs().Len(); i++ {
+				walk(u.TypeArgs().At(i))
+			}
+		}
+	}
+	walk(t)
+	return found
+}
+
+// facts prints the call, signature and TableName facts of one file.
 func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
+		if !ok {
+			continue
+		}
+		if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
+			sig := obj.Type().(*types.Signature)
+			found := []*namedType{}
+			for _, tuple := range []*types.Tuple{sig.Params(), sig.Results()} {
+				for i := 0; i < tuple.Len(); i++ {
+					found = append(found, namedIn(tuple.At(i).Type(), named)...)
+				}
+			}
+			if len(found) > 0 {
+				f, line, column := where(fn.Name.Pos())
+				emit(fact{Kind: "signature", File: f, Line: line, Column: column, Types: found})
+			}
+		}
+		if fn.Body == nil {
 			continue
 		}
 		if fn.Recv != nil && fn.Name.Name == "TableName" && fn.Type.Params.NumFields() == 0 && len(fn.Body.List) == 1 {
@@ -438,6 +543,16 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if t := named(results.At(i).Type()); t != nil {
 				out.Results = append(out.Results, t.Package)
 			}
+			out.ResultTypes = append(out.ResultTypes, named(results.At(i).Type()))
+		}
+		_, out.NameLine, out.NameColumn = where(selector.Sel.Pos())
+		for _, arg := range call.Args {
+			if t := info.TypeOf(arg); t != nil {
+				out.Messages = append(out.Messages, messagesIn(t, named)...)
+			}
+		}
+		for i := 0; i < results.Len(); i++ {
+			out.Messages = append(out.Messages, messagesIn(results.At(i).Type(), named)...)
 		}
 		for i, arg := range call.Args {
 			if i == 3 {
