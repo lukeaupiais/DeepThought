@@ -437,8 +437,10 @@ class InheritanceCommandTests(unittest.TestCase):
         await manager.connect()
         try:
             service = GraphQueryService(manager.driver, database=manager.database)
+            # Each path repeats its edges, and an indexer-resolved edge names
+            # its producer and receipt.
             return await service.get_class_hierarchy(
-                qualified_name, repo, snapshot_id=snapshot
+                qualified_name, repo, snapshot_id=snapshot, max_output_bytes=32000
             )
         finally:
             await manager.close()
