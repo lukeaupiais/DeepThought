@@ -108,6 +108,7 @@ Every engine call resolution is judged at its source position:
 | contradicted | linked, and the oracle names other targets (including `local` or `external`) |
 | unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
 | not_indexed | linked in a file the oracle did not index |
+| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, so never confirmed; contradicted instead when the oracle names other targets there |
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of
@@ -288,16 +289,26 @@ a package that is not installed, is external.
 | hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 516 | 487 | 0 | 1.0 | 0.9438 |
+| preact | 516 | 499 | 0 | 1.0 | 0.9671 |
+
+The engine's JavaScript and TypeScript imports are scored as it resolves them:
+through the TypeScript compiler (`deepthought.ts_modules`). The compiler
+resolves a package with a `types` field to its declaration file, so preact's
+imports are scored over an analysis that also takes its TypeScript files
+(`import_languages` in the manifest), while its calls are still scored over
+JavaScript alone; the judge stays the JavaScript truth. The 94 preact imports
+counted `not_indexed` are those of the `.d.ts` files this adds, which the truth
+does not judge.
 
 Every external import is left unresolved (click 320, ky 121, hono 223,
 preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
 groups:
 
-- dynamic `import()` calls: ky 4, hono 5, preact 7;
-- imports in hono's benchmark packages: 69;
+- dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
+- imports in hono's benchmark packages, whose `.mts` files the parser does not
+  read: 69;
 - preact's `require()` calls: 8;
-- static imports in preact's demo folder, which no project includes: 8.
+- side-effect imports of stylesheets in preact's demo folder: 2.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 

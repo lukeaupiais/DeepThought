@@ -107,8 +107,18 @@ revision with `--snapshot` or use a fresh database.
 
 Tree-sitter extraction records each static import statement as an `Import` fact
 (analysis schema 3): Python `import` and `from ... import`, and TypeScript and
-JavaScript `import ... from` and `export ... from`. Dynamic loads such as `require()`,
-`import()` and `importlib` are not facts here. `deepthought.imports.resolve_imports`
+JavaScript `import ... from` and `export ... from`. A TypeScript or JavaScript
+`import("x")` call (kind `dynamic_import`) and a JavaScript `require("x")` call
+(kind `require`) are facts too, when the specifier is a string literal or a
+template without substitutions: the calls the TypeScript compiler records as
+imports. They bind no names, except a `require()` that initializes an object
+destructuring (`const { a, b: c } = require("x")`), which binds `a` and `c` to
+the module's exports `a` and `b`, as the compiler takes them (aliases of those
+exports). A nested pattern, default value, rest element or computed key binds
+none. It records `require()` in JavaScript files only, so the
+parser does too. Other dynamic loads, such as `importlib`, are not facts here. Calls are numbered
+apart from statements in their IDs, so each statement keeps the ID it had
+before calls were recorded. `deepthought.imports.resolve_imports`
 then matches specifiers against the analyzed files of the same result, without
 reading files, and TreeSitterTool writes File -> IMPORTS -> File for each link
 with the specifier, names, line, import ID and rule:
@@ -118,25 +128,79 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
 | `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
 | `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead. When `pkg/__init__.py` neither declares nor imports `x`, calls and bases read `x` as that module (`x.f()`) |
-| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources, `.mjs` to `.mts`/`.d.mts` and `.cjs` to `.cts`/`.d.cts` (`.mts` and `.cts` files are TypeScript); when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
-| `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
-| `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
-| `tree-sitter.typescript-path-alias` | resolved | a TypeScript file's bare specifier matching a `compilerOptions.paths` pattern of the nearest `tsconfig.json` (else `jsconfig.json` in the same directory): an exact pattern, else the wildcard pattern with the longest prefix; each target, below `baseUrl` or the config's directory, is tried in TypeScript's order (TypeScript extensions on the file, then the directory's `package.json` `typings`, `types` and `main`, then `index.*`; then the same with JavaScript extensions); the first target that reaches an analyzed file wins. A nearer config without `paths` shadows a farther one; a config that `extends` another without settling `paths` and `baseUrl` itself leaves the specifier unresolved (`path_alias_inherited`), as does one that is not JSON with comments (`script_config_unreadable`); `include`, `exclude`, `references`, `exports` and `baseUrl` without `paths` are not read |
-| `tree-sitter.javascript-path-alias` | pattern_matched | a JavaScript file's bare specifier resolved by the same `paths` lookup; the runtime reaches that file only through a matching bundler or test-runner alias, which is not read |
-| `tree-sitter.script-declaration-source` | pattern_matched | a `paths` lookup that reaches a directory whose `package.json` `typings` or `types` names a declaration file that is not analyzed: the JavaScript file of the same name beside it (`src/index.d.ts` -> `src/index.js`), which the declaration describes by convention |
 | `tree-sitter.go-module-package` | resolved | a Go import path inside the importing file's own module (nearest `go.mod`): the directory at that path below the module root, linked to every non-test file of its package; `main` packages are not importable, and `vendor/`, `replace` and `go.work` are not read |
 
 `tsconfig.json`, `jsconfig.json` and `package.json` files are read as
 configuration facts (File nodes with no IMPORTS of their own) when TypeScript
-or JavaScript is analyzed. A `paths` target that is a `.js` file with a
-`.mjs` or `.cjs` twin beside it is left ambiguous (`module_format_twins`):
-which build runs depends on the loader.
+or JavaScript is analyzed.
 
-Anything else gets no edge. Package specifiers that no `paths` pattern maps,
-Python imports matching several roots, imports beyond the repository
-root, self-imports and modules outside the analyzed files are reported instead:
-each File node lists its `unresolved_imports` and `ambiguous_imports`
-specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
+Anything else gets no edge. Python imports matching several roots, imports
+beyond the repository root, self-imports and modules outside the analyzed files
+are reported instead: each File node lists its `unresolved_imports` and
+`ambiguous_imports` specifiers, and tool metadata counts linked, ambiguous and
+unresolved imports.
+
+JavaScript and TypeScript imports take their target from the TypeScript
+compiler (`deepthought.ts_modules`); no hand rule resolves them. For each
+file, `tsmodules/resolve.js` finds the project the language service would
+use: the nearest `tsconfig.json`, else `jsconfig.json`, directory by
+directory up to the workspace root, whose file list includes it, a solution
+config's `references` followed. It builds a program for each project and
+asks the compiler where every import resolves, with that import's resolution
+mode, so `paths`, `baseUrl`, extensions, index files, `package.json`
+`types`, `typesVersions` and `exports` are the compiler's. Configs above the
+workspace are not read. A file that no project includes, because its
+project excludes it or because the compiler took a file of the same name
+with another extension (`a.js` over `a.jsx`), is resolved with the options
+of the nearest config above it, `allowJs` added, in a program for that
+config's such files, so its `paths` and `baseUrl` still apply. With no
+config above it, it gets the options the language service gives a file
+outside every project (`allowJs`, the latest target). Nothing is
+type-checked or emitted. The compiler is the `typescript` package that the
+pinned scip-typescript installs (`TYPESCRIPT_VERSION`). Any other version,
+or a missing one, stops the run.
+
+The edge has rule `typescript.compiler-module` (`resolved`) and
+`producer: typescript@<version>`. An import resolves to the file itself,
+with symbolic links followed, so a workspace package that is linked into
+`node_modules` (as pnpm and yarn workspaces do) links to its source in the
+repository. When it gets no edge, the reason is one of these:
+
+- `compiler_module_not_found`: nothing resolves, such as a package that is
+  not installed.
+- `compiler_external_module`: the import resolves outside the workspace or
+  into `node_modules`.
+- `compiler_target_not_analyzed`: the import resolves to a file that was not
+  analyzed, such as `.json`.
+- `compiler_no_import`: the parser sees an import that the compiler does
+  not record.
+
+TreeSitterTool also binds JavaScript and TypeScript calls through the
+compiler (`ts_modules.with_compiler_modules`). A call through an import binds
+in the module the compiler resolves that import to, and the compiler says what
+that module exports under the name. It follows `export ... from`,
+`export *`, `export { x }` and `export =` to the declaration. A declaration
+file (`x.d.ts`, `.d.mts`, `.d.cts`) describes the implementation beside it
+with the same stem (`x.js`, `.mjs`, `.cjs`). When the compiler resolves an
+import, or follows a re-export, to such a file and that implementation is
+analyzed, the call binds to what the implementation exports under the name the
+declaration file gives. A call that binds in the module it imports keeps its
+parser rule. One that the compiler follows to another file is
+`typescript.call-compiler-export` (resolved). One that ends in a declaration
+file with no analyzed implementation is `typescript.call-declaration-file`
+(resolved): it names what the call is typed against, not the code that runs.
+The IMPORTS edge still names the file the compiler resolves, declaration file
+included. Where the language rejects a program, as with two `export *` that
+give one name or two exports of one name, the compiler reports an error and
+binds the first or later declaration it keeps; the call follows that binding.
+
+The compiler is required. `analyze_repository` itself never starts a process,
+so its result carries no compiler view: callers attach one with
+`ts_modules.with_compiler_modules(result, root)`, as TreeSitterTool, the
+contract tools and the verification tools do. `resolve_imports`, and so call
+binding, raise `imports.TypeScriptModulesRequired` for a result with
+JavaScript or TypeScript imports and no compiler view, rather than fall back
+to rules of their own.
 
 An IMPORTS edge says which file a statement imports, not where an imported name
 is defined; a package re-export links to the package's `__init__.py` or index
@@ -292,27 +356,50 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
 the name), `scip_external` (a symbol defined outside the index),
 `scip_target_not_declaration` (a definition no parsed declaration names, such
 as a variable) or `multiple_declarations` (more than one target, with the
-candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+candidates). The parser's rules are not used for it. Three scip-python 0.6.8
 faults are guarded: in a Python file, a target whose name is not the name
 written at the call, unless an import binds that name to it (the index may
-follow a star re-export to the wrong function), and an external target for
+follow a star re-export to the wrong function), an external target for
 `self.x()` when the enclosing class or a repository base declares `x` (the
-index may name a builtin). Both are `scip_suspect_target`: the parser's link
-stands if it has one, otherwise the call stays unlinked. Files no index covers
+index may name a builtin), and more than one target (the index names a
+function nested in a method by the class alone, `Group#decorator().`, so
+same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
+occurrence for (scip-python skips code it treats as unreachable), are answered
+by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
+language server's go-to-definition at the callee's last name gives the
+declaration, linked as `pyright.call-definition` with `producer:
+pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+`pyright_external` or `pyright_target_not_declaration`. The parser's link is
+never kept over the index. Pyright is required: binding a covered Python file
+without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
+`pyright-langserver` beside it). In a JavaScript or
+TypeScript file, a `scip_external` or `scip_target_not_declaration` call that
+the TypeScript compiler binds
+through an import (`call-imported-name`, `call-module-attribute`,
+`typescript.call-compiler-export`, `typescript.call-declaration-file`) keeps
+the compiler's link. scip-typescript 0.6.2 leaves a package that imports
+itself by name (preact's `compat/` importing `preact`) to `node_modules`, and
+calls those symbols external. The compiler resolves the same import to the
+workspace file the package's `exports` name. scip-typescript also records a
+name destructured from `require()` as a variable of its own, where the
+compiler follows it to the module's export. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
 target file and line, parser target file and line, reason, rule). The
 tool's `call_resolution_by_resolver` metric counts call outcomes separately for
-`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
-(the parser's link kept over a suspect index target) and `tree-sitter` (files
-no index covers).
+`scip` (the index decided, its "nothing here" included), `pyright` (a Python
+call the index named wrongly or missed), `scip_suspect_parser` (the parser's
+link kept over a suspect index target), `typescript` (the compiler's link kept
+over an index target it does not follow) and `tree-sitter` (files no index
+covers).
 
 ### Uses besides calls
 
@@ -352,11 +439,10 @@ sites), on flask 1,119 edges; binding them takes under a second.
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
-| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous. An imported name exported again this way follows `js-call-reexport` |
+| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous. In JavaScript and TypeScript the compiler says what a module exports under each name (`typescript.call-compiler-export`) |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`); Python `import a.b.c` also binds `a` and `a.b` to the `__init__.py` of each package on the path |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the package (a name declared twice, also in two files for different platforms, or a `var` with neither type nor value, gives no type). A variable of another file is named by `CallSite.receiver_variable`, and each Go file's `PackageClause.variables` lists its package-level variables with the type their declaration writes or a value `T{...}`, `&T{...}`, `new(T)`, `F()` or `pkg.F()` gives. `pkg.V.M()` follows the variable `V` of the package the file imports as `pkg`. The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array, or of a named slice type: `Definition.underlying_type` holds `[]T` for `type S []T`), `T(e)` (a conversion to the one non-alias type `T` of the package), `f()` where `f := func() T {...}` (the literal's first result). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
-| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. An imported name exported again by a separate `export { f }`, `export { f as g }` or `export default f` (`Import.reexported_as`) is followed as the `export { ... } from` it amounts to, as preact's `compat/src/index.js` does with `import { render } from './render'` and `export { render }`. `export * as ns from`, a namespace import exported again, and cycles are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-super` | Python: `super().m()` written directly in a method of class `C` (not in a function nested in it) to the `m` that `C`'s declared bases declare or inherit, in the method resolution order after `C`; a class reached twice or a base that names no repository class leaves it unresolved (`diamond`, `base_not_resolved`) |
 | `tree-sitter.python-call-self-inherited` | Python: `self.m()` where the class around it declares no `m`, to the `m` its declared bases declare or inherit, in the same order and with the same stops as `tree-sitter.python-call-typed-receiver`; a subclass's override is not followed |
@@ -1048,6 +1134,10 @@ of Django give identical facts.
 
 ## JavaScript
 
+TypeScript sources are `.ts`, `.tsx`, `.mts` and `.cts` files, declaration
+files (`.d.ts`, `.d.mts`, `.d.cts`) included: the extensions the TypeScript
+compiler reads as TypeScript.
+
 JavaScript and JSX sources (`.js`, `.jsx`, `.mjs`, `.cjs`) are analyzed when
 `javascript` is selected (`--language javascript`, or `languages=` in Python)
 and the `javascript` extra is installed. The language is opt-in, so analyses
@@ -1055,8 +1145,8 @@ that select no language keep their Python/TypeScript output byte for byte, and
 TypeScript repositories that ship compiled `.js` next to their sources are not
 analyzed twice by default. Declarations, call sites and call rules are the same
 as for TypeScript. ES module `import ... from` and `export ... from` statements
-are import facts. CommonJS `require()` and dynamic `import()` are not, so a
-CommonJS module has declarations and calls but no IMPORTS edges.
+are import facts, and so are CommonJS `require("x")` and dynamic `import("x")`
+calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
@@ -1065,14 +1155,14 @@ expression keeps no declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
-a specifier links only to an analyzed file, by the rules in the imports table
-above. An explicit extension names one file and is `resolved`. An extensionless
-specifier is `pattern_matched`, because whether it resolves depends on the
-bundler or on CommonJS, and Node ES modules reject it.
+a specifier links only to an analyzed file, where the TypeScript compiler
+resolves it (`typescript.compiler-module`, above).
 
-Checked against scip-typescript 0.6.2 indexes (allowJs) of two public npm
-packages with `tools/compare_imports_with_scip.py` and
-`tools/compare_calls_with_scip.py`:
+Before the compiler resolved imports, the parser's own rules were checked
+against scip-typescript 0.6.2 indexes (allowJs) of two public npm packages with
+`tools/compare_imports_with_scip.py` and `tools/compare_calls_with_scip.py`.
+The figures below are from those rules; the ground-truth gate now covers
+preact with the compiler:
 
 | Corpus | Files | IMPORTS file pairs confirmed by SCIP | Linked calls confirmed by SCIP | Contradicted |
 |---|---|---|---|---|
@@ -3901,7 +3991,7 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
-| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser`, or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
@@ -3940,7 +4030,9 @@ declaration's position, which is the tree-sitter Symbol the edge ends at.
 A decoder or encoder held in a variable counts when the handler assigns
 it once from `json.NewDecoder(r.Body)` or `json.NewEncoder(w)`. Calls in
 functions the handler calls are not followed, and a type declared in a
-library (`gin.H`, `map[string]any`) gives no edge.
+library (`gin.H`, `map[string]any`) gives no edge. A value whose static type is an
+interface (a body bound into an `any`) holds a type that is not known and
+counts in `payload_types_unresolved`.
 
 For Python, the scip-python index of the run (`ScipReferences`) resolves
 every name written in a FastAPI handler's annotations, so a model imported
@@ -5975,7 +6067,12 @@ family, protocol and language. TreeSitterTool writes one per analyzed language
 and family, `CALLS` and `IMPORTS` (qualified name
 `<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
 families. Each says whether a deterministic resolver (a compiler-backed SCIP
-index or pyright, named in `producer` on the edges) decided the family's sites:
+index, pyright or the TypeScript compiler, named in `producer` on the edges)
+decided the family's sites. The
+compiler decides a JavaScript or TypeScript import it resolves
+(`typescript.compiler-module`) or leaves unlinked (a `compiler_*` reason), and a
+call bound through its exports (`typescript.*` rules, or a covered call whose
+compiler link stands over the index):
 
 | Field | Meaning |
 |---|---|
@@ -5985,8 +6082,9 @@ index or pyright, named in `producer` on the edges) decided the family's sites:
 | `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
 | `linked`, `ambiguous`, `unresolved` | the sites by outcome |
 
-A file that failed to parse is not counted. Every import is decided by the
-parser's rules here, so `IMPORTS` is `not_linked` (or `no_sites`). An empty
+A file that failed to parse is not counted. Imports in other languages are
+decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
+`no_sites`). An empty
 `resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
 lists are; `describeSnapshot` decodes it.
 
