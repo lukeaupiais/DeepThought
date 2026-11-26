@@ -143,6 +143,34 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
+### Python imports from scip-python
+
+In a file a scip-python index covers, an absolute import is resolved as the
+interpreter would resolve it: each Python project (a directory with a
+`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
+directory with its `src`, so the FastAPI template's `backend/app` imports as
+`app`, and pyright searches those roots, the project's installed dependencies
+and the standard library. scip-python records the module at each
+name the statement writes, including the submodules `from a import b` names.
+
+| Rule | Evidence | Meaning |
+| --- | --- | --- |
+| `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+
+Externally resolved specifiers are listed in the File's `external_imports`, not
+`unresolved_imports`. A covered absolute import with no module occurrence
+stays unresolved (`scip_no_occurrence`): pyright found no module, for example
+a dependency that is not installed. Two cases keep the path rules. Relative
+imports do, because scip-python 0.6.8 names the module of `from .models import
+X` by the written remainder alone (`` `models`/__init__: ``), which is another
+project's top-level `models` or nothing. A from-import of an in-repository
+package also keeps the path rule's links to the submodules it names (`from
+flask import json`), which the index records as attributes of the package.
+Files no index covers keep the path rules throughout. Tool metadata counts
+scip-python's decisions in `scip_python_imports` and the packages in
+`python_packages`.
+
 ## Calls
 
 Tree-sitter extraction records each call whose callee is a plain or dotted name
