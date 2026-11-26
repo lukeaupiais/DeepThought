@@ -235,7 +235,7 @@ jobs:
     needs: attribution
     if: needs.attribution.outputs.ground_truth == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -268,6 +268,44 @@ jobs:
         run: python -m deepthought indexers
       - name: Score the pinned ground-truth corpus against its baseline
         run: python tools/ground_truth.py check --cache "$RUNNER_TEMP/ground-truth" --examples 5
+
+  # The SCIP-backed corpora run beside the pinned ones, so neither waits
+  # for the other.
+  ground-truth-scip:
+    needs: attribution
+    if: needs.attribution.outputs.ground_truth == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install the engine
+        run: |
+          python -m pip install 'build==1.4.3' 'hatchling==1.30.1'
+          python -m build --no-isolation --wheel
+          python -m pip install "$(realpath dist/*.whl)[languages,scip]"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Install the pinned SCIP indexers and pyright
+        run: |
+          npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409 pnpm@10.12.1
+          # scip-typescript --pnpm-workspaces runs pnpm; keep it from switching to a
+          # corpus's packageManager version, which it would try to download.
+          echo "npm_config_manage_package_manager_versions=false" >> "$GITHUB_ENV"
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
+      - name: Check the indexers are found
+        run: python -m deepthought indexers
       - name: Score the SCIP-backed ground-truth corpora
         run: python tools/ground_truth.py check --scip --cache "$RUNNER_TEMP/ground-truth" --examples 5 --corpus chi --corpus cobra --corpus click --corpus httpx --corpus hono --corpus preact
 
@@ -277,7 +315,7 @@ jobs:
   ci-ok:
     name: ${{ needs.attribution.outputs.gate || 'ci-ok' }}
     if: ${{ !cancelled() }}
-    needs: [attribution, acceptance, graph-port, ground-truth]
+    needs: [attribution, acceptance, graph-port, ground-truth, ground-truth-scip]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
