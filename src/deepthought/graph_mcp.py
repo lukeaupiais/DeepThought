@@ -8,6 +8,7 @@ tools expose the ported repository queries with each edge's evidence type and ru
 requires a dedicated snapshot database and database-enforced read-only access.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 import os
 from typing import Annotated, Literal
@@ -28,14 +29,19 @@ def create_server():
         settings = connection_settings()
         manager = Neo4jConnectionManager(**settings)
         driver = await manager.connect()
+        service = GraphQueryService(
+            driver,
+            database=settings["database"],
+            observer=query_observer(),
+            workspace=workspace_setting(),
+        )
+        # Warm the page cache while the client starts up; questions do not
+        # wait for it.
+        warming = asyncio.create_task(service.warm())
         try:
-            yield GraphQueryService(
-                driver,
-                database=settings["database"],
-                observer=query_observer(),
-                workspace=workspace_setting(),
-            )
+            yield service
         finally:
+            warming.cancel()
             await manager.close()
 
     server = FastMCP("DeepThought", lifespan=lifespan)
@@ -668,6 +674,51 @@ def create_server():
             repository_id,
             snapshot_id=snapshot_id,
         )
+
+    workspace = workspace_setting()
+    if workspace:
+        # The compiler check of an edit runs on the working copy the graph
+        # answers are checked against, on scratch copies of it.
+        git_dir = os.environ.get("DEEPTHOUGHT_WORKSPACE_GIT_DIR") or None
+
+        @server.tool()
+        async def checkEdit(
+            diff: str = "",
+            max_elements: Annotated[int, Field(ge=1, le=500)] = 100,
+        ) -> dict:
+            """Type-check edits and list what they break elsewhere.
+
+            With no diff, checks the edits already made to the working copy
+            (every change since its git HEAD commit, new files included).
+            With a unified diff (paths relative to the repository root, as
+            `git diff` writes them), checks that proposed edit on top of the
+            working copy as it is now. Each edited language's own checker
+            runs before and after (Go: go/types over every package and test;
+            TypeScript: tsc; Python: pyright). breaks are diagnostics only the
+            edited code has, at their line in the unedited source, with the
+            declaration that holds them: callers, importers and tests the edit
+            broke. edit_diagnostics are errors on lines the edit wrote.
+            complete is false when a check could not run or files were not
+            checked (unchecked_files). At most max_elements breaks are
+            returned; total_breaks counts all.
+            """
+            from .edit_check import check_edit, check_working_copy
+
+            try:
+                if diff.strip():
+                    report = await asyncio.to_thread(check_edit, workspace, diff)
+                else:
+                    report = await asyncio.to_thread(
+                        check_working_copy, workspace, git_dir=git_dir
+                    )
+            except ValueError as error:
+                return {"status": "invalid_diff", "error": str(error)[:500]}
+            breaks = report["breaks"]
+            report["total_breaks"] = len(breaks)
+            report["truncated"] = len(breaks) > max_elements
+            report["breaks"] = breaks[:max_elements]
+            report["status"] = "succeeded"
+            return report
 
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
         # Results come back as JSON rows unless the server is started with

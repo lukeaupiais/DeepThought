@@ -170,7 +170,9 @@ def install_directories(root):
     package.json, or a ``pnpm-workspace.yaml``), installs its packages from
     there. A repository of packages that are not workspaces, with no
     lockfile, so installs each package where it is. A lockfile counts only
-    beside a package.json."""
+    beside a package.json. An npm lockfile in a directory that is not a
+    workspace root installs that directory alone, so a project below it with
+    its own lockfile (an app kept in a subdirectory) installs where it is."""
     root = Path(root)
     found, covering = [], []
     for directory, names, filenames in os.walk(root):
@@ -178,12 +180,18 @@ def install_directories(root):
             n for n in names if n not in _COPY_SKIP and not n.startswith(".")
         )
         relative = Path(directory).relative_to(root).as_posix()
-        if any(relative.startswith(d + "/") or d == "." for d in covering):
-            continue
         # A lockfile without a package.json beside it installs nothing.
-        locked = "package.json" in filenames and any(
-            lockfile in filenames for lockfile, _, _ in LOCKFILES
+        lockfiles = (
+            [name for name, _, _ in LOCKFILES if name in filenames]
+            if "package.json" in filenames
+            else []
         )
+        locked = bool(lockfiles)
+        if any(
+            (relative.startswith(d + "/") or d == ".") and (everything or not locked)
+            for d, everything in covering
+        ):
+            continue
         package = _package(directory) if "package.json" in filenames else None
         workspace = "pnpm-workspace.yaml" in filenames or bool(
             package and package.get("workspaces")
@@ -191,7 +199,10 @@ def install_directories(root):
         if locked or workspace or _declares(package):
             found.append(relative)
         if locked or workspace:
-            covering.append(relative)
+            npm_only = all(
+                manager == "npm" for name, manager, _ in LOCKFILES if name in lockfiles
+            )
+            covering.append((relative, workspace or not npm_only))
     return found
 
 
