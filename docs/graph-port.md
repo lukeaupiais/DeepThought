@@ -5889,11 +5889,15 @@ rows (`format: "json"`, which keep their MCP structured content) still carry
 them. What every row shares is
 said once, repeating leading values become headings, rows that differ only in
 a number merge (`at lines 195, 209`), and rows in test files follow under
-`In tests:`. The text opens with the row count and whether the limit cut it, and
+`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot; it
 closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
-the link families and languages in the result. Link ends a query did not
+the link families in the result, for the result's languages and for every
+other analyzed language where the family is not linked (`(none returned)`):
+sites missing from the graph are missing from the result too. Link ends a query did not
 return are looked up, and coverage is read, without journaling either as a
-query. The byte budget applies to the text. `tools/check_result_text.py` runs
+query. A multi-line value such as `source_code` follows its row as an
+indented block, and a File with `generated_by` is marked `generated`. The byte
+budget applies to the text. `tools/check_result_text.py` runs
 queries in both forms on a dedicated database and reports any fact the text
 lost.
 
