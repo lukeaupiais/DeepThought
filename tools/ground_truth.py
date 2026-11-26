@@ -1455,10 +1455,12 @@ def score_scip_calls(corpus, workspace, cache, result, expected, examples=10):
     the same indexer derived checks the binding, not the indexer; the
     compile oracles (go_compile_truth.py, ts_compile_truth.py,
     py_check_truth.py) judge the indexer."""
-    from deepthought.scip_calls import bind_calls
+    # As TreeSitterTool binds them: pyright answers the Python calls the
+    # index gets wrong.
+    from deepthought.analysis_tools.tree_sitter import _bind
 
     indexes = engine_indexes(corpus, workspace, cache, scip_languages(corpus))
-    binding = bind_calls(result, indexes, workspace)
+    binding = _bind(result, indexes, workspace)
     report, samples = score(result, expected, examples, binding.resolutions)
     if "impact" in corpus:
         import impact_truth
@@ -1871,17 +1873,11 @@ def score_imports(result, truth, workspace, directory=False, examples=10):
     target: found when an import spanning the line links to one of them.
     """
     from deepthought.imports import resolve_imports
-    from deepthought.ts_modules import _LANGUAGES, bind_imports, compiler_imports
 
     expected, indexed = truth
     # JavaScript and TypeScript imports as the engine resolves them: by the
     # TypeScript compiler (deepthought.ts_modules).
-    scripts = sorted(c.file for c in result.coverage if c.language in _LANGUAGES)
     resolutions = resolve_imports(result)
-    if scripts and result.compiler_modules is None:
-        resolutions = bind_imports(
-            result, workspace, compiler_imports(workspace, scripts), resolutions
-        )
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()
@@ -2275,9 +2271,9 @@ def main(argv=None):
             # Calls bound from SCIP indexes of the workspace. Truth derived
             # from the same indexer checks the binding, not the indexer.
             import deepthought
-            from deepthought.scip_calls import bind_calls
+            from deepthought.analysis_tools.tree_sitter import _bind
 
-            binding = bind_calls(
+            binding = _bind(
                 result,
                 [
                     (deepthought.ingest_scip(path, repository_id="truth"), "-")

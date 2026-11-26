@@ -6,13 +6,28 @@ names a symbol, and the symbol's SCIP definition is read back to the parsed
 declaration whose name starts there. Call sites in files no index covers keep
 the parser's name-binding rules (``deepthought.calls``), which also run in
 shadow over covered files so that the two can be compared.
+
+Where scip-python 0.6.8 is known to be wrong (a name re-exported through a
+star import gets another name's symbol; a method named like a builtin is
+recorded as the builtin; same-named functions nested in different methods
+of one class share one symbol, so a call to one has several targets) or
+records no occurrence (code it treats as unreachable), the Python call is answered by pinned pyright's
+go-to-definition (``pyright_calls``), never by the parser.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+import re
 
-from .calls import CallResolution, resolve_calls
+from .calls import (
+    CALL_IMPORTED_NAME,
+    CALL_MODULE_ATTRIBUTE,
+    CALL_TS_COMPILER_EXPORT,
+    CALL_TS_DECLARATION_FILE,
+    CallResolution,
+    resolve_calls,
+)
 from .inheritance import resolve_supertypes
 from .models import AnalysisResult
 
@@ -26,6 +41,23 @@ NO_OCCURRENCE = "scip_no_occurrence"
 EXTERNAL = "scip_external"
 NOT_DECLARATION = "scip_target_not_declaration"
 SUSPECT = "scip_suspect_target"
+# A Python call pyright answered: linked to the declaration it names.
+PYRIGHT_CALL_DEFINITION = "pyright.call-definition"
+PYRIGHT_NO_DEFINITION = "pyright_no_definition"
+PYRIGHT_EXTERNAL = "pyright_external"
+PYRIGHT_NOT_DECLARATION = "pyright_target_not_declaration"
+
+# Calls bound through an import as the TypeScript compiler resolves it and
+# says what the module exports (``deepthought.ts_modules``).
+_COMPILER_IMPORT_RULES = frozenset(
+    {
+        CALL_IMPORTED_NAME,
+        CALL_MODULE_ATTRIBUTE,
+        CALL_TS_COMPILER_EXPORT,
+        CALL_TS_DECLARATION_FILE,
+    }
+)
+_SCRIPT_LANGUAGES = frozenset({"javascript", "typescript"})
 
 # The columns an indexer writes when its documents leave the encoding
 # unspecified: scip-python counts UTF-16 code units, as the language server
@@ -79,17 +111,27 @@ class CallBinding:
     producers: dict
     disagreements: tuple[Disagreement, ...]
     # Calls in covered files whose index target was suspect, so the
-    # parser's link was kept.
+    # parser's link was kept (JavaScript, TypeScript and Go; pyright answers
+    # Python ones).
     parser_kept: frozenset = frozenset()
+    # JavaScript and TypeScript calls in covered files that the index calls
+    # external, or binds to a local it does not follow, while the TypeScript
+    # compiler binds them in the workspace.
+    compiler_kept: frozenset = frozenset()
 
     def resolver(self, call_id) -> str:
-        """Who decided a call: ``scip``, ``scip_suspect_parser`` (a covered
-        call whose parser link was kept) or ``tree-sitter`` (a file no index
-        covers)."""
-        if call_id in self.producers:
-            return "scip"
+        """Who decided a call: ``scip`` (the index), ``pyright`` (a Python
+        call the index named wrongly or recorded no occurrence for),
+        ``scip_suspect_parser`` (a covered call whose parser link was kept),
+        ``typescript`` (a covered call the compiler binds) or
+        ``tree-sitter`` (a file no index covers)."""
+        producer = self.producers.get(call_id)
+        if producer is not None:
+            return "pyright" if producer[0].startswith("pyright@") else "scip"
         if call_id in self.parser_kept:
             return "scip_suspect_parser"
+        if call_id in self.compiler_kept:
+            return "typescript"
         return "tree-sitter"
 
 
@@ -97,11 +139,17 @@ def bind_calls(
     result: AnalysisResult,
     indexes,
     root: str | Path,
+    python_definitions=None,
 ) -> CallBinding:
     """Resolve ``result``'s call sites from ``indexes``: pairs of an ingested
     SCIP index (``deepthought.ingest_scip``, with the same file paths) and its
     receipt digest. ``root`` holds the sources both were made from, which the
-    binder reads to convert columns and to read declared names."""
+    binder reads to convert columns and to read declared names.
+
+    A Python call whose index target is suspect, or that the index records
+    no occurrence for, is answered by ``python_definitions`` (a running
+    ``pyright_calls.PyrightDefinitions`` over ``root``), which is required
+    when there is such a call."""
     parsed = resolve_calls(result)
     if not indexes:
         return CallBinding(tuple(parsed), {}, ())
@@ -135,7 +183,9 @@ def bind_calls(
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
+    languages = {c.file: c.language for c in result.coverage}
     resolutions, producers, disagreements, kept = [], {}, [], set()
+    compiler_kept = set()
     for resolution in parsed:
         site = sites[resolution.call_id]
         view = covering.get(site.file)
@@ -153,11 +203,40 @@ def bind_calls(
             site, definitions[bound.target_id], result
         ):
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
+        elif bound.status == "ambiguous" and site.file.endswith((".py", ".pyi")):
+            # scip-python names a function nested in a method by the class
+            # alone (``C#inner().``), so same-named nested functions of one
+            # class share a symbol.
+            bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         chosen = bound
-        if bound.reason == SUSPECT and by_call[site.id].status == "linked":
+        parser = by_call[site.id]
+        if bound.reason in {SUSPECT, NO_OCCURRENCE} and site.file.endswith(
+            (".py", ".pyi")
+        ):
+            if python_definitions is None:
+                raise ValueError("binding Python calls requires pyright")
+            bound = chosen = _bind_pyright(
+                site, python_definitions, lines, in_file, by_symbol
+            )
+            producers[site.id] = (python_definitions.tool, view.receipt)
+        elif bound.reason == SUSPECT and parser.status == "linked":
             # A target the index may have wrong: the parser's stands.
-            chosen = by_call[site.id]
+            chosen = parser
             kept.add(site.id)
+        elif (
+            bound.reason in {EXTERNAL, NOT_DECLARATION}
+            and parser.rule_id in _COMPILER_IMPORT_RULES
+            and languages.get(site.file) in _SCRIPT_LANGUAGES
+        ):
+            # The index names a symbol it does not define, such as a
+            # package importing itself by name, which scip-typescript leaves
+            # to node_modules; the TypeScript compiler resolves that import
+            # to a workspace file and binds the call there. Or the index
+            # names a local it does not follow, such as a name destructured
+            # from require(), which scip-typescript records as a variable of
+            # its own and the compiler as an alias of the module's export.
+            chosen = parser
+            compiler_kept.add(site.id)
         else:
             producers[site.id] = (view.tool, view.receipt)
         resolutions.append(chosen)
@@ -165,8 +244,46 @@ def bind_calls(
         if disagreement is not None:
             disagreements.append(disagreement)
     return CallBinding(
-        tuple(resolutions), producers, tuple(disagreements), frozenset(kept)
+        tuple(resolutions),
+        producers,
+        tuple(disagreements),
+        frozenset(kept),
+        frozenset(compiler_kept),
     )
+
+
+def _bind_pyright(site, pyright, lines, in_file, by_symbol) -> CallResolution:
+    """A Python call bound by where pyright says its callee is defined."""
+    if site.callee_at is None:
+        return CallResolution(site.id, "unresolved", reason=PYRIGHT_NO_DEFINITION)
+    line, column = site.callee_at
+    text = lines.get(site.file, line)
+    places = pyright.definitions(site.file, line, _to_index(text, column, "utf-16"))
+    targets, external = {}, False
+    for file, target_line, target_column in places:
+        if file is None:
+            external = True
+            continue
+        target_text = lines.get(file, target_line)
+        start = _to_utf8(target_text, target_column, "utf-16")
+        name = re.match(rb"\w*", target_text[start:]).group().decode("utf-8")
+        parsed = _innermost(in_file, file, (target_line, start), name)
+        if parsed is not None:
+            targets[parsed.id] = parsed
+    if not targets:
+        return CallResolution(
+            site.id,
+            "unresolved",
+            reason=PYRIGHT_EXTERNAL
+            if external
+            else PYRIGHT_NOT_DECLARATION
+            if places
+            else PYRIGHT_NO_DEFINITION,
+        )
+    chosen = _choose(site, list(targets.values()), False, by_symbol)
+    if chosen.rule_id == SCIP_CALL_OCCURRENCE:
+        return replace(chosen, rule_id=PYRIGHT_CALL_DEFINITION)
+    return chosen
 
 
 class ScipReferences:
@@ -439,10 +556,15 @@ def _declaration(scip, view, lines, in_file):
         else len(text)
     )
     name = text[start:end].decode("utf-8", "replace")
-    point = (scip.line, start)
+    return _innermost(in_file, scip.file, (scip.line, start), name)
+
+
+def _innermost(in_file, file, point, name):
+    """The innermost parsed declaration of ``file`` whose span holds
+    ``point`` (line, UTF-8 column) and whose own name is ``name``."""
     holding = [
         d
-        for d in in_file.get(scip.file, ())
+        for d in in_file.get(file, ())
         if (d.line, d.column) <= point <= (d.end_line, d.end_column)
         and d.symbol.rsplit(".", 1)[-1] == name
     ]

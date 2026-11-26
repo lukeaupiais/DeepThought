@@ -24,7 +24,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from .imports import RESOLUTION_CONFIGURATION, ImportLink, ImportResolution
+from .imports import _SCRIPT_KINDS, ImportLink, ImportResolution
 
 TYPESCRIPT_VERSION = "6.0.3"
 TYPESCRIPT_TOOL = f"typescript@{TYPESCRIPT_VERSION}"
@@ -33,6 +33,8 @@ NO_IMPORT = "compiler_no_import"
 NOT_FOUND = "compiler_module_not_found"
 EXTERNAL = "compiler_external_module"
 NOT_ANALYZED = "compiler_target_not_analyzed"
+# Every reason the compiler gives an import it leaves unlinked.
+COMPILER_REASONS = frozenset({NO_IMPORT, NOT_FOUND, EXTERNAL, NOT_ANALYZED})
 _LANGUAGES = {"javascript", "typescript"}
 _HELPER = Path(__file__).with_name("tsmodules") / "resolve.js"
 
@@ -203,34 +205,28 @@ def compiler_modules(root, files, environ=None, timeout=1800):
     return imports, exports
 
 
-def bind_imports(result, root, found, resolutions):
-    """``resolutions`` with each JavaScript or TypeScript import replaced by
-    the compiler's: the import at the same specifier in ``found``
-    (``compiler_imports``)."""
-    return _bind(result, root, found, resolutions)[0]
+def bind_imports(result, root, found):
+    """The compiler's resolution of each JavaScript and TypeScript import of
+    ``result``, in import identity order: the import at the same specifier
+    in ``found`` (``compiler_imports``). Configuration facts are read by
+    the compiler, not resolved, and get none."""
+    return _bind(result, root, found)[0]
 
 
-def _bind(result, root, found, resolutions):
+def _bind(result, root, found):
     """(``bind_imports``, {import id: workspace-relative file the compiler
     resolves it to, or None})."""
     from .scip_calls import _Lines, _to_utf8
 
     root = Path(root).resolve()
     languages = {c.file: c.language for c in result.coverage}
-    imports = {i.id: i for i in result.imports}
     by_file = {}
     for row in found:
         by_file.setdefault(row.file, []).append(row)
     lines = _Lines(root)
     bound, targets = [], {}
-    for resolution in resolutions:
-        item = imports.get(resolution.import_id)
-        if (
-            item is None
-            or languages.get(item.file) not in _LANGUAGES
-            or resolution.reason == RESOLUTION_CONFIGURATION
-        ):
-            bound.append(resolution)
+    for item in sorted(result.imports, key=lambda value: value.id):
+        if languages[item.file] not in _LANGUAGES or item.kind in _SCRIPT_KINDS:
             continue
         rows = [
             row
@@ -273,18 +269,14 @@ def with_compiler_modules(result, root, environ=None):
     """``result`` carrying the compiler's view of its JavaScript and
     TypeScript modules (``CompilerModules``), which import resolution and
     call binding then use for those languages."""
-    from .imports import resolve_imports
     from .scip_calls import _Lines, _to_utf8
 
     languages = {c.file: c.language for c in result.coverage}
     scripts = sorted(f for f, language in languages.items() if language in _LANGUAGES)
-    if not scripts:
+    if not scripts or result.compiler_modules is not None:
         return result
     found, exported = compiler_modules(root, scripts, environ)
-    files = {i.id: i.file for i in result.imports}
-    resolutions, targets = _bind(
-        result, root, found, resolve_imports(replace(result, compiler_modules=None))
-    )
+    resolutions, targets = _bind(result, root, found)
     runtime = {}
     for import_id, target in targets.items():
         if target in languages:
@@ -324,12 +316,7 @@ def with_compiler_modules(result, root, environ=None):
     return replace(
         result,
         compiler_modules=CompilerModules(
-            tuple(
-                r
-                for r in resolutions
-                if languages[files[r.import_id]] in _LANGUAGES
-                and r.reason != RESOLUTION_CONFIGURATION
-            ),
+            resolutions,
             runtime,
             exports,
         ),

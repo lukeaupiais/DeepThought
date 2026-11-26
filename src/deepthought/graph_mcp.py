@@ -117,6 +117,18 @@ def create_server():
         )
 
     @server.tool()
+    async def describeSnapshot(
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+    ) -> dict:
+        """Describe one complete snapshot: its capabilities, analysis status,
+        content hash, publishing tool, completion time and commits."""
+        return await ctx.request_context.lifespan_context.describe_snapshot(
+            repository_id, snapshot_id=snapshot_id
+        )
+
+    @server.tool()
     async def diffSnapshots(
         repository_id: str,
         base_snapshot_id: str,
@@ -659,7 +671,10 @@ def create_server():
             ctx: Context,
             max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
         ) -> dict:
-            """Run bounded read-only Cypher in an explicitly dedicated snapshot database."""
+            """Run bounded read-only Cypher in an explicitly dedicated snapshot database.
+
+            Returns status, items, returned and truncated; describeSnapshot
+            gives the snapshot's capabilities and analysis status once."""
             return await ctx.request_context.lifespan_context.query_cypher(
                 query,
                 parameters,

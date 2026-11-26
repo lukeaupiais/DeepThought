@@ -20,7 +20,9 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls, ts_modules
+from ..pyright_calls import PyrightDefinitions
 from ..scip_calls import bind_calls
+from ..edge_coverage import edge_coverage
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -97,64 +99,6 @@ IMPORT_RULES = {
                 "name_matched",
                 "A name imported from a package equals an analyzed submodule; the "
                 "package itself may define that name instead.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.TYPESCRIPT_RELATIVE_MODULE,
-                "resolved",
-                "A relative specifier resolves to an analyzed file in TypeScript's "
-                "extension and index lookup order, then to JavaScript sources as "
-                "with allowJs; package.json files are not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_RELATIVE_FILE,
-                "resolved",
-                "A relative specifier with a JavaScript extension names an "
-                "analyzed file at exactly that path.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_EXTENSIONLESS_MODULE,
-                "pattern_matched",
-                "An extensionless relative specifier matches an analyzed file by "
-                "the bundler/CommonJS lookup (.js, .jsx, .mjs, .cjs, then index); "
-                "Node ES modules would not resolve it, and bundler config is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.TYPESCRIPT_PATH_ALIAS,
-                "resolved",
-                "A bare specifier matches a compilerOptions.paths pattern of the "
-                "nearest tsconfig.json or jsconfig.json (exact, else the longest "
-                "wildcard prefix) and a target resolves to an analyzed file in "
-                "TypeScript's lookup order, a directory through its package.json "
-                "typings, types and main; include, exclude and extended configs "
-                "are not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_PATH_ALIAS,
-                "pattern_matched",
-                "A JavaScript file's bare specifier resolves through the nearest "
-                "jsconfig.json or tsconfig.json paths as TypeScript resolves it; "
-                "the runtime resolves it only through a matching bundler alias, "
-                "which is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.SCRIPT_DECLARATION_SOURCE,
-                "pattern_matched",
-                "A path alias reaches a directory whose package.json typings or "
-                "types names a declaration file that is not analyzed; the link "
-                "is to the JavaScript file of the same name beside it, which the "
-                "declaration file describes by convention.",
             )
         ),
         register_rule(
@@ -359,12 +303,6 @@ _CALL_RULE_TEXT = {
     "or as 'module.name', names a module that does not declare the name but "
     "binds it with exactly one 'from M import name'; that import is followed, "
     "step by step, to the module that declares it at top level.",
-    call_rules.CALL_JS_REEXPORT: "A JavaScript or TypeScript callee bound by "
-    "an import, bare or as 'module.name', names a module that does not "
-    "declare the name but re-exports it with 'export { name } from' (aliases "
-    "applied) or, failing that, 'export * from'; each step is followed to the "
-    "module that declares it. Default exports are not followed, and a name "
-    "several star exports give is ambiguous.",
     call_rules.CALL_JS_STATIC_METHOD: "A JavaScript or TypeScript callee "
     "'C.m' whose C is the class declared where the call's scopes see C, or "
     "the one class a named import binds to C (followed as for an imported "
@@ -643,9 +581,28 @@ CALL_RULES.update(
             "resolves to overload signatures (TypeScript overloads, Python "
             "@overload) links to the one implementation declared beside "
             "them; more than one leaves the call ambiguous.",
+            scip_calls.PYRIGHT_CALL_DEFINITION: "A Python call whose SCIP "
+            "target is one scip-python is known to get wrong, or that the "
+            "index records no occurrence for, links to the declaration "
+            "pinned pyright's go-to-definition gives for the callee's last "
+            "name.",
         }.items()
     }
 )
+
+
+def _bind(result, scip_indexes, root):
+    """Call bindings from the indexes, with pyright running for Python
+    calls when an index covers a Python file."""
+    python = any(
+        coverage.file.endswith((".py", ".pyi"))
+        for index, _ in scip_indexes
+        for coverage in index.coverage
+    )
+    if not python:
+        return bind_calls(result, scip_indexes, root)
+    with PyrightDefinitions(root) as pyright:
+        return bind_calls(result, scip_indexes, root, pyright)
 
 
 def _call_name(callee):
@@ -965,7 +922,7 @@ class TreeSitterTool(AnalysisTool):
         kinds = {d.id: d.kind for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
         call_counts, resolver_counts = {}, {}
-        binding = bind_calls(result, scip_indexes, self.repo_path)
+        binding = _bind(result, scip_indexes, self.repo_path)
         for resolution in binding.resolutions:
             producer = binding.producers.get(resolution.call_id)
             key = resolution.status + (
@@ -973,8 +930,8 @@ class TreeSitterTool(AnalysisTool):
             )
             call_counts[key] = call_counts.get(key, 0) + 1
             # Separately by who decided: the index (its "nothing here"
-            # included), the parser kept over a suspect index target, or the
-            # parser in a file no index covers.
+            # included), pyright for a Python call the index got wrong or
+            # missed, or the parser in a file no index covers.
             by_resolver = resolver_counts.setdefault(
                 binding.resolver(resolution.call_id), {}
             )
@@ -1009,7 +966,7 @@ class TreeSitterTool(AnalysisTool):
                             "end_column": site.end_column,
                             "status": resolution.status,
                             # Which resolver left it unlinked, and why.
-                            "resolver": "tree-sitter" if producer is None else "scip",
+                            "resolver": binding.resolver(resolution.call_id),
                             **_produced(producer),
                             **(
                                 {"reason": resolution.reason}
@@ -1157,6 +1114,55 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[method], "Symbol"],
                     {"qualified_name": qualified[method], "repo_url": repo_url},
                     _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # Which families a deterministic resolver linked, per language: the
+        # index for the calls it decided, the TypeScript compiler for the
+        # imports it resolved or left unlinked and the calls bound through
+        # them, the parser's rules for the rest.
+        call_producers = {key: value[0] for key, value in binding.producers.items()}
+        for r in binding.resolutions:
+            # The index's own calls carry its rules, never these.
+            if r.call_id in binding.compiler_kept or (r.rule_id or "").startswith(
+                "typescript."
+            ):
+                call_producers[r.call_id] = ts_modules.TYPESCRIPT_TOOL
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                call_producers,
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                {
+                    r.import_id: ts_modules.TYPESCRIPT_TOOL
+                    for r in resolutions
+                    if r.reason in ts_modules.COMPILER_REASONS
+                    or any(
+                        link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                        for link in r.links
+                    )
+                },
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
                 )
             )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
