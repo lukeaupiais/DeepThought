@@ -5934,6 +5934,13 @@ Snapshots store the evidence type and rule ID, not the rule text. The descriptio
 comes from the rules registered by the installed version, which is why
 `rule_status` is reported. An unknown `edge_id` gives status `not_found`.
 
+Every stored node also carries the label `GraphNode`. It holds the identity
+constraint on (`repo_url`, `snapshot_id`, `qualified_name`) across all node
+kinds and the index that edge writes and whole-snapshot reads match on: Neo4j
+constraints and indexes are per label, and the label set is open. It says
+nothing about the node, so the labels that answers list (nodes returned by
+Cypher, impact dependents, edge endpoints, snapshot diffs) leave it out.
+
 ## Provision and use
 
 ```sh

@@ -75,6 +75,18 @@ CONTRACT_KINDS = (
 )
 
 
+# Every stored node also carries this label, which holds the identity
+# constraint and the index that edge writes and snapshot reads match on
+# (storage/graph/schema.py). It says nothing about the node, so answers
+# leave it out of the labels they list.
+INTERNAL_LABEL = "GraphNode"
+
+
+def _labels(variable):
+    """Cypher for a node's labels without the internal one."""
+    return f"[label IN labels({variable}) WHERE label <> '{INTERNAL_LABEL}']"
+
+
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
 
@@ -245,7 +257,7 @@ def _value(value):
             properties.pop(key, None)
         return {
             "element_id": value.element_id,
-            "labels": sorted(value.labels),
+            "labels": sorted(set(value.labels) - {INTERNAL_LABEL}),
             "properties": properties,
         }
     if isinstance(value, Relationship):
@@ -667,7 +679,7 @@ class GraphQueryService:
     )
     _NODE = (
         "n {.qualified_name,.name,.kind,.file_path,.path,.start_line,.end_line,"
-        "labels:labels(n)}"
+        "labels:" + _labels("n") + "}"
     )
 
     async def diff_snapshots(
@@ -776,7 +788,11 @@ class GraphQueryService:
                         "AND NOT k STARTS WITH '_dt_' "
                         "| {key:k,base:o[k],head:null}] AS properties,"
                         "CASE WHEN size(labels(n))<>size(labels(o)) OR any(l IN labels(n) "
-                        "WHERE NOT l IN labels(o)) THEN {base:labels(o),head:labels(n)} "
+                        "WHERE NOT l IN labels(o)) THEN {base:"
+                        + _labels("o")
+                        + ",head:"
+                        + _labels("n")
+                        + "} "
                         "END AS labels "
                     )
                     + "ORDER BY n.qualified_name LIMIT $fetch_limit"
@@ -1590,7 +1606,7 @@ class GraphQueryService:
                 "collect(DISTINCT relationships(path)[0].line) AS lines "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
                 ".file_path,.start_line,.end_line,.signature,top_level:dependent:File,"
-                "labels:labels(dependent)} AS element, "
+                "labels:" + _labels("dependent") + "} AS element, "
                 "[line IN lines WHERE line IS NOT NULL] AS lines, "
                 "length(best.path) AS depth, "
                 # Any one-hop path means the dependent names the change
@@ -2344,7 +2360,7 @@ class GraphQueryService:
 
         summary = (
             "{.qualified_name,.name,.kind,.path,.file_path,.start_line,.end_line,"
-            "labels:labels(NODE)}"
+            "labels:" + _labels("NODE") + "}"
         )
         response = await self._read(
             "MATCH (source:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})"
