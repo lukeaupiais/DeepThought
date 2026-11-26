@@ -6062,12 +6062,21 @@ def _head_end(body):
     return before.end_byte if before is not None else body.start_byte
 
 
-def _signature(head):
+def _signature(head, own=0):
     """A declaration's head as written, from its decorators or ``export`` to
     where its body starts, trailing space removed, bounded to
     ``_SIGNATURE_LINES`` lines and ``_SIGNATURE_CHARACTERS`` characters (a
-    cut head ends with ``…``)."""
+    cut head ends with ``…``). ``own`` is where the declaration itself starts
+    after its decorators: when those would push it past the bound, the first
+    decorator is kept, the others become a ``…`` line, and the declaration
+    follows, so a head always shows the name it declares."""
     text = head.rstrip()
+    prefix = text[:own]
+    if prefix.count("\n") >= 2 and (
+        text.count("\n") >= _SIGNATURE_LINES or len(text) > _SIGNATURE_CHARACTERS
+    ):
+        first = prefix.split("\n", 1)[0].rstrip()
+        text = first + "\n…\n" + text[own:]
     lines = text.split("\n")
     cut = "\n".join(lines[:_SIGNATURE_LINES])
     if len(cut) > _SIGNATURE_CHARACTERS:
@@ -6120,6 +6129,7 @@ def declaration_sources(
         # Without a body the head ends at the declaration's last part; a line
         # comment after it (``type R = [A, B] // ...``) is not part of it.
         end = _end_before_comments(node)
+        declared = node.start_byte
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
@@ -6136,13 +6146,18 @@ def declaration_sources(
             )
         ):
             start = start.parent
+        start_byte = start.start_byte
         head = content[
-            start.start_byte : _head_end(body) if body is not None else end
+            start_byte : _head_end(body) if body is not None else end
         ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
         sources[definition_id] = {
-            "signature": _signature(head),
+            # Where the declaration starts after its decorators, in characters.
+            "signature": _signature(
+                head,
+                len(content[start_byte:declared].decode("utf-8")),
+            ),
             "source_code": text,
             "source_sha256": sha256(text.encode()).hexdigest(),
             "source_start_line": node.start_point.row + 1,
