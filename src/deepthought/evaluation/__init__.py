@@ -9,7 +9,9 @@ import asyncio
 import json
 import math
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 from copy import deepcopy
 from dataclasses import dataclass
@@ -252,6 +254,41 @@ def _tool_access(value):
     return deepcopy(value)
 
 
+def _index_scip(scenario, workspace, directory, repository):
+    """Run the pinned SCIP indexers for a scenario's languages and return the
+    receipt of each run and the ingested indexes. A scenario file left
+    without an index by a missing, failing or wrong-version indexer stops
+    the preparation."""
+    from deepthought.indexers import required_indexes
+
+    report, indexes = required_indexes(
+        workspace,
+        directory,
+        scenario["languages"],
+        repository,
+        selected=scenario["source"]["files"],
+    )
+    if report is None:
+        return None, []
+    receipts = {
+        "runs": [
+            {
+                "indexer": run["indexer"],
+                "version": run["version"],
+                "status": run["status"],
+                "receipt_sha256": run.get("receipt_sha256"),
+            }
+            for run in report["runs"]
+        ],
+        "uncovered": sorted(
+            path
+            for path, entry in report["coverage"].items()
+            if entry["status"] != "covered"
+        ),
+    }
+    return receipts, indexes
+
+
 def prepare(scenario, workspace, *, registry=None, tool_access=None):
     """Run a registered tool and prepare separate actor contexts plus private oracle.
 
@@ -278,20 +315,33 @@ def prepare(scenario, workspace, *, registry=None, tool_access=None):
     if any(not tool.supports_language(x) for x in scenario["languages"]):
         raise ValueError("Scenario requests an unsupported tool language")
     started = time.monotonic()
+    repository = scenario["source"].get("repository", "synthetic://" + scenario["id"])
+    scratch = tempfile.mkdtemp(prefix="deepthought-scip-")
+    try:
+        # The tree-sitter tool binds calls from the pinned SCIP indexers, as
+        # every graph import does (graph_cli.index_scip).
+        indexed, scip_indexes = (
+            _index_scip(scenario, before["workspace"], scratch, repository)
+            if scenario["tool"] == "tree-sitter"
+            else (None, [])
+        )
 
-    async def run_tool():
-        try:
-            if not await tool.check_availability():
-                raise ValueError("Requested analysis tool is unavailable")
-            return await tool.analyze(
-                scenario["source"].get("repository", "synthetic://" + scenario["id"]),
-                languages=set(scenario["languages"]),
-                file_patterns=list(scenario["source"]["files"]),
-            )
-        finally:
-            await tool.cleanup()
+        async def run_tool():
+            try:
+                if not await tool.check_availability():
+                    raise ValueError("Requested analysis tool is unavailable")
+                return await tool.analyze(
+                    repository,
+                    languages=set(scenario["languages"]),
+                    file_patterns=list(scenario["source"]["files"]),
+                    **({"scip_indexes": scip_indexes} if indexed is not None else {}),
+                )
+            finally:
+                await tool.cleanup()
 
-    output = asyncio.run(run_tool())
+        output = asyncio.run(run_tool())
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     data = output.to_dict()
     _json(data)
     after = _verify_source(scenario, workspace)
@@ -328,6 +378,8 @@ def prepare(scenario, workspace, *, registry=None, tool_access=None):
             arm: _digest(context) for arm, context in contexts.items()
         },
     }
+    if indexed is not None:
+        provenance["scip"] = indexed
     if access is not None:
         provenance["delivery_mode"] = "tool_access"
         provenance["tool_access_sha256"] = _digest(access)

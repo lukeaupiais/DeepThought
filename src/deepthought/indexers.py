@@ -50,6 +50,8 @@ class IndexerSpec:
         return f"{self.name}-v{PROFILE_VERSION}"
 
 
+DEFAULT_PROJECT_NAME = "workspace"
+
 INDEXERS = {
     spec.name: spec
     for spec in (
@@ -697,8 +699,8 @@ def run_indexer(
     before = capture_inputs(root, spec, excluded=(output, receipt_path))
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
-        # The workspace's own name would put where it was checked out into
-        # every symbol, so the default project name is fixed.
+        # A fixed default keeps symbols, and so receipts, independent of the
+        # directory the workspace is checked out to.
         indexed_root = root
         if spec.name == "scip-typescript":
             prepared = _prepared_packages(
@@ -712,7 +714,7 @@ def run_indexer(
             spec,
             base if spec.name == "scip-typescript" else indexed_root,
             temporary,
-            project_name or "workspace",
+            project_name or DEFAULT_PROJECT_NAME,
         )
         cwd = base
         if spec.name == "scip-python":
@@ -1149,7 +1151,8 @@ def _uncovered_project(root, files):
 
 
 def canonical_bytes(index):
-    """The index with documents, occurrences and symbols in a fixed order.
+    """The index with documents, occurrences and symbols in a fixed order,
+    and no project root.
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
@@ -1157,6 +1160,9 @@ def canonical_bytes(index):
     scip-go 0.2 records its scratch output path there, and the receipt keeps
     the arguments with paths left out.
     """
+    # The absolute root URI would make the bytes depend on where the
+    # workspace lives; documents are already relative to it.
+    index.metadata.project_root = ""
     del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
@@ -1581,6 +1587,31 @@ def failed_files(report):
         for path, entry in report["coverage"].items()
         if entry["status"] != "covered" and entry["reason"] in TOOL_FAILURES
     }
+
+
+def required_indexes(workspace, directory, languages, repository_id, selected=None):
+    """Run the pinned indexers the languages need and return the
+    ``index_workspace`` report, cut to ``selected`` files when given, with
+    the ingested indexes. A file left without an index by a missing,
+    failing or wrong-version indexer raises ``ValueError`` naming it."""
+    languages = tuple(sorted(set(languages) & set(LANGUAGE_INDEXERS)))
+    if not languages:
+        return None, []
+    report = index_workspace(workspace, directory, languages=languages)
+    if selected is not None:
+        report["coverage"] = {
+            path: entry
+            for path, entry in report["coverage"].items()
+            if path in selected
+        }
+    failed = failed_files(report)
+    if failed:
+        raise ValueError(
+            f"{len(failed)} files have no SCIP index because an indexer is "
+            "missing or failed (deepthought indexers lists them): "
+            + ", ".join(f"{path} ({reason})" for path, reason in sorted(failed.items()))
+        )
+    return report, ingest_indexed(report, repository_id, workspace)
 
 
 def ingest_indexed(report, repository_id, workspace=None):

@@ -3,7 +3,8 @@
 ``Depends(get_db)`` and ``Security(auth)`` hand FastAPI a function or class
 to call when the endpoint runs, so the endpoint depends on it without calling
 it. A call is read as one only when the SCIP index resolves its callee to
-FastAPI's own ``fastapi.param_functions`` ``Depends`` or ``Security``. Its
+FastAPI's own ``fastapi.param_functions`` ``Depends`` or ``Security``, or
+the ``fastapi.params`` classes of those names. Its
 dependency is the first argument or ``dependency=``; for a ``Depends()``
 with neither, FastAPI calls the parameter's annotation, or the ``T`` of
 ``Annotated[T, Depends()]``. The dependency is linked only when the index
@@ -21,13 +22,16 @@ function holding that parameter depends on ``f``. The alias itself is no use.
 Not read: a dependency given as an instance (``Security(auth)`` with
 ``auth = Auth()``), whose ``__call__`` runs; an alias of an alias, or one
 written inside another annotation (``Optional[SessionDep]``); and files
-Python's ``ast`` in the running interpreter cannot parse (newer syntax).
+``ast`` cannot parse in the Python the repository declares
+(``deepthought.python_runtime``).
 """
 
 import ast
 from dataclasses import dataclass
 
 _FASTAPI = "`fastapi.param_functions`/"
+# The classes those functions return, which FastAPI accepts as well.
+_PARAMS = "`fastapi.params`/"
 _INJECTORS = ("Depends", "Security")
 
 
@@ -148,107 +152,134 @@ def _aliases(tree):
     return found
 
 
-def _injected(call, path, references, declared):
-    """(declaration, (name, line, column), injector) of the dependency a
-    FastAPI ``Depends`` or ``Security`` call injects, or None."""
-    callee = _last_name(call.func)
-    if callee is None:
-        return None
-    symbols = references.symbols(path, callee[1], callee[2])
+def _injector_names(tree):
+    """The names ``Depends`` and ``Security`` may be called by here: their
+    own, and ``as`` names they are imported under."""
+    names = set(_INJECTORS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(
+                a.asname for a in node.names if a.name in _INJECTORS and a.asname
+            )
+    return names
+
+
+def dependency_facts(tree):
+    """What the index must settle for one parsed module, as plain data (so
+    another interpreter can produce it): ``calls`` that may be ``Depends`` or
+    ``Security``, each with its ``callee`` and the dependency ``written`` as
+    ``[name, line, UTF-8 column]``, the ``owner`` function's def line (None
+    for the file) and the ``alias`` target ``[line, column]`` it is in (or
+    None); and the ``parameters`` annotated with a plain or dotted name,
+    with their ``function``'s def line."""
+    owners = _owners(tree)
+    alias_of = _aliases(tree)
+    declared = _declared_types(tree)
+    declared.update((call, type_) for call, (_, type_) in alias_of.items())
+    names = _injector_names(tree)
+    calls = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        callee = _last_name(call.func)
+        if callee is None or callee[0] not in names:
+            continue
+        argument = call.args[0] if call.args else None
+        for keyword in call.keywords:
+            if keyword.arg == "dependency":
+                argument = keyword.value
+        if argument is None:
+            # Depends() calls the parameter's declared type.
+            argument = declared.get(id(call))
+        written = _last_name(argument)
+        if written is None:
+            continue
+        owner = owners.get(id(call))
+        alias, _ = alias_of.get(id(call), (None, None))
+        calls.append(
+            {
+                "callee": list(callee),
+                "written": list(written),
+                "owner": None if owner is None else owner.lineno,
+                "alias": None if alias is None else [alias.lineno, alias.col_offset],
+            }
+        )
+    parameters = []
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        arguments = function.args
+        for argument in [
+            *arguments.posonlyargs,
+            *arguments.args,
+            *arguments.kwonlyargs,
+        ]:
+            written = _last_name(argument.annotation)
+            if written is not None:
+                parameters.append(
+                    {"function": function.lineno, "annotation": list(written)}
+                )
+    return {"calls": calls, "parameters": parameters}
+
+
+def _injected(path, call, references):
+    """(declaration, injector) of the dependency a FastAPI ``Depends`` or
+    ``Security`` call injects, or None."""
+    _, line, column = call["callee"]
+    symbols = references.symbols(path, line, column)
     injector = next(
         (
             name
             for name in _INJECTORS
             for s in symbols
-            if s.endswith(_FASTAPI + name + "().")
+            if s.endswith((_FASTAPI + name + "().", _PARAMS + name + "#"))
         ),
         None,
     )
     if injector is None:
         return None
-    argument = call.args[0] if call.args else None
-    for keyword in call.keywords:
-        if keyword.arg == "dependency":
-            argument = keyword.value
-    if argument is None:
-        # Depends() calls the parameter's declared type.
-        argument = declared.get(id(call))
-    written = _last_name(argument)
-    if written is None:
-        return None
-    targets = references.declarations(path, written[1], written[2], written[0])
+    name, line, column = call["written"]
+    targets = references.declarations(path, line, column, name)
     if len(targets or ()) != 1:
         return None
-    return targets[0], written, injector
+    return targets[0], injector
 
 
-def dependency_uses(sources, references):
-    """Every FastAPI dependency use in ``sources`` (repository-relative path
-    to Python text). ``references`` is a ``deepthought.scip_calls
-    .ScipReferences``; files no index covers are skipped."""
-    trees = {}
-    for path in sorted(sources):
-        if not references.covers(path):
-            continue
-        try:
-            trees[path] = ast.parse(sources[path])
-        except (SyntaxError, ValueError):
-            continue
+def dependency_uses(facts, references):
+    """Every FastAPI dependency use in ``facts`` (repository-relative path
+    to ``dependency_facts`` of that file). ``references`` is a
+    ``deepthought.scip_calls.ScipReferences``; files no index covers are
+    skipped."""
+    covered = sorted(path for path in facts if references.covers(path))
     uses, aliases = [], {}
-    for path, tree in trees.items():
-        owners = _owners(tree)
-        alias_of = _aliases(tree)
-        declared = _declared_types(tree)
-        declared.update((call, type_) for call, (_, type_) in alias_of.items())
-        for call in ast.walk(tree):
-            if not isinstance(call, ast.Call):
-                continue
-            found = _injected(call, path, references, declared)
+    for path in covered:
+        for call in facts[path]["calls"]:
+            found = _injected(path, call, references)
             if found is None:
                 continue
-            declaration, written, injector = found
-            alias, _ = alias_of.get(id(call), (None, None))
-            if alias is not None:
+            declaration, injector = found
+            if call["alias"] is not None:
                 # Used where a parameter is annotated with the alias.
-                site = (path, alias.lineno, alias.col_offset)
+                site = (path, *call["alias"])
                 aliases.setdefault(site, []).append(found)
                 continue
-            owner = owners.get(id(call))
             uses.append(
                 DependencyUse(
-                    (path, None if owner is None else owner.lineno),
-                    declaration,
-                    written[0],
-                    written[1],
-                    written[2],
-                    injector,
+                    (path, call["owner"]), declaration, *call["written"], injector
                 )
             )
-    for path, tree in trees.items():
-        for function in ast.walk(tree):
-            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            arguments = function.args
-            for argument in [
-                *arguments.posonlyargs,
-                *arguments.args,
-                *arguments.kwonlyargs,
-            ]:
-                written = _last_name(argument.annotation)
-                if written is None:
-                    continue
-                sites = references.definition_sites(path, written[1], written[2])
-                for site in sites:
-                    for declaration, _, injector in aliases.get(site, ()):
-                        uses.append(
-                            DependencyUse(
-                                (path, function.lineno),
-                                declaration,
-                                written[0],
-                                written[1],
-                                written[2],
-                                injector,
-                                f"{site[0]}:{site[1]}",
-                            )
+    for path in covered:
+        for parameter in facts[path]["parameters"]:
+            _, line, column = parameter["annotation"]
+            for site in references.definition_sites(path, line, column):
+                for declaration, injector in aliases.get(site, ()):
+                    uses.append(
+                        DependencyUse(
+                            (path, parameter["function"]),
+                            declaration,
+                            *parameter["annotation"],
+                            injector,
+                            f"{site[0]}:{site[1]}",
                         )
+                    )
     return uses

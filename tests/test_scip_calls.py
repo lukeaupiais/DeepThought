@@ -833,6 +833,42 @@ class ScipCallTests(unittest.TestCase):
                 ),
             ],
         )
+        # The index covers a.ts and the alias file, not b.ts: the parser's
+        # rules decide b.ts.
+        coverage = {
+            n.properties["qualified_name"]: n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"]
+        }
+        self.assertEqual(
+            sorted(coverage),
+            [
+                "r::edge-coverage::CALLS::typescript",
+                "r::edge-coverage::IMPORTS::typescript",
+            ],
+        )
+        calls = coverage["r::edge-coverage::CALLS::typescript"]
+        self.assertEqual(
+            {k: v for k, v in calls.items() if k not in {"qualified_name", "repo_url"}},
+            {
+                "language": "typescript",
+                "family": "CALLS",
+                "status": "partial",
+                "reason": "parser_rules",
+                "resolver": [
+                    "scip-typescript@1.0",
+                    f"tree-sitter@{deepthought.__version__}",
+                ],
+                "files": 3,
+                "files_linked": 2,
+                "linked": 6,
+                "ambiguous": 0,
+                "unresolved": 3,
+            },
+        )
+        self.assertEqual(
+            coverage["r::edge-coverage::IMPORTS::typescript"]["status"], "not_linked"
+        )
 
 
 class CalleeAtTests(unittest.TestCase):
