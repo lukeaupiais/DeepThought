@@ -285,11 +285,16 @@ def bind_uses(result: AnalysisResult, indexes, root):
             )
         return fields[key]
 
+    # An index covers its whole project, which can hold files the analysis
+    # left out (a skip pattern); a reference there has no File to start from.
+    analysed = {c.file for c in result.coverage if c.status in {"analyzed", "partial"}}
     writes = _Writes(root)
     grouped = {}
     for index, view in views:
         for reference in index.references:
             if covering.get(reference.file) is not view:
+                continue
+            if reference.file not in analysed:
                 continue
             text = lines.get(reference.file, reference.line)
             column = _to_utf8(text, reference.column, view.encoding(reference))
