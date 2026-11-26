@@ -28,9 +28,10 @@ from deepthought.storage.graph import (
 
 WEAKNESS = {"resolved": 0, "pattern_matched": 1, "name_matched": 2}
 EVIDENCE = ["resolved", "pattern_matched", "name_matched"]
-# Code relations; get_impact also follows a test's USES_FIXTURE edges.
+# Code relations; get_impact also follows a test's USES_FIXTURE edges and an
+# endpoint's USES_DEPENDENCY edges.
 CODE_RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
-RELATIONS = CODE_RELATIONS | {"USES_FIXTURE"}
+RELATIONS = CODE_RELATIONS | {"USES_FIXTURE", "USES_DEPENDENCY"}
 
 
 def expected(output, root, max_depth, relations=RELATIONS):
