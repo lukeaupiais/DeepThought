@@ -78,6 +78,11 @@ def _item(node, short=False):
     name = _name(node)
     if short:
         return name
+    if "ExternalPackage" in labels:
+        # A dependency outside the repository: no file, a version.
+        kind = " ".join(str(x) for x in (p.get("ecosystem"), "package") if x)
+        version = p.get("version")
+        return f"{name} {version} ({kind})" if version else f"{name} ({kind})"
     path = _path_of(node)
     if "File" in labels:
         details = ["file"]
@@ -98,8 +103,35 @@ def _item(node, short=False):
         )
     if _is_test(node):
         details.append("test")
+    if p.get("generated_by"):
+        # Generated code is changed through its source, not by hand.
+        details.append("generated")
     details = [d for d in details if d]
     return f"{name} ({', '.join(details)})" if details else name
+
+
+def _unlinked(records):
+    """ " (unlinked sites: reason n, ...)" summed over EdgeCoverage records:
+    sites no resolver decided. Calls into libraries are external, not here."""
+    total = {}
+    for record in records:
+        reasons = record.get("unresolved_reasons")
+        if isinstance(reasons, str):
+            try:
+                reasons = json.loads(reasons)
+            except ValueError:
+                reasons = None
+        if isinstance(reasons, dict):
+            for reason, count in reasons.items():
+                if isinstance(count, int) and count:
+                    total[reason] = total.get(reason, 0) + count
+    if not total:
+        return ""
+    return (
+        " (unlinked sites: "
+        + ", ".join(f"{reason} {count}" for reason, count in sorted(total.items()))
+        + ")"
+    )
 
 
 def _coverage_phrase(p):
@@ -108,6 +140,7 @@ def _coverage_phrase(p):
         state = "complete, compiler-checked"
     else:
         state = "may be incomplete" + (f" ({p['reason']})" if p.get("reason") else "")
+    state += _unlinked([p])
     return f"{family} in {p.get('language')}: {state}"
 
 
@@ -247,7 +280,7 @@ class _Renderer:
         return str(value)
 
     def row_parts(self, row, columns, drops):
-        parts = []
+        parts, blocks = [], []
         # Items a link in the same row already names are not repeated.
         ends = {
             end
@@ -276,9 +309,13 @@ class _Renderer:
                     )
                 elif _is_node(value):
                     parts.append(text)
+                elif isinstance(value, str) and "\n" in value:
+                    # Source text and other multi-line values follow the
+                    # row's other values as an indented block.
+                    blocks.append(f"{column}:\n" + value.rstrip("\n"))
                 else:
                     parts.append(f"{column} {text}")
-        return parts
+        return parts + blocks
 
     def row_is_test(self, row, columns):
         """A row is a test row when its first code item is in a test file."""
@@ -399,7 +436,17 @@ def coverage_line(items, nodes, coverage, query):
     languages = _languages(items, nodes)
     phrases = []
     for family in sorted(touched & families):
-        for language in sorted(languages):
+        # Every analyzed language where the family may be incomplete is
+        # named, not only the languages of the results: a site missing from
+        # the graph is missing from the results too.
+        gaps = {
+            c.get("language")
+            for c in coverage
+            if c.get("family") == family
+            and c.get("status") != "linked"
+            and c.get("language")
+        }
+        for language in sorted(languages | gaps):
             records = [
                 c
                 for c in coverage
@@ -409,7 +456,10 @@ def coverage_line(items, nodes, coverage, query):
                 continue
             linked = [c for c in records if c.get("status") == "linked"]
             if len(linked) == len(records):
-                phrases.append(f"{family} in {language}: complete, compiler-checked")
+                phrases.append(
+                    f"{family} in {language}: complete, compiler-checked"
+                    + _unlinked(records)
+                )
             else:
                 reasons = sorted(
                     {
@@ -426,9 +476,11 @@ def coverage_line(items, nodes, coverage, query):
                     }
                 )
                 what = f"{family} ({', '.join(protocols)})" if protocols else family
+                where = "" if language in languages else " (none returned)"
                 phrases.append(
-                    f"{what} in {language}: may be incomplete"
+                    f"{what} in {language}{where}: may be incomplete"
                     + (f" ({', '.join(reasons)})" if reasons else "")
+                    + _unlinked(records)
                     + ", check the source"
                 )
     if not phrases:
@@ -451,8 +503,26 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
             + "."
         )
     else:
-        header = f"{count} {noun} (all of them)." if count else "No results."
+        header = (
+            f"{count} {noun}: every one this query matched." if count else "No results."
+        )
     lines = [header]
+    fresh = response.get("freshness") or {}
+    if fresh.get("status") == "changed":
+        # Files named in the result that were edited or removed in the
+        # checkout since the snapshot was analyzed: their lines may have moved.
+        said = []
+        if fresh.get("changed_files"):
+            said.append("edited " + ", ".join(fresh["changed_files"]))
+        if fresh.get("missing_files"):
+            said.append("removed " + ", ".join(fresh["missing_files"]))
+        more = " and more" if fresh.get("files_listed_truncated") else ""
+        lines.append(
+            "Changed since the graph was built: "
+            + "; ".join(said)
+            + more
+            + ". Lines in these files may have moved: read them in source."
+        )
     if count:
         columns = list(items[0].keys())
         # What every row shares, said once.
@@ -520,8 +590,10 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
                 continue
             text = renderer.value_text(items[0].get(column))
             if text is not None:
-                if _is_node(items[0].get(column)):
-                    shared.append(f"{column} {text}")
+                if "\n" in text:
+                    text = "\n" + text.rstrip("\n")
+                    text = text.replace("\n", "\n    ")
+                    shared.append(f"{column}:{text}\n")
                 else:
                     shared.append(f"{column} {text}")
         if shared:
@@ -531,10 +603,11 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
         # Leading plain columns that repeat become headings.
         heads = []
         for column in rest[:-1]:
-            if any(
+            if count < 2 or any(
                 _is_node(row.get(column))
                 or _is_link(row.get(column))
                 or _is_path(row.get(column))
+                or (isinstance(row.get(column), str) and "\n" in row.get(column))
                 for row in items
             ):
                 break
@@ -565,7 +638,7 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
                 for parts in _merge(
                     [renderer.row_parts(r, leaf, drops) for r in group]
                 ):
-                    text = _join(parts)
+                    text = _join(parts).replace("\n", "\n" + indent + "    ")
                     lines.append(indent + "- " + (text or "(no values)"))
             block.clear()
 
