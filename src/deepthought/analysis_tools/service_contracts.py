@@ -113,7 +113,7 @@ from ..service_contracts.web import (
     nest_settings,
     python_routers,
 )
-from ..syntax import identifier, make_parser
+from ..syntax import identifier, make_parser, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -2639,8 +2639,9 @@ class ServiceContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(coverage.file, content)
             grpc_sources.append((coverage.file, coverage.language, content))
-            suffix = "." + coverage.file.rsplit(".", 1)[-1]
             key = (coverage.language, suffix if suffix == ".tsx" else "")
             if key not in parsers:
                 parsers[key] = make_parser(coverage.language, suffix)
