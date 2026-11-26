@@ -92,6 +92,4 @@ RELATIONSHIP_SENTENCES = {
     "READS_COLUMN": "reads the column",
     "WRITES_COLUMN": "writes the column",
     "SIGNATURE_USES": "names in its signature the type",
-    "USES_FIXTURE": "uses the fixture",
-    "USES_DEPENDENCY": "uses the dependency",
 }
