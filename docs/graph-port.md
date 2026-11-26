@@ -314,6 +314,41 @@ tool's `call_resolution_by_resolver` metric counts call outcomes separately for
 (the parser's link kept over a suspect index target) and `tree-sitter` (files
 no index covers).
 
+### Uses besides calls
+
+Code also couples through names it does not call: a type in an annotation,
+conversion or `isinstance`, a function passed as a value (a handler, a
+callback, an entry in a lookup table), a field read or written. In a file a
+SCIP index covers, every reference that is not at a call's name, not in an
+import statement, not a base a class declaration names (its INHERITS_FROM
+edge) and not a declaration's own name (scip-python records a redefinition as
+a reference) becomes a use edge
+(`deepthought.scip_uses`), from the innermost parsed declaration around it
+(or its file), all `resolved`:
+
+| Rule | Edge |
+|---|---|
+| `scip.use-type` | USES_TYPE to a parsed class, struct, interface, type alias or enum |
+| `scip.use-function-value` | REFERENCES_FUNCTION to a parsed function or method named without being called |
+| `scip.use-field-read` | READS_FIELD to a Field |
+| `scip.use-field-write` | WRITES_FIELD to a Field: the reference is the target of an assignment, augmented assignment, `++`/`--`, `del`, or the key of a Go composite literal element (`T{Field: v}`) |
+| `scip.field-definition` | type CONTAINS Field |
+
+Fields are not parsed declarations: each term the index defines on a type
+(`T#name.`) inside a parsed class, struct, interface or enum is a
+`Field`/`Symbol` node of that type (its name `Type.name`). Whether a use
+writes is read from the file's tree-sitter syntax, since the indexers mark
+every reference `ReadAccess` (scip-go, scip-python) or nothing
+(scip-typescript). Uses of one kind from one source to one target are one
+edge with the first site (`line`, `column`) and the number of sites
+(`sites`), the producer and the receipt. A reference to a local variable has
+no declaration to link and adds nothing; a declaration naming itself (a
+recursive reference) neither. `get_impact` follows the four edges backwards,
+and a type contains its fields, so a changed type reaches the readers and
+writers of its fields. On chi (Go) the graph gains 108 fields and 859 use
+edges (1,320 sites), on miniflux 1,596 fields and 10,914 edges (16,493
+sites), on flask 1,119 edges; binding them takes under a second.
+
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
@@ -3067,35 +3102,51 @@ which only client requests are read:
   `methods` is GET); Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
-  `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern; Gin and Echo
-  `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`, `Any`,
-  `Handle`/`Add(method, path, ...)` and `Match([]string{...}, path, ...)`
-  calls (rules `gin-route`, `echo-route`) on a router known in the file: one
-  made by `gin.Default()`/`gin.New()`/`echo.New()`, a parameter, `var` or
-  struct field typed `*gin.Engine`/`*echo.Echo` (the root), a `Group(prefix,
-  ...)` of a known router (prefixes are joined), or Gin's `Use(...)`, which
-  returns its router; a local name assigned more than once is not followed.
-  A parameter typed `*gin.RouterGroup`, `gin.IRouter`, `gin.IRoutes` or
-  `*echo.Group` is a group passed in. Its routes take, instead, the
-  prefixes of the known routers that calls of the function pass in that
-  position: calls in the same package directory, and `pkg.F(...)` calls
-  whose import path names the package through a `go.mod` module path in
-  the repository, followed through up to four levels of such functions;
-  one route per distinct prefix. A group no call passes (or a method's
-  parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
-  matches the rest of the path; the handler is the last argument in Gin and
-  the first after the path in Echo. A method that is not literal leaves the
-  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
-  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
-  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
-  handler)` (any method) calls on a router made by `chi.NewRouter()`/
-  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
-  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
-  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
-  prefix); any other `chi.Router` parameter is a router passed in, as for
-  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
-  matches the rest of the path. A handler passed as a method value
-  (`r.Route("/api", api.Routes)`) is not followed.
+  `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
+  and Fiber routes (rules `gin-route`, `echo-route`, `chi-route`,
+  `fiber-route`) come from the Go type checker (`service_contracts/go_routes.py`
+  over gofacts): a route is a call whose receiver go/types types as one of
+  the library's router types (Gin `Engine`, `RouterGroup`, `IRouter`,
+  `IRoutes`; Echo `Echo`, `Group`; chi `Mux`, `Router`; Fiber v2 and v3
+  `App`, `Group`, `Router`, and v3's `Register`). The calls are Gin and Echo
+  `GET`/`POST`/.../`OPTIONS`, `Any`, `Handle`/`Add(method, path, ...)` and
+  `Match([]string{...}, path, ...)`; chi `Get`/.../`Trace`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc`
+  (any method); Fiber `Get`/.../`Patch`, `All` (any method) and `Add` (one
+  method in v2, a `[]string` in v3), and the verbs of the `Register` a v3
+  `Route(path)` returns, which take no path. The handler is the last
+  argument in Gin, chi and Fiber (v3 runs `append([]any{handler},
+  middleware...)` in order, so middleware written first precedes the
+  endpoint), and the first after the path in Echo. Paths and methods are
+  the values the type checker's constant and string folding gives; a
+  method that is not literal leaves the route unread
+  (`method_not_literal`), and a file importing a router package that the
+  type checker could not read is unread as
+  `not_type_checked:<reason>` (a failed build, a timeout).
+
+  The router's prefix follows go/types objects, not names: the variable,
+  `var` or struct field the router is assigned to (in any file of the
+  module), the call it is (`r.Group("/v1").GET(...)`), the parameter of a
+  module function that callers pass it to (one route per distinct prefix,
+  across packages), and the parameter of a func literal that chi's
+  `Route(prefix, fn)`/`Group(fn)` or Fiber v2's `Route(prefix, fn)` calls.
+  `Group` (and chi/Fiber v3 `Route`) joins its prefix; Gin's and Fiber's `Use`, chi's
+  `With`, chi's `Group` and a verb that returns a router keep it. A root
+  router (Gin `Engine`, Echo `Echo`, chi `Mux`, Fiber `App`) adds no
+  prefix, wherever it comes from, unless the variable or field holding it
+  is mounted: chi's and Fiber's `Mount(prefix, sub)` gives `sub` the
+  prefix. A router no assignment or caller gives
+  is passed in from outside what is read, and its routes have an unknown
+  base (`base_unknown`). Gin, Echo and Fiber `:id` are route variables and
+  `*rest` matches the rest of the path; chi's `{id}` and `{id:regex}` are
+  route variables and a trailing `*` matches the rest. The handler is the
+  module function or method the handler argument names (`h.List`), or the
+  one a call there calls when that call passes no function value: a handler
+  factory such as `p.Create()` anchors to `Create`, while a wrapper such as
+  `http.HandlerFunc(List)` is not followed. Not read: a mounted router
+  that is the result of a call (`r.Mount("/api", apiRouter())`), whose
+  routes then miss the prefix, and Fiber's optional `:id?` and `+`
+  parameters, which are kept as written.
   Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
   `src/pages/api/**`) is one route for any method, handled by the default
@@ -3907,6 +3958,35 @@ parameter that cannot be told and every name the index records no
 reference for count in `payload_types_unresolved`, and nothing is guessed.
 The `graph` command hands the indexes it ingested once to the
 `service-contracts` and `data-contracts` tools as well as `tree-sitter`.
+
+#### Field types
+
+A carried type's fields carry their own types, transitively: the route or
+destination CARRIES each type a field of a carried type holds, with the
+same `direction` and `body_key`, `via` listing the fields followed from
+the directly carried type and `via_field` the last of them. A field is
+written `Owner.field`; a base the type extends, embeds or implements is
+written `Owner(Base)`, its fields being the owner's. The edge's
+`file_path` and `line` are the field's. The chain is followed breadth
+first, so the shortest one is recorded, up to six fields deep; a type
+already carried, directly or through another chain, is not added again,
+which also ends cycles. Each field's type comes from the language's own
+tool:
+
+| Edge | Rule | Evidence | Fires on |
+|---|---|---|---|
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments, inline structs and named non-struct types (`type Labels []Label` carries `Labels` and `Label`); `json:"-,"` names a field "-", which is written; `gofacts` prints each package-level struct's fields from go/types |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.ts-field-type` | resolved | a property or constructor parameter property (not static) of a carried class, interface or object type alias, written with a type naming this declaration, read as handler types are; or a class or interface it extends or implements |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.python-field-type` | resolved | an attribute a carried class annotates in its body (not a `ClassVar`) whose annotation names this class, through the scip-python index as for handler annotations; or a class of the repository it derives from |
+
+Types declared in a library (`time.Time`, `datetime`, a type in
+`node_modules`) are not followed. A field the Go type checker types as an
+interface, a TypeScript property typed `any` or naming nothing the
+compiler resolves, and a Python annotation name with no index reference
+count in `payload_field_types_unresolved`, next to `payload_field_types`
+(the edges added). A Python annotation written as a string (a forward
+reference) is not read. A field read from a type outside the analyzed
+languages (Go, TypeScript and JavaScript, Python) is not followed.
 
 ### Gateways
 
@@ -6105,7 +6185,7 @@ rows (`format: "json"`, which keep their MCP structured content) still carry
 them. What every row shares is
 said once, repeating leading values become headings, rows that differ only in
 a number merge (`at lines 195, 209`), and rows in test files follow under
-`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot; it
+`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot (in text, freshness covers the files of the link ends looked up for the sentences as well as the rows' own); it
 closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
 the link families in the result, for the result's languages and for every
 other analyzed language where the family is not linked (`(none returned)`):
