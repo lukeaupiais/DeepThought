@@ -68,6 +68,9 @@ def facts(value, out):
             facts(v, out)
     elif isinstance(value, bool):
         out.add("yes" if value else "no")
+    elif isinstance(value, str) and "\n" in value:
+        # A multi-line value is written as an indented block: every line.
+        out.update(line.strip() for line in value.splitlines() if line.strip())
     elif value is not None and value != "":
         out.add(str(value))
 
