@@ -176,6 +176,82 @@ def _cypher_code(query):
     return "".join(out)
 
 
+_IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
+
+
+def _clause_code(code):
+    """``code`` (from ``_cypher_code``) with the query's own names blanked:
+    property keys (``.x``), parameters (``$x``), labels, types and map keys
+    (``:x``, ``x:``), and every name the query binds as a variable or alias
+    (``(x)``, ``[x]``, ``AS x``). What is left is clause keywords and
+    operators, so a variable called ``call`` or ``start`` is not a clause.
+    Procedure calls the names could hide are refused again from the query
+    plan (``_PLAN_REFUSED``)."""
+    bound = set(re.findall(r"[(\[]\s*(" + _IDENT + r")", code))
+    bound |= set(re.findall(r"\bAS\s+(" + _IDENT + r")", code, re.I))
+
+    def blank(match):
+        return " " * len(match.group(0))
+
+    code = re.sub(_IDENT + r"(?=\s*:)", blank, code)
+    code = re.sub(r"[.$:]\s*" + _IDENT, blank, code)
+    if bound:
+        names = "|".join(sorted(map(re.escape, bound), key=len, reverse=True))
+        code = re.sub(r"\b(?:" + names + r")\b", blank, code)
+    return code
+
+
+# Plan operators a read-only query plan may still hold.
+_QUOTED = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"")
+_PATHLIKE = re.compile(r"^[\w@.\-/]+$")
+# File kinds a path without a directory is recognised by. A dotted name with
+# any other ending (json.dumps, CartService.GetCart) is a name, not a path.
+_FILE_KINDS = frozenset(
+    "go py pyi ts tsx js jsx mjs cjs mts cts vue svelte proto graphql gql sql "
+    "prisma json yaml yml toml mod sum cs java kt rb php rs c h cc cpp hpp swift "
+    "md html css scss sh tf".split()
+)
+
+
+def _is_path(value):
+    if not _PATHLIKE.match(value) or value.startswith("/") or ".." in value:
+        return False
+    return "/" in value or value.rpartition(".")[2] in _FILE_KINDS
+
+
+_NAMELIKE = re.compile(r"^[A-Za-z_$][\w$]{2,}$")
+
+
+def _query_strings(query, parameters):
+    """The strings a query looks for: its quoted literals and its string
+    parameters (list members included), in order, without repeats."""
+    found = [a or b for a, b in _QUOTED.findall(query)]
+
+    def visit(value):
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                visit(item)
+
+    for value in (parameters or {}).values():
+        visit(value)
+    return list(dict.fromkeys(v for v in found if v and len(v) <= 300))
+
+
+_PLAN_REFUSED = ("ProcedureCall", "LoadCSV", "SystemProcedureCall")
+
+
+def _plan_operators(plan):
+    """Operator types of an EXPLAIN plan (a summary's ``plan`` mapping)."""
+    if not plan:
+        return []
+    found = [str(plan.get("operatorType", ""))]
+    for child in plan.get("children") or []:
+        found += _plan_operators(child)
+    return found
+
+
 def _text(value, name):
     if not isinstance(value, str) or not value.strip():
         raise ValueError(name + " must be a nonempty string")
@@ -324,7 +400,7 @@ def _check_cypher(query, parameters, allow_database_scope):
         raise ValueError("Cypher text exceeds 16384 bytes")
     # Keywords are looked for in the query's code only: a quoted name such as
     # "use", "Start" or "delete.go" is data, not a clause.
-    code = _cypher_code(query)
+    code = _clause_code(_cypher_code(query))
     if not re.match(r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I):
         raise ValueError("Only a single read query is accepted")
     if re.search(
@@ -407,7 +483,40 @@ class GraphQueryService:
             )
         return items[0]["qualified_name"]
 
-    async def _read(
+    async def _read(self, *args, **kwargs):
+        """``_read_once``, tried a second time when the database timed the
+        read out: the first reads after a start run on a cold page cache and
+        can take several times longer than the same read a moment later."""
+        try:
+            return await self._read_once(*args, **kwargs)
+        except Exception as error:
+            if "TransactionTimedOut" not in str(getattr(error, "code", "") or ""):
+                raise
+        return await self._read_once(*args, **kwargs)
+
+    async def warm(self, timeout=60):
+        """Read every node and relationship once, so the page cache holds the
+        graph before the first question. Failures are ignored: a cold cache
+        only makes the first reads slower."""
+        try:
+            async with self.driver.session(
+                database=self.database, default_access_mode="READ"
+            ) as session:
+                from neo4j import Query
+
+                result = await session.run(
+                    Query(
+                        "MATCH (n) OPTIONAL MATCH (n)-[r]->() "
+                        "RETURN count(n) AS nodes, count(r) AS relationships",
+                        timeout=timeout,
+                    )
+                )
+                await result.consume()
+        except Exception:
+            return False
+        return True
+
+    async def _read_once(
         self,
         query,
         parameters,
@@ -471,7 +580,11 @@ class GraphQueryService:
                         )
                     explained = await tx.run("EXPLAIN " + query, parameters)
                     summary = await explained.consume()
-                    if summary.query_type != "r":
+                    if summary.query_type != "r" or any(
+                        refused in operator
+                        for operator in _plan_operators(summary.plan)
+                        for refused in _PLAN_REFUSED
+                    ):
                         raise ValueError(
                             "Only read-only Cypher query plans are accepted"
                         )
@@ -2705,6 +2818,94 @@ class GraphQueryService:
             timeout=timeout,
         )
 
+    async def _why_empty(self, query, parameters, repo_url, snapshot_id, timeout):
+        """Sentences on why a query matched nothing, from the paths and names
+        it looks for: a path no analyzed file has (and whether the file is in
+        the working copy, and whether its kind of file is analyzed at all), or
+        a name that is declared, so the query's other conditions are what
+        matched nothing."""
+        strings = _query_strings(query, parameters)
+        paths = [v for v in strings if _is_path(v)]
+        # Code names: camelCase, PascalCase or snake_case. Plain words
+        # ('python', 'linked') and ALL_CAPS labels are property values.
+        names = [
+            v
+            for v in strings
+            if _NAMELIKE.match(v) and re.search(r"[a-z]", v) and re.search(r"[A-Z_]", v)
+        ]
+        paths, names = paths[:8], names[:8]
+        if not paths and not names:
+            return []
+        reasons = []
+        async with self.driver.session(
+            database=self.database, default_access_mode="READ"
+        ) as session:
+            tx = await session.begin_transaction(timeout=timeout)
+            try:
+                scope = dict(repo_url=repo_url, snapshot_id=snapshot_id)
+                if paths:
+                    result = await tx.run(
+                        "UNWIND $paths AS p OPTIONAL MATCH (f:File {repo_url:$repo_url,"
+                        "snapshot_id:$snapshot_id}) WHERE f.path CONTAINS p "
+                        "RETURN p, count(f) AS files",
+                        paths=paths,
+                        **scope,
+                    )
+                    absent = [r["p"] async for r in result if not r["files"]]
+                    analyzed = set()
+                    if absent:
+                        result = await tx.run(
+                            "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+                            "WITH split(f.path, '/') AS parts "
+                            "WITH split(parts[size(parts) - 1], '.') AS pieces "
+                            "WHERE size(pieces) > 1 "
+                            "RETURN DISTINCT pieces[size(pieces) - 1] AS extension",
+                            **scope,
+                        )
+                        analyzed = {r["extension"] async for r in result}
+                    for path in absent:
+                        sentence = f"No analyzed file path contains '{path}'"
+                        if self.workspace is not None and self._workspace_digest(
+                            path
+                        ) not in (None, _OUTSIDE):
+                            sentence += ", though the working copy has that file"
+                        extension = path.rsplit("/", 1)[-1].rpartition(".")[2]
+                        if (
+                            "." in path.rsplit("/", 1)[-1]
+                            and analyzed
+                            and (extension not in analyzed)
+                        ):
+                            sentence += (
+                                f": no .{extension} file is analyzed in this snapshot "
+                                "(analyzed: "
+                                + ", ".join("." + e for e in sorted(analyzed)[:20])
+                                + "); search the source for it"
+                            )
+                        reasons.append(sentence + ".")
+                if names:
+                    result = await tx.run(
+                        "UNWIND $names AS n OPTIONAL MATCH (s:Symbol {repo_url:$repo_url,"
+                        "snapshot_id:$snapshot_id,name:n}) "
+                        "RETURN n, count(s) AS declared",
+                        names=names,
+                        **scope,
+                    )
+                    for record in [r async for r in result]:
+                        if record["declared"]:
+                            reasons.append(
+                                f"'{record['n']}' is declared ({record['declared']} "
+                                "declaration(s) by that name), so the query's other "
+                                "conditions matched nothing."
+                            )
+                        else:
+                            reasons.append(
+                                f"Nothing named '{record['n']}' is declared in the "
+                                "analyzed files."
+                            )
+            finally:
+                await tx.rollback()
+        return reasons
+
     async def query_cypher(
         self,
         query,
@@ -2729,7 +2930,7 @@ class GraphQueryService:
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
         _check_cypher(query, parameters, allow_database_scope)
-        return await self._read(
+        response = await self._read(
             query,
             parameters,
             repo_url,
@@ -2740,6 +2941,13 @@ class GraphQueryService:
             database_scope=True,
             bare=True,
         )
+        if "items" in response and not response["items"]:
+            reasons = await self._why_empty(
+                query, parameters, repo_url, snapshot_id, timeout
+            )
+            if reasons:
+                response["why_empty"] = reasons
+        return response
 
     async def query_cypher_text(
         self,
@@ -2848,6 +3056,13 @@ class GraphQueryService:
         text = render(
             response, nodes=nodes, coverage=coverage, query=query, limit=limit
         )
+        if "items" in response and not response["items"]:
+            reasons = await self._why_empty(
+                query, parameters, repo_url, snapshot_id, timeout
+            )
+            if reasons:
+                lines = text.split("\n")
+                text = "\n".join(lines[:1] + reasons + lines[1:])
         if len(text.encode()) > max_output_bytes:
             lines = text.split("\n")
             kept, size = [], 0

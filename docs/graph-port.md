@@ -801,6 +801,19 @@ and the report is then not `complete`; files in other languages are listed in
 `unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
 run, 2 invalid input or a diff that does not apply.
 
+`edit_check.check_working_copy` checks edits already made in place: the
+diff is the working copy against its git HEAD commit, new files included
+(`git add -A` into a scratch index, so the repository's own index is not
+touched; `node_modules` is left out), and the unedited side is the working
+copy with that diff taken out again. A work tree whose git directory is
+elsewhere is read with `git_dir=`. The MCP server serves both as `checkEdit`
+when it has a workspace (`DEEPTHOUGHT_WORKSPACE`, with
+`DEEPTHOUGHT_WORKSPACE_GIT_DIR` for a separate git directory): with no diff it
+checks the working copy's edits, with one it checks that proposed edit on top
+of the working copy as it is now. An agent that edits files directly no longer
+has to write a diff of its own edits, which never applies to the files it
+already changed.
+
 Independent checks against compiler-derived call truth (verification): a
 parameter added to chi's `NewRouter` breaks 115 of 115 call sites (67 in the
 package and its tests, 48 in middleware), to ky's `cancelBody` 12 of 12, and
@@ -6235,6 +6248,22 @@ the selected complete repository/revision. It rejects procedures, administration
 updates and multiple statements, checks the Neo4j EXPLAIN read-only query type,
 bounds transaction time/result rows/serialized bytes, and always rolls back.
 These restrictions are intentional; it is not unrestricted Neo4j administration.
+
+The keyword check reads only the query's own clauses: quoted text, comments,
+property keys (`s.set`, `{use: ...}`), parameters and the variables the query
+binds (`r AS call`, `(set)`) are blanked first, so a read that names a variable
+`call` is not refused. The EXPLAIN plan is also refused when any operator is a
+procedure call or LOAD CSV, which the query type alone does not show. A read
+the database times out is tried once more: the first reads after a start run on
+a cold page cache, and the MCP server reads the whole graph once at startup to
+warm it without making the first question wait.
+
+An empty answer says why where it can, from the paths and code names the query
+looks for (quoted literals and string parameters): `why_empty` in JSON, lines
+under "No results." in text. A path no analyzed file has is named, with
+whether the working copy has it and, when no file of its kind is analyzed at
+all (`.vue`, `.proto`), the kinds that are; a code name that is declared says
+the query's other conditions matched nothing, and one that is not says so.
 
 **Database privileges or a read-only database configuration must enforce read-only
 access for untrusted agents. Driver read routing is not access control.** See the
