@@ -2765,7 +2765,10 @@ which only client requests are read:
   is a name bound once in its file, found through the file's imports
   (relative to its package, else under the nearest enclosing directory that
   holds the module, following re-exports). A router mounted twice gets a
-  route per mount; one never mounted keeps its own prefix. Express mounts
+  route per mount; one never mounted keeps its own prefix. A prefix the code
+  does not fix at the start of the path (`prefix=settings.API_V1_STR`) keeps
+  the route, matched on the rest of its path, and the route records
+  `base_unknown`. Express mounts
   compose the same way: `parent.use([path,] ...routers)` joins the parent's
   prefixes with the path (each path of an array; a name bound to a string
   counts as a path). A mounted router is a name bound once to `express()`,
@@ -3480,6 +3483,41 @@ four client operations in files the grammar parses fully are read. Three
 link to their mutations, and `subscribeWebPush` is
 `graphql:client_field_unknown`: the server no longer declares it.
 
+### Payload types
+
+A route or message destination CARRIES the types its handler writes for
+what goes over it, so a change to such a type reaches the contract and,
+through it, the clients that must change with it (`get_impact` follows
+CARRIES backwards):
+
+| Edge | Rule | Evidence | What fires it |
+| --- | --- | --- | --- |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
+| MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
+
+The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
+name written in such a type, through imports, re-exports and the project's
+path aliases, to the repository's class, interface, type alias or enum
+declaration, the tree-sitter Symbol the edge ends at. Arrays, unions,
+intersections, the members of inline object types and type arguments are
+read through (`{ user: IUser; id: string }` carries `IUser`; `Promise<T>`,
+`Observable<T>`, `Page<T>` and `Partial<T>` carry `T`); primitives carry
+no declaration. A name the compiler resolves to
+no declaration at all, such as a type of a workspace package that is not
+installed, is counted in the metric `payload_types_unresolved`, next to
+`payload_types` (the edges written). Types declared only in `node_modules`
+(Prisma's generated client, say) are not the repository's and give no
+edge.
+
+On the 11 NestJS repositories of the contract corpus, 200 edges are
+written. Every written handler type that names a declaration of the
+repository has its edge. The types not linked are of
+`prisma-examples`, whose models come from the generated client outside the
+repository, and of `travel_booking_microservice`, whose DTOs come from the
+`building-blocks` workspace package, which only an install links.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
@@ -3724,6 +3762,24 @@ call and import coverage uses too:
 - `sites`: the routes, handlers, calls, resolvers, operations or endpoints
   found; for `REQUESTS` also how many were `linked`, `ambiguous` and
   `unresolved`.
+- `unread` and `files_unread`: the sites a reader saw but could not read,
+  and the files holding them: a route or request path, GraphQL field or
+  message destination that is not a literal, a gRPC handler without its
+  declaration, a GraphQL operation that does not parse, a Go file the type
+  checker could not check (counted for both messaging families). An unread
+  site is one where no route, request, field or endpoint could be formed at
+  all; a request whose URL is not literal is still formed, with the unread
+  part as a placeholder, and when it matches no route it is counted in
+  `unresolved`, not `unread`. With
+  `sites` and the `REQUESTS` resolution counts they say how much of what
+  the readers recognised is in the graph. Unread sites of specs and
+  generator configs have no source language and are only in the run's
+  `unread` metric. So are those of gateway configs (nginx `location` blocks,
+  Spring Cloud Gateway, YARP, Ocelot): a gateway route is not an edge of its
+  own but a hop a `REQUESTS` link is resolved through, so a gateway route
+  that is not read shows up as `unresolved` requests behind it. A call no reader recognises (a client the readers
+  do not know, C# gRPC calls through `using static`) is in no count, so
+  `unread: 0` is not a proof that every site is in the graph.
 
 The readers per family are `CONTRACT_READERS` in
 `analysis_tools/service_contracts.py`:
@@ -3870,6 +3926,36 @@ at run time, so their routes are not read. emqx, fleetyards and
 realworld-react-fsd do not commit orval's output, and tidb-dashboard's
 generated files are server stubs.
 
+
+### OpenAPI TypeScript clients (@hey-api/openapi-ts)
+
+@hey-api/openapi-ts also turns an OpenAPI document into TypeScript functions,
+one per operation, each sending through the client it generates:
+
+```ts
+public static readItem(options: Options<ReadItemData>) {
+  return (options.client ?? client).get({ url: '/api/v1/items/{id}', ...options });
+}
+```
+
+In a file whose header comment says `This file is auto-generated by
+@hey-api/openapi-ts`, a call `<expression>.<method>(config)`, where the method
+is an HTTP method in lower case and `config` is an object literal with a `url`
+key, is an `HttpRequest` with client `hey-api` and that method. So is a call
+`f(OpenAPI, config)` whose `config` has `url` and `method` keys, as its legacy
+clients write `__request(OpenAPI, {method, url, path})`. Each `{parameter}`
+in the URL is filled in at run time, and the base URL is the client's run-time
+configuration, which is not read. Links carry the
+`service-contracts.hey-api-client-*` rules (pattern_matched).
+
+As for orval, this reads the generated file, not the spec: the spec is often
+not committed (fastapi/full-stack-fastapi-template generates it from the
+backend), and running the generator would run the repository's configuration
+code. In full-stack-fastapi-template (`77e550a`) all 23 operations of
+`frontend/src/client/sdk.gen.ts` are read. Each links to the FastAPI route it
+calls through `http-path-unknown-base`, since those routes sit under
+`settings.API_V1_STR`; on main without unknown-base routes they are
+unresolved as `no_route`.
 ### OpenAPI TypeScript clients (openapi-fetch)
 
 openapi-fetch clients are typed by the `paths` that openapi-typescript

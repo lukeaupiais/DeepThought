@@ -147,6 +147,56 @@ _LARAVEL_RULE = register_rule(
     )
 )
 
+PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-body-type",
+            "resolved",
+            "A NestJS route handler's parameter decorated @Body() of "
+            "@nestjs/common is written with this type: the TypeScript "
+            "compiler resolves the type's name (through imports, re-exports "
+            "and path aliases) to this declaration of the repository; "
+            "Promise<T>, Observable<T>, arrays, unions and Partial<T> carry "
+            "the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-response-type",
+            "resolved",
+            "A NestJS route handler's written return type names this type: "
+            "the TypeScript compiler resolves the name to this declaration "
+            "of the repository; Promise<T>, Observable<T>, arrays, unions "
+            "and Partial<T> carry the types inside them. An inferred return "
+            "type is not read.",
+        )
+    ),
+}
+
+MESSAGE_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-payload-type",
+            "resolved",
+            "A NestJS @MessagePattern or @EventPattern handler's parameter "
+            "decorated @Payload() (else its first parameter, when that has "
+            "no decorator) is written with this type: the TypeScript "
+            "compiler resolves the type's name to this declaration of the "
+            "repository; Promise<T>, Observable<T>, arrays, unions and "
+            "Partial<T> carry the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-reply-type",
+            "resolved",
+            "A NestJS @MessagePattern handler's written return type names "
+            "this type: the TypeScript compiler resolves the name to this "
+            "declaration of the repository; Promise<T>, Observable<T>, "
+            "arrays, unions and Partial<T> carry the types inside them.",
+        )
+    ),
+}
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -725,6 +775,24 @@ ORVAL_REQUEST_RULES = {
     )
     for rule in REQUEST_RULES
 }
+_HEY_API = (
+    "@hey-api/openapi-ts generated this file from an OpenAPI spec (its "
+    "header says so) and sends the operation through its client: "
+    "client.<method>({url, ...}), the method named by the call, or "
+    "__request(OpenAPI, {method, url, ...}) in its legacy clients. The path "
+    "is the one it wrote, each {parameter} filled in at run time, under the "
+    "base URL the client is configured with at run time, which is not read. "
+)
+HEY_API_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.hey-api-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _HEY_API + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -972,7 +1040,11 @@ CARRIES_MESSAGE_RULE = register_rule(
 # Rules of this tool's edges that are not contract sites (HANDLES,
 # REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
 # Contract coverage counts sites only, so these may be resolved.
-NON_SITE_RULES = frozenset({CARRIES_MESSAGE_RULE.rule_id})
+NON_SITE_RULES = frozenset(
+    {CARRIES_MESSAGE_RULE.rule_id}
+    | {rule.rule_id for rule in PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
+)
 
 
 _BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
@@ -1647,7 +1719,18 @@ CONTRACT_READERS = {
 _RESOLVER = f"service-contracts@{__version__}"
 
 
-def contract_coverage(repo_url, languages, coverage, sites):
+# Unread GraphQL sites of client operations; the others are of servers.
+_GRAPHQL_CLIENT_UNREAD = frozenset({"operation_not_parsed", "client_fragment_root"})
+# The edge family of an unread messaging site by its role; a role naming no
+# direction (a file the Go type checker could not check) counts for both.
+_MESSAGING_UNREAD = {
+    "publish": ("PUBLISHES",),
+    "consume": ("CONSUMES",),
+    "subscribe": ("CONSUMES",),
+}
+
+
+def contract_coverage(repo_url, languages, coverage, sites, unread=None):
     """One EdgeCoverage node per (edge family, protocol, language of the
     repository's source files), in the shape the call and import coverage
     shares. Every contract site rule of this tool is pattern_matched: the
@@ -1658,8 +1741,13 @@ def contract_coverage(repo_url, languages, coverage, sites):
     ``not_supported`` when it has no reader; ``files_linked`` is 0.
     ``resolver``; ``files`` (``languages``, from ``source_languages``);
     ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
-    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
-    resolution status or None) per site."""
+    ``unresolved``; ``unread`` and ``files_unread``, the sites the readers
+    saw but could not read (a path, destination or field that is not a
+    literal, a handler without its declaration, ...), and the files holding
+    them. Calls no reader recognises are in neither count. ``sites`` maps
+    each (family, protocol) to (file, resolution status or None) per site;
+    ``unread`` maps each (family, protocol) to the file of each unread
+    site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
     for family, protocol in sorted(CONTRACT_READERS):
@@ -1669,9 +1757,14 @@ def contract_coverage(repo_url, languages, coverage, sites):
             found["sites"] = found.get("sites", 0) + 1
             if status is not None:
                 found[status] = found.get(status, 0) + 1
+        missed = {}
+        for file in (unread or {}).get((family, protocol), ()):
+            files = missed.setdefault(language_of.get(file), {})
+            files[file] = files.get(file, 0) + 1
         for language in sorted(languages):
             read = language in CONTRACT_READERS[(family, protocol)]
             found = counts.get(language, {})
+            not_read = missed.get(language, {})
             reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
@@ -1692,6 +1785,8 @@ def contract_coverage(repo_url, languages, coverage, sites):
                         "files": languages[language],
                         "files_linked": 0,
                         "sites": found.get("sites", 0),
+                        "unread": sum(not_read.values()),
+                        "files_unread": len(not_read),
                         **(
                             {
                                 key: found.get(key, 0)
@@ -2786,6 +2881,66 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        # A route or message destination carries the types its handler
+        # writes for the request and the response, as the TypeScript
+        # compiler resolves them.
+        declared = defaultdict(list)
+        for d in definitions.values():
+            declared[(d.file, d.symbol.rsplit(".", 1)[-1])].append(d)
+        carried = 0
+        carried_edges = set()
+        payload_unresolved = 0
+
+        def carries(file, payloads, labels, name, line, rules):
+            nonlocal carried, payload_unresolved
+            types = {} if scripts is None else scripts.compiler.types.get(file, {})
+            missing = (
+                {}
+                if scripts is None
+                else scripts.compiler.unresolved_types.get(file, {})
+            )
+            for direction, start, end, key in payloads:
+                payload_unresolved += missing.get((start, end), 0)
+                for type_file, type_name, type_line, _ in types.get((start, end), ()):
+                    found = [
+                        d
+                        for d in declared.get((type_file, type_name), ())
+                        if d.line <= type_line <= d.end_line
+                    ]
+                    if len(found) != 1:
+                        continue
+                    if (name, found[0].id, direction, key) in carried_edges:
+                        continue
+                    carried_edges.add((name, found[0].id, direction, key))
+                    target_labels, target = symbol_node(found[0].id)
+                    carried += 1
+                    relationships.append(
+                        RelationshipData(
+                            "CARRIES",
+                            labels,
+                            {"qualified_name": name, "repo_url": repo_url},
+                            target_labels,
+                            {"qualified_name": target, "repo_url": repo_url},
+                            {
+                                "direction": direction,
+                                **({"body_key": key} if key else {}),
+                                "file_path": file,
+                                "line": line,
+                                **_evidence(rules[direction]),
+                            },
+                        )
+                    )
+
+        for route in routes:
+            if route.payloads:
+                carries(
+                    route.file,
+                    route.payloads,
+                    ["HttpRoute", "Contract"],
+                    f"{repo_url}::{route.file}::http-route::{route.id}",
+                    route.line,
+                    PAYLOAD_RULES,
+                )
         by_id = {r.id: r for r in requests}
         counts = {}
         undisclosed = {}
@@ -2865,6 +3020,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
                                     "orval": ORVAL_REQUEST_RULES,
+                                    "hey-api": HEY_API_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -3176,6 +3332,15 @@ class ServiceContractTool(AnalysisTool):
                     },
                 ),
             )
+            if endpoint.payloads:
+                carries(
+                    endpoint.file,
+                    endpoint.payloads,
+                    ["MessageDestination", "Contract"],
+                    name,
+                    endpoint.line,
+                    MESSAGE_PAYLOAD_RULES,
+                )
             if endpoint.declaration_id is None:
                 source = file_node(endpoint.file)
             else:
@@ -3264,6 +3429,22 @@ class ServiceContractTool(AnalysisTool):
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         request_status = {r.request_id: r.status for r in resolutions}
+        unread_sites = defaultdict(list)
+        for item in unread:
+            if item.kind in ("route", "request"):
+                family = "HANDLES" if item.kind == "route" else "REQUESTS"
+                unread_sites[(family, "http")].append(item.file)
+            elif item.kind == "graphql":
+                family = (
+                    "REQUESTS" if item.reason in _GRAPHQL_CLIENT_UNREAD else "HANDLES"
+                )
+                unread_sites[(family, "graphql")].append(item.file)
+        for file, _, kind, _ in grpc.unread:
+            if kind == "server":
+                unread_sites[("HANDLES", "grpc")].append(file)
+        for item in messaging_unread:
+            for family in _MESSAGING_UNREAD.get(item.role, ("PUBLISHES", "CONSUMES")):
+                unread_sites[(family, "messaging")].append(item.file)
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3293,6 +3474,7 @@ class ServiceContractTool(AnalysisTool):
                     (e.file, None) for e in endpoints if e.role != "publish"
                 ],
             },
+            unread_sites,
         )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
@@ -3326,6 +3508,8 @@ class ServiceContractTool(AnalysisTool):
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
                 "gateway_routes": len(gateways),
+                "payload_types": carried,
+                "payload_types_unresolved": payload_unresolved,
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 **({"go_gopath_packages": go_gopath} if go_gopath else {}),
