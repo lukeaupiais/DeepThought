@@ -6061,13 +6061,21 @@ compiler link stands over the index):
 | `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
 | `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
 | `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
-| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome; `unresolved` leaves out `external` sites |
+| `external` | sites a resolver placed outside the repository (`scip_external`, `pyright_external`, `compiler_external_module`): library and standard-library calls and imports. They are decided, and link to nothing here by design |
+| `unresolved_reasons` | the reasons of the ambiguous and unresolved sites, by count (`unknown` when none was recorded), so a gap in the repository's own code (`scip_target_not_declaration`, `receiver_type_unknown`, ...) can be told apart from a site the index has no symbol for (`scip_no_occurrence`, which includes Go builtins such as `len`) |
+
+`linked` therefore means that every site of the family was decided by a
+deterministic resolver: linked to its declaration here, placed outside the
+repository, or left unlinked for the reason it gives. It does not mean
+`unresolved` is 0; read `unresolved_reasons` for what is left.
 
 A file that failed to parse is not counted. Imports in other languages are
 decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
 `no_sites`). An empty
-`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
-lists are; `describeSnapshot` decodes it.
+`resolver` list and the `unresolved_reasons` object are stored as JSON text
+(`_dt_json_fields`) as other empty lists and objects are; `describeSnapshot`
+decodes them.
 
 ## Incremental re-indexing
 
