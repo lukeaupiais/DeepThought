@@ -288,7 +288,8 @@ class GoPayloadTypeTests(unittest.TestCase):
     def test_net_http_helpers_and_values_given_as_any(self):
         # net/http's request and response writer are followed into helpers;
         # a helper's interface parameter (v any) carries the type of what
-        # each call gives it, through a second helper too.
+        # each call gives it, through a second helper too. A call behind a
+        # type assertion runs only for a caller whose value can pass it.
         found = self.carried(
             {
                 "svc/go.mod": "module example.com/shop\n\ngo 1.22\n",
@@ -301,6 +302,8 @@ class GoPayloadTypeTests(unittest.TestCase):
                 (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
             ),
             [
+                ("/broken", "apiError", "response", "go-response-body-type-in-helper"),
+                ("/health", "Order", "response", "go-response-body-type-in-helper"),
                 ("/orders", "CreateOrder", "request", "go-request-body-type-in-helper"),
                 ("/orders", "Order", "response", "go-response-body-type-in-helper"),
                 ("/orders", "Problem", "response", "go-response-body-type-in-helper"),
@@ -342,6 +345,30 @@ func writeOrder(w http.ResponseWriter, o api.Order) {
 \tjson.NewEncoder(w).Encode(o)
 }
 
+type apiError struct {
+\tDetail string `json:"detail"`
+}
+
+func (e *apiError) write(w http.ResponseWriter) {
+\tjson.NewEncoder(w).Encode(e)
+}
+
+func render(w http.ResponseWriter, v any) {
+\tif e, ok := v.(*apiError); ok {
+\t\te.write(w)
+\t\treturn
+\t}
+\twriteJSON(w, v)
+}
+
+func health(w http.ResponseWriter, r *http.Request) {
+\trender(w, api.Order{})
+}
+
+func broken(w http.ResponseWriter, r *http.Request) {
+\trender(w, &apiError{Detail: "down"})
+}
+
 func create(w http.ResponseWriter, r *http.Request) {
 \tvar in api.CreateOrder
 \tif err := readJSON(r, &in); err != nil {
@@ -360,6 +387,8 @@ func status(w http.ResponseWriter, r *http.Request) {
 func main() {
 \thttp.HandleFunc("/orders", create)
 \thttp.HandleFunc("/status", status)
+\thttp.HandleFunc("/health", health)
+\thttp.HandleFunc("/broken", broken)
 \thttp.ListenAndServe(":8080", nil)
 }
 """

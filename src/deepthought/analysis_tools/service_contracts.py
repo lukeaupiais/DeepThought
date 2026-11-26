@@ -3291,6 +3291,17 @@ class ServiceContractTool(AnalysisTool):
                 callee = item.callee
                 if not received or callee is None:
                     continue
+                # A call behind a type assertion the caller's value cannot
+                # pass ("if p, ok := v.(*Problem); ok" when v holds an
+                # EnvResponse) does not run for this caller.
+                if any(
+                    asserted is not None
+                    and value in bound
+                    and bound[value][0] is not None
+                    and bound[value][0] != asserted
+                    for value, asserted in item.guards
+                ):
+                    continue
                 given = {}
                 for argument, parameter, sent, where, interface in item.typed:
                     if parameter is None:
