@@ -712,6 +712,17 @@ REQUEST_RULES = {
             "repository; the host, base URL and gateway are not checked.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            contract_rules.HTTP_UNKNOWN_BASE,
+            "pattern_matched",
+            "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_LOCAL_PORT: register_rule(
         EvidenceRule(
             contract_rules.HTTP_LOCAL_PORT,
@@ -897,6 +908,18 @@ OPENAPI_REQUEST_RULES = {
             "that program serves.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_GATEWAY: register_rule(
         EvidenceRule(
             "service-contracts.openapi-client-gateway",
@@ -926,6 +949,18 @@ OPENAPI_FEIGN_REQUEST_RULES = {
             _OPENAPI_FEIGN
             + "The request fits this route more specifically than any other "
             "route in the repository.",
+        )
+    ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-feign-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_FEIGN
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
         )
     ),
     contract_rules.HTTP_GATEWAY: register_rule(

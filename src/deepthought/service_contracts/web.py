@@ -147,6 +147,9 @@ class _Context:
                 path=full,
                 framework=framework,
                 base_unknown=base_unknown,
+                # Every unknown base read here is text written before the
+                # path (``_unknown_base``).
+                base_written=base_unknown,
                 payloads=tuple(payloads),
             )
         )
