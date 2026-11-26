@@ -52,6 +52,10 @@ def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
 
 
+# A declaration given by place rather than name: "path/to/file.py:42".
+_PLACE = re.compile(r"(?P<file>[^:]+):(?P<line>[1-9][0-9]*)")
+
+
 def _text(value, name):
     if not isinstance(value, str) or not value.strip():
         raise ValueError(name + " must be a nonempty string")
@@ -69,6 +73,30 @@ def _bounds(limit, max_output_bytes, timeout):
         or not 0 < timeout <= 30
     ):
         raise ValueError("timeout must be finite, positive and at most 30 seconds")
+
+
+TOP_LEVEL = "(top level of file)"
+# Each source role with the pattern a whole path matches, for Cypher.
+_ROLES = [
+    {"name": name, "pattern": ROLE_PATTERNS[name]} for name in sorted(ROLE_PATTERNS)
+]
+
+
+def _declaration(variable):
+    """A Cypher map naming the declaration ``variable`` binds: its qualified
+    name, name, kind, file, line span and signature. A File stands for the
+    code outside every declaration (module-level calls, anonymous
+    callbacks): it is named ``(top level of file)``, with no line span, and
+    ``top_level`` is true."""
+    v = variable
+    return (
+        f"{v} {{.qualified_name,"
+        f"name:CASE WHEN {v}:File THEN '{TOP_LEVEL}' ELSE {v}.name END,"
+        f"kind:CASE WHEN {v}:File THEN 'File' ELSE {v}.kind END,"
+        f"file_path:coalesce({v}.file_path,{v}.path),"
+        f".start_line,.end_line,"
+        f".signature,top_level:{v}:File}}"
+    )
 
 
 def _evidence_filter(evidence_types):
@@ -130,8 +158,13 @@ def _value(value):
             "properties": decode_properties(dict(value)),
         }
     if isinstance(value, Path):
+        nodes = [_value(n) for n in value.nodes]
+        # A path's steps are named, not described: the declaration it
+        # answers with carries its signature.
+        for node in nodes:
+            node["properties"].pop("signature", None)
         return {
-            "nodes": [_value(n) for n in value.nodes],
+            "nodes": nodes,
             "relationships": [_value(r) for r in value.relationships],
         }
     if isinstance(value, dict):
@@ -145,6 +178,10 @@ def _value(value):
     if hasattr(value, "iso_format"):
         return value.iso_format()
     raise ValueError("Unsupported non-JSON query value: " + type(value).__name__)
+
+
+# Storage keys of an EdgeCoverage node, not facts of the record.
+_COVERAGE_STORAGE = {"qualified_name", "repo_url", "snapshot_id"}
 
 
 class GraphQueryService:
@@ -173,6 +210,44 @@ class GraphQueryService:
         if marker is None:
             raise ValueError("Selected repository snapshot is missing or incomplete")
         return marker
+
+    async def _anchor(self, subject, repo_url, snapshot_id, timeout):
+        """The qualified name a query is about. A qualified name is kept; a
+        place, ``file:line``, names the parsed declaration whose name is on
+        that line, or else the innermost one around it (never an indexer's
+        definition node, which also covers parameters and locals). Several declared
+        on that line are ambiguous: a ValueError lists them."""
+        place = _PLACE.fullmatch(subject)
+        if place is None:
+            return subject
+        found = await self._read(
+            "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:$file}) "
+            "WHERE d.start_line <= $line AND $line <= coalesce(d.end_line, d.start_line) "
+            # Parsed declarations only: an indexer's definitions (its
+            # parameters and locals among them) carry source_definition_id.
+            "AND d.source_definition_id IS NULL "
+            # Declarations named on the line start last of all around it.
+            "WITH d, d.start_line = $line AS named "
+            "ORDER BY d.start_line DESC, d.end_line, d.qualified_name "
+            "RETURN d.qualified_name AS qualified_name, named LIMIT $fetch_limit",
+            {"file": place["file"], "line": int(place["line"])},
+            repo_url,
+            snapshot_id,
+            limit=100,
+            timeout=timeout,
+        )
+        items = found["items"]
+        if not items:
+            raise ValueError("no declaration at " + subject)
+        named = [item["qualified_name"] for item in items if item["named"]]
+        if len(named) > 1:
+            raise ValueError(
+                "ambiguous place "
+                + subject
+                + ": several declarations are named on that line: "
+                + ", ".join(named)
+            )
+        return items[0]["qualified_name"]
 
     async def _read(
         self,
@@ -556,7 +631,8 @@ class GraphQueryService:
                 WITH node,score,$member IS NOT NULL
                     AND (node.name = $query OR node.name ENDS WITH $member) AS name_match
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element,
                     score,name_match
                 ORDER BY name_match DESC,score DESC,element.file_path,element.start_line,
                     element.qualified_name
@@ -565,7 +641,8 @@ class GraphQueryService:
             statement = """MATCH (node:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
                 WHERE $file_path IS NULL OR node.file_path=$file_path
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element
                 ORDER BY element.file_path,element.start_line,element.qualified_name
                 LIMIT $fetch_limit"""
         return await self._read(
@@ -768,6 +845,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "function_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
@@ -778,9 +856,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -804,6 +884,7 @@ class GraphQueryService:
         *,
         snapshot_id,
         file_path=None,
+        target=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
@@ -813,24 +894,38 @@ class GraphQueryService:
         target, the others with the reason no rule linked them, and how many
         there are of each. Each names its ``caller``, the function, method or
         file around it (qualified name, name, kind and line span), and the
-        ``source_roles`` of its file (``test``, ``example``)."""
+        ``source_roles`` of its file (``test``, ``example``).
+
+        ``target`` (a qualified name or a ``file:line`` place) keeps the
+        calls linked to that one declaration and the ambiguous ones that
+        list it among their candidates; same-named calls of anything else
+        are left out. A call of a Go interface method that DISPATCHES_TO the
+        target is kept too, with the interface method as ``via``. Unresolved
+        calls of the name could be calls of it, so they stay in the counts,
+        not the items."""
         _text(name, "name")
         if file_path is not None:
             _text(file_path, "file_path")
         _bounds(limit, max_output_bytes, timeout)
-        parameters = {"name": name, "file_path": file_path}
+        if target is not None:
+            _text(target, "target")
+            target = await self._anchor(target, repo_url, snapshot_id, timeout)
+        parameters = {"name": name, "file_path": file_path, "target": target}
         linked = """MATCH (caller)-[r:CALLS {name:$name}]->(target)
             WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
               AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
-              AND ($file_path IS NULL OR caller.file_path=$file_path)"""
+              AND ($file_path IS NULL OR caller.file_path=$file_path)
+              AND ($target IS NULL OR target.qualified_name=$target
+                OR EXISTS { (target)-[:DISPATCHES_TO]->(:Symbol {repo_url:$repo_url,
+                    snapshot_id:$snapshot_id,qualified_name:$target}) })"""
         unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
-            WHERE $file_path IS NULL OR call.file_path=$file_path
+            WHERE ($file_path IS NULL OR call.file_path=$file_path)
+              AND ($target IS NULL OR $target IN coalesce(call.candidates, [])KEPT)
             OPTIONAL MATCH (caller)-[:HAS_UNRESOLVED_CALL]->(call)"""
         # The function, method or file around the call, and whether its file
         # is a test or an example.
         enclosing = (
-            "caller {.qualified_name,.name,.start_line,.end_line,"
-            "kind:coalesce(caller.kind, 'File')} AS caller,"
+            _declaration("caller") + " AS caller,"
             "[role IN $roles WHERE coalesce(caller.file_path, caller.path, '') "
             "=~ role.pattern | role.name] AS source_roles,"
         )
@@ -838,7 +933,7 @@ class GraphQueryService:
             "CALL () { "
             + linked
             + " RETURN 'linked' AS status,count(r) AS calls UNION ALL "
-            + unlinked
+            + unlinked.replace("KEPT", " OR call.status='unresolved'")
             + " RETURN call.status AS status,count(call) AS calls } "
             "RETURN status,sum(calls) AS calls ORDER BY status",
             parameters,
@@ -855,24 +950,21 @@ class GraphQueryService:
             "r.line AS line,r.column AS column,"
             + enclosing
             + "null AS reason,null AS resolver,"
-            "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
-            + unlinked
+            "target.qualified_name AS target,"
+            # A call of an interface method reaches the target through it.
+            "CASE WHEN target.qualified_name <> $target THEN target.qualified_name END AS via,"
+            "[] AS candidates,r AS relationship UNION ALL "
+            + unlinked.replace("KEPT", "")
             + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
             "call.line AS line,call.column AS column,"
             + enclosing
             + "call.reason AS reason,"
-            "call.resolver AS resolver,null AS target,"
+            "call.resolver AS resolver,null AS target,null AS via,"
             "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
             "RETURN status,callee,file_path,line,column,caller,source_roles,reason,"
-            "resolver,target,candidates,relationship "
+            "resolver,target,via,candidates,relationship "
             "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
-            parameters
-            | {
-                "roles": [
-                    {"name": role, "pattern": ROLE_PATTERNS[role]}
-                    for role in sorted(ROLE_PATTERNS)
-                ]
-            },
+            parameters | {"roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -941,6 +1033,8 @@ class GraphQueryService:
         """
         if change not in ("signature", "behaviour"):
             raise ValueError("change must be signature or behaviour")
+        _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -1050,20 +1144,31 @@ class GraphQueryService:
             "qualified_name:$subject}) "
             "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
-            "WITH provider, collect(DISTINCT type(r)) AS relations "
-            "RETURN provider.qualified_name AS qualified_name, "
-            "coalesce(provider.name, provider.path) AS name, "
-            "coalesce(provider.file_path, provider.path) AS file_path, "
-            "provider.start_line AS start_line, relations "
-            "ORDER BY file_path, start_line, qualified_name",
-            {"subject": qualified_name},
+            "WITH provider, collect(DISTINCT type(r)) AS relations, "
+            "collect(DISTINCT r.line) AS lines "
+            # The declaration (or top level of a file) that provides it, as
+            # call sites name their caller, with the lines of its edges.
+            "RETURN " + _declaration("provider") + " AS provider, relations, "
+            "[line IN lines WHERE line IS NOT NULL] AS lines, "
+            "[role IN $roles WHERE coalesce(provider.file_path, provider.path, '') "
+            "=~ role.pattern | role.name] AS source_roles "
+            "ORDER BY provider.file_path, provider.start_line, provider.qualified_name",
+            {"subject": qualified_name, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=10,
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
-        providers = found["items"]
+        providers = [
+            item["provider"]
+            | {
+                "relations": item["relations"],
+                "lines": sorted(item["lines"]),
+                "source_roles": item["source_roles"],
+            }
+            for item in found["items"]
+        ]
         # The providers share the output budget with the dependents.
         while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
             providers.pop()
@@ -1222,10 +1327,14 @@ class GraphQueryService:
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
                 "WITH root, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried "
+                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried, "
+                # The lines of every edge the dependent starts toward the
+                # change, on any path.
+                "collect(DISTINCT relationships(path)[0].line) AS lines "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
-                ".file_path,.start_line,"
+                ".file_path,.start_line,.end_line,.signature,top_level:dependent:File,"
                 "labels:labels(dependent)} AS element, "
+                "[line IN lines WHERE line IS NOT NULL] AS lines, "
                 "length(best.path) AS depth, "
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
@@ -1236,7 +1345,9 @@ class GraphQueryService:
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
-                "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
+                "evidence_type:r.evidence_type,rule_id:r.rule_id,line:r.line,"
+                "from:[n IN [startNode(r)] | " + _declaration("n") + "][0],"
+                "to:[n IN [endNode(r)] | " + _declaration("n") + "][0]}] AS edges "
                 "ORDER BY CASE nearest WHEN 1 THEN 0 ELSE 1 END, depth, best.weakness, "
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
@@ -1253,10 +1364,7 @@ class GraphQueryService:
                 "offset": offset,
                 "evidence": evidence,
                 "exclude": exclude,
-                "roles": [
-                    {"name": name, "pattern": ROLE_PATTERNS[name]}
-                    for name in sorted(ROLE_PATTERNS)
-                ],
+                "roles": _ROLES,
                 "reverse": (reverse or "").split("|") if reverse else [],
             },
             repo_url,
@@ -1267,6 +1375,8 @@ class GraphQueryService:
         )
         if not response["items"]:
             response["status"] = "unsupported_or_unobserved"
+        for item in response["items"]:
+            item["lines"] = sorted(item["lines"])
         if exclude_roles is not None:
             response["exclude_roles"] = sorted(set(exclude_roles))
         response["max_depth"] = max_depth
@@ -1341,6 +1451,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, limit, budget, timeout
     ):
         _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         pattern = (
             "(other:Symbol)-[r:CONTAINS]->(d)"
             if incoming
@@ -1412,6 +1523,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "type_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:INHERITS_FROM]->(t)"
@@ -1424,9 +1536,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -2076,6 +2190,7 @@ class GraphQueryService:
         interface ``extends`` edges are followed too.
         """
         _text(class_qname, "class_qname")
+        class_qname = await self._anchor(class_qname, repo_url, snapshot_id, timeout)
         if type(max_depth) is not int or not 1 <= max_depth <= 10:
             raise ValueError("max_depth must be an integer from 1 to 10")
         statement = """MATCH (c:Symbol {qualified_name:$qname,repo_url:$repo_url,snapshot_id:$snapshot_id})
@@ -2165,13 +2280,18 @@ class GraphQueryService:
     ):
         """The snapshot's own facts, which raw Cypher answers leave out: its
         repository and ID, capabilities, analysis status, content hash, the
-        tool that published it, when, and the commits it came from."""
-        return await self._read(
+        tool that published it, when, the commits it came from, and its
+        ``coverage``: for each language and edge family, whether a
+        deterministic resolver linked it (``EdgeCoverage`` nodes)."""
+        response = await self._read(
             """MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,
                 status:'complete'})
+            OPTIONAL MATCH (c:EdgeCoverage {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WITH s,c ORDER BY c.family,c.protocol,c.language
+            WITH s,collect(properties(c)) AS coverage
             RETURN s.content_hash AS content_hash,s.tool_name AS tool_name,
                 s.completed_at AS completed_at,
-                coalesce(s.source_commits,[]) AS commits""",
+                coalesce(s.source_commits,[]) AS commits,coverage""",
             {},
             repo_url,
             snapshot_id,
@@ -2179,6 +2299,18 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
+        from .storage.graph.encoding import decode_properties
+
+        for item in response["items"]:
+            item["coverage"] = [
+                {
+                    key: value
+                    for key, value in sorted(decode_properties(record).items())
+                    if key not in _COVERAGE_STORAGE
+                }
+                for record in item["coverage"]
+            ]
+        return response
 
     async def get_unknown_symbols(
         self, repo_url, *, snapshot_id, limit=20, max_output_bytes=16000, timeout=5
