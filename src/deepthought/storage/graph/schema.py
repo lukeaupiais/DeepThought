@@ -79,4 +79,6 @@ RELATIONSHIP_SENTENCES = {
     "SELECTS": "selects from",
     "MAPS_TO": "maps to",
     "REFERENCES_TABLE": "references the table",
+    "CARRIES_MESSAGE": "is a message type of",
+    "HAS_COLUMN": "has the column",
 }
