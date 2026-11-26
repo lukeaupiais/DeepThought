@@ -391,7 +391,7 @@ func main() {
 	app.Listen(":3000")
 }
 
-func auth(c *fiber.Ctx) error { return nil }
+func auth(c *fiber.Ctx) error { return c.Next() }
 """
 
 FIBER_V3 = """package main
@@ -411,7 +411,7 @@ func main() {
 	app.Listen(":3000")
 }
 
-func auth(c fiber.Ctx) error { return nil }
+func auth(c fiber.Ctx) error { return c.Next() }
 """
 
 
