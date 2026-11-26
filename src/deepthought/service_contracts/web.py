@@ -80,6 +80,7 @@ class _Context:
         self.calls_of = None
         self.python_router_of = None
         self.script_route_of = None
+        self.client_of = None
         # Python and Express: {router name: full prefixes} of the file's
         # mounted routers.
         self.mounts = {}
@@ -670,6 +671,13 @@ def extract_python(context):
                 found = receiver(owner_node)
                 if found is not None:
                     client, base = found
+                elif context.client_of is not None:
+                    # A client object made elsewhere (a parameter, a fixture,
+                    # an imported session) whose method the index resolves:
+                    # its base URL is not known here.
+                    client = context.client_of(
+                        context.file, function.child_by_field_name("attribute")
+                    )
             if client is None:
                 continue
             if verb in _VERBS:
@@ -1714,6 +1722,25 @@ def extract_javascript(context, nest=None, axios_imports=None):
             )
             if isinstance(base, OpenapiFetchBase):
                 continue
+            if (
+                base is None
+                and verb in _VERBS
+                and positional
+                and context.client_of is not None
+                and context.client_of(
+                    context.file, function.child_by_field_name("property")
+                )
+                == "axios"
+            ):
+                # An axios instance made elsewhere (an injected or imported
+                # client), which the index resolves the method of: the base
+                # URL it was made with is not known here.
+                context.request_folded(
+                    node,
+                    lambda f, u=positional[0], m=_VERBS[verb]: (m, f.evaluate(u)),
+                    "axios",
+                )
+                continue
             if base is not None and verb == "request":
                 instance_config(node, base, positional[0])
             elif base is not None:
@@ -2341,6 +2368,7 @@ def extract_web(
     go_routes=None,
     python_router_of=None,
     script_route_of=None,
+    client_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -2360,7 +2388,10 @@ def extract_web(
     the receiver name (``_python_router_resolver``), or None;
     ``script_route_of(file, property node)`` the (framework, method) of a
     JavaScript/TypeScript route registration method the SCIP index resolves
-    the called name to (``_script_route_resolver``), or None."""
+    the called name to (``_script_route_resolver``), or None;
+    ``client_of(file, name node)`` the HTTP client library (``requests``,
+    ``httpx``, ``aiohttp``, ``axios``) whose request method the index
+    resolves a called name to (``_client_resolver``), or None."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
@@ -2368,6 +2399,7 @@ def extract_web(
     context.mounts = mounts or {}
     context.python_router_of = python_router_of
     context.script_route_of = script_route_of
+    context.client_of = client_of
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
