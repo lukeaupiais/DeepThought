@@ -25,6 +25,9 @@ FILES = {
     ),
     "_tools/go.mod": "module example.com/tools\n\ngo 1.22\n",
     "_tools/t.go": "package tools\n\nfunc T() {}\n",
+    # A module of its own below testdata, as sqlc's end-to-end packages are.
+    "internal/e2e/testdata/go.mod": "module example.com/e2e\n\ngo 1.22\n",
+    "internal/e2e/testdata/case/q.go": "package case1\n\nfunc Q() {}\n",
 }
 
 
@@ -34,7 +37,9 @@ class GoModulesTest(unittest.TestCase):
             for name, text in FILES.items():
                 (Path(scratch) / name).parent.mkdir(parents=True, exist_ok=True)
                 (Path(scratch) / name).write_text(text)
-            self.assertEqual(indexers.go_modules(scratch), [".", "_tools"])
+            self.assertEqual(
+                indexers.go_modules(scratch), [".", "_tools", "internal/e2e/testdata"]
+            )
 
 
 @unittest.skipUnless(
@@ -67,6 +72,10 @@ class IgnoredDirectoriesTest(unittest.TestCase):
                 "does_not_load",
             )
             self.assertEqual(coverage["testdata/data.go"]["pass"], "ignored_directory")
+            # Indexed by its own module's run, not the root's ignored pass.
+            case = coverage["internal/e2e/testdata/case/q.go"]
+            self.assertEqual(case["status"], "covered")
+            self.assertNotIn("pass", case)
             self.assertEqual(indexers.failed_files(report), {})
             index = scip_pb2.Index()
             index.ParseFromString(

@@ -283,7 +283,8 @@ class IndexersTest(unittest.TestCase):
         (self.root / "svc" / "testdata" / "go.mod").write_text("module fixture\n")
         (self.root / "tools").mkdir()
         (self.root / "tools" / "gen.go").write_text("package tools\n")
-        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc"])
+        # The testdata module holds no Go file, so it gets no run.
+        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc", "svc/testdata"])
         self.fake("scip-go")
         report = indexers.index_workspace(
             self.root,

@@ -2159,8 +2159,9 @@ with a reason:
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
-(outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
-directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
+(outside `vendor` and hidden directories; a `go.mod` below a directory whose
+name starts with `_`, such as chi's `_examples/rest`, or below `testdata`,
+such as sqlc's `internal/endtoend/testdata`, counts)
 gets its own run from its
 own directory, written to `scip-go.scip` for the root module and
 `scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
