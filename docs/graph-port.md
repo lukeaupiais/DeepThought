@@ -151,9 +151,10 @@ enclosing declaration. In Python, JavaScript and TypeScript (and Go, below), a
 method called on a call's, construction's or element's result, on `super` or
 through an optional chain is recorded too, its receiver written with arguments
 and indexes dropped (`f().g`, `new T().m`, `xs[].m`, `super.m`, `a?.b`,
-`f?.().m`); no name-binding rule reads these, so they stay unlinked unless a
-SCIP index links them. Other calls (`f()()`, `x[0]()`, `(a as T).m()`) are not
-recorded. `deepthought.calls.resolve_calls` matches names only,
+`f?.().m`), and a parenthesized receiver no name describes as `(…)`
+(`(a ? b : c).m()` is `(…).m`, `(a as T).m()` is `(…).m`); no name-binding
+rule reads these, so they stay unlinked unless a SCIP index links them. Other
+calls (`f()()`, `x[0]()`, `` `x`.trim() ``) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
 inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
 covers take their targets from the index instead (below); the original's SCIP
@@ -271,6 +272,32 @@ at the callee name, matched as a whole identifier after the call's column. On
 Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
 8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
 `tree-sitter.python-call-typed-receiver` links 85, all confirmed.
+
+### Test cases
+
+JavaScript and TypeScript test runners (Jest, Vitest, Mocha, `node:test`,
+Jasmine, Bun) declare tests by calling a function with a name and a callback,
+so the calls a test makes would otherwise belong to no declaration and answer
+as the whole file. A statement that calls `it`, `test`, `specify`, `bench`,
+`fit`, `xit` or `xtest` (kind `Test`), or `describe`, `suite`, `context`,
+`fdescribe` or `xdescribe` (kind `TestSuite`), optionally through modifiers
+(`only`, `skip`, `todo`, `concurrent`, `sequential`, `fails`, `each`, `for`,
+`skipIf`, `runIf`, with or without arguments: `it.each(rows)("x", fn)`), with
+a string or substitution-free template name first and a function after it,
+is a declaration. Its symbol is the callee as written, without modifier
+arguments, and the name as a JSON string, joined to the enclosing suites
+with `.`: `describe("add").it.each("adds %i")`. No identifier can be written
+that way, so a test case is never a call's target. Its line is the line of
+the call and its span the whole call, so suites contain their cases and the
+calls inside a callback take the test case as their caller; `get_impact` and
+`get_call_sites` then name the test case. The test case's own call (and a
+modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
+with a substitution or with an escape other than a quote or backslash, a call
+whose result is used, and a call through another object (`runner.it(...)`)
+declare nothing. This is a parser rule: listing a runner's tests would load
+the project's test configuration, which runs its code. Python test functions
+and Go `TestX` functions are declarations already; Go `t.Run` closures stay
+inside their test function.
 
 ## Declaration nesting
 
@@ -442,7 +469,8 @@ methods are attributes) leaves the method `unknown`. `source_roles` lists `test`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
-test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+test file names such as `*_test.go`, `test_*.py`, pytest's `conftest.py`,
+Django's `tests.py`, `FooTest.java`,
 `FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
 unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
@@ -4853,6 +4881,7 @@ component roll-up like HTTP routes and message destinations:
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read by PostgreSQL's own parser (libpg_query, through pglast; `postgres` in the `ddl_readers` metric), else from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed`. Each migration set (see `data-contracts.sql-foreign-key`) is replayed in order: `DROP TABLE` removes a table (`ddl_tables_dropped`), `ALTER TABLE ... RENAME TO` moves it, declared at the rename (`ddl_tables_renamed`), and a table created twice keeps its first declaration. Rollback migrations declare nothing. A drizzle-kit folder is its own set; on lobe-chat the replayed tables equal the last drizzle-kit snapshot's 256 |
 | File -[:DECLARES]-> DbColumn, DbTable -[:HAS_COLUMN]-> DbColumn | `data-contracts.sql-column`, `data-contracts.table-has-column` | resolved | each column of a table read by `data-contracts.sql-create-table`, as a `["DbColumn", "Contract"]` node (`{table}::column::{column}`, named `table.column`). The columns are the `CREATE TABLE` column definitions sqlglot (else PostgreSQL's parser) reads, replayed with the tables through each migration set: `ALTER TABLE ... ADD [COLUMN]` adds one, `DROP COLUMN` removes it, and `RENAME COLUMN` and MySQL's `CHANGE` rename it in place, declared at the rename. An ALTER sqlglot does not parse (`ADD CONSTRAINT ... USING INDEX`, `ALTER COLUMN ... SET STATISTICS`) is read by PostgreSQL's parser. A `DO` block runs with its migration, so the statements its PL/pgSQL body runs, in every branch, are read from libpg_query's PL/pgSQL parse at their own lines; a column change in a function or procedure body is not applied (it runs only if called) and leaves its table unknown, and so does a dynamic `EXECUTE` whose expression holds `ALTER` (for the whole migration set). A table that takes columns from elsewhere (`AS SELECT`, `LIKE`, `INHERITS`, `PARTITION OF`, `OF type`) is not complete. A quoted name keeps its case, as PostgreSQL keeps it, and an unquoted one is folded to lower case; a drop or rename matches the exact name, else the one name equal to it ignoring case. A table whose `CREATE TABLE` neither parser reads, or that an `ALTER TABLE` neither parser reads may change (its words include ADD, DROP, RENAME, CHANGE, MODIFY or COLUMN), gets no columns and no `columns_read` property (`ddl_tables_columns_unknown`, `ddl_alter_unparsed`); an unparsed ALTER whose table cannot be read marks the whole migration set. Tables with `columns_read: true` list every column. On lobe-chat all 256 tables are read (7 by PostgreSQL's parser, whose identity sequence options sqlglot rejects), with 3,598 columns: 3,597 equal drizzle-kit's last snapshot and the extra one, `channel_jobs.delivery_key`, is a column migration 0197 keeps on purpose while the snapshot omits it. On simplebank the 74 columns equal the fields of the `models.go` sqlc writes. On Mattermost's PostgreSQL migrations all 88 tables are read, with the columns its migrations add inside `DO` blocks |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | the SQL rule of the statement (`data-contracts.go-sql-types`, `data-contracts.python-sql`, ...) | as that rule | the columns a SQL statement that code runs names, for the tables of it whose columns are all known (`columns_read`, see `data-contracts.sql-column`). sqlglot reads the statement in the dialect that parsed it and its optimizer (`qualify`, over the replayed columns as the schema) attributes each column reference to a table through aliases, joins, subqueries and common table expressions; a `*` expands to every column. UPDATE, DELETE and INSERT are read as the query their values, conditions and RETURNING make over the target: `SET c =` and an INSERT's column list (every column without one) and `ON CONFLICT ... DO UPDATE SET` write, everything else reads, and `EXCLUDED.c` is the inserted row. Code that may run one of several statements (one per path) uses the columns of each. The statement's READS or WRITES edge to a table carries `columns_resolved: true` when every column reference of the statement that could belong to that table resolved to one of its columns; a name that is no column of the table, a reference sqlglot cannot attribute to one table, a `*` over a table without known columns and a statement sqlglot does not parse leave it off. Counted in the `sql_columns` metric. On simplebank all 20 statements sqlc compiles resolve, with 142 column uses. JPQL, MyBatis and ORM calls name no columns here |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
