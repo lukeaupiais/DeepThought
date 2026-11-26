@@ -947,6 +947,153 @@ class ScipCallTests(unittest.TestCase):
         )
         self.assertEqual(sorted(pyright.asked), [("c.py", 2, 0), ("c.py", 3, 0)])
 
+    def test_python_calls_through_locals_follow_them_with_pyright(self):
+        (self.root / "a.py").write_text(
+            "class Segment:\n"  # 1
+            "    @classmethod\n"
+            "    def line(cls):\n"  # 3
+            "        return cls()\n"
+            "    def split(self):\n"  # 5
+            "        _S = Segment\n"
+            "        return _S()\n"  # 7
+            "class Console:\n"
+            "    def get_style(self): pass\n"  # 9
+            "def render(console: Console, given):\n"
+            "    get = console.get_style\n"  # 11
+            "    get()\n"
+            "    twice = console.get_style\n"  # 13
+            "    twice = console.get_style\n"
+            "    twice()\n"  # 15
+            "    given()\n"
+            "    made = given()\n"  # 17
+            "    made()\n"
+            "    def plain(cls): return cls()\n"  # 19
+            "    plain(1)\n"
+            "    typed: object = console.get_style\n"  # 21
+            "    typed()\n"
+            "    first = second = console.get_style\n"  # 23
+            "    first()\n"
+            "    made_attr = render(console, given).get_style\n"  # 25
+            "    made_attr()\n"
+            "class Meta(type):\n"  # 27
+            "    @staticmethod\n"
+            "    def make(cls): return cls()\n"  # 29
+            "G = Segment\n"
+            "class Holder:\n"  # 31
+            "    made = Segment\n"
+            "    def use(self):\n"  # 33
+            "        G()\n"
+            "        self.made()\n"  # 35
+            "def factory():\n"
+            "    class Local:\n"  # 37
+            "        made = Segment\n"
+            "        def use(self):\n"  # 39
+            "            self.made()\n"
+        )
+        locals_ = [
+            (2, "cls", "local 0", True, 0),
+            (3, "cls", "local 0", False, 0),
+            (5, "_S", "local 1", True, 0),
+            (6, "_S", "local 1", False, 0),
+            (10, "get", "local 2", True, 0),
+            (11, "get", "local 2", False, 0),
+            (12, "twice", "local 3", True, 0),
+            (13, "twice", "local 3", True, 0),
+            (14, "twice", "local 3", False, 0),
+            (9, "given", "local 4", True, 0),
+            (15, "given", "local 4", False, 0),
+            (16, "made", "local 5", True, 0),
+            (17, "made", "local 5", False, 0),
+            (18, "cls", "local 6", True, 0),
+            (18, "cls", "local 6", False, 1),
+            (20, "typed", "local 7", True, 0),
+            (21, "typed", "local 7", False, 0),
+            (22, "first", "local 8", True, 0),
+            (23, "first", "local 8", False, 0),
+            (24, "made_attr", "local 9", True, 0),
+            (25, "made_attr", "local 9", False, 0),
+            (28, "cls", "local 10", True, 0),
+            (28, "cls", "local 10", False, 1),
+            (29, "G", "local 11", True, 0),
+            (33, "G", "local 11", False, 0),
+            (31, "made", "local 12", True, 0),
+            (34, "made", "local 12", False, 0),
+            (37, "made", "local 13", True, 0),
+            (39, "made", "local 13", False, 0),
+        ]
+        ingested = self.index("aliases", "scip-python", [("a.py", locals_)], 0)
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        pyright = FakePyright(
+            {
+                # Pyright gives each local's own place, then the value's.
+                ("a.py", 4, 15): [("a.py", 3, 13)],
+                ("a.py", 7, 15): [("a.py", 6, 8)],
+                ("a.py", 6, 13): [("a.py", 1, 6)],
+                ("a.py", 12, 4): [("a.py", 11, 4)],
+                ("a.py", 11, 18): [("a.py", 9, 8)],
+                ("a.py", 15, 4): [("a.py", 13, 4), ("a.py", 14, 4)],
+                ("a.py", 16, 4): [("a.py", 10, 29)],
+                ("a.py", 18, 4): [("a.py", 17, 4)],
+                ("a.py", 19, 27): [("a.py", 19, 14)],
+                ("a.py", 22, 4): [("a.py", 21, 4)],
+                ("a.py", 21, 28): [("a.py", 9, 8)],
+                ("a.py", 24, 4): [("a.py", 23, 4)],
+                ("a.py", 23, 29): [("a.py", 9, 8)],
+                ("a.py", 26, 4): [("a.py", 25, 4)],
+                ("a.py", 25, 39): [("a.py", 9, 8)],
+                ("a.py", 29, 26): [("a.py", 29, 13)],
+                ("a.py", 34, 8): [("a.py", 30, 0)],
+                ("a.py", 30, 4): [("a.py", 1, 6)],
+                ("a.py", 35, 13): [("a.py", 32, 4)],
+                ("a.py", 32, 11): [("a.py", 1, 6)],
+                ("a.py", 40, 17): [("a.py", 38, 8)],
+                ("a.py", 38, 15): [("a.py", 1, 6)],
+            }
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        rows = {
+            (s.callee, s.line): (r.status, r.target_id, r.rule_id, r.reason)
+            for r in binding.resolutions
+            for s in result.call_sites
+            if s.id == r.call_id
+        }
+        symbols = {d.id: d.symbol for d in result.definitions}
+
+        def target(callee, line):
+            status, target_id, rule, reason = rows[(callee, line)]
+            return (symbols.get(target_id), rule) if status == "linked" else reason
+
+        # A classmethod's first parameter is its class.
+        self.assertEqual(
+            target("cls", 4),
+            ("Segment", scip_calls.PYRIGHT_CALL_CLASS_PARAMETER),
+        )
+        # A local assigned once from a name or a dotted name is that name.
+        self.assertEqual(target("_S", 7), ("Segment", scip_calls.PYRIGHT_CALL_ALIAS))
+        for callee, line in (("get", 12), ("typed", 22)):
+            self.assertEqual(
+                target(callee, line),
+                ("Console.get_style", scip_calls.PYRIGHT_CALL_ALIAS),
+            )
+        # Assigned twice, a parameter, a call's result: still the local.
+        # So is a first parameter named `cls` of a function no classmethod.
+        for callee, line in (
+            ("twice", 15),
+            ("given", 16),
+            ("made", 18),
+            ("cls", 19),
+            # Nor are two names assigned at once, an attribute of a call's
+            # result, and the `cls` of a method decorated otherwise.
+            ("first", 24),
+            ("made_attr", 26),
+            ("cls", 29),
+            # A module global or class attribute can be replaced elsewhere.
+            ("G", 34),
+            ("self.made", 35),
+            ("self.made", 40),
+        ):
+            self.assertEqual(target(callee, line), scip_calls.PYRIGHT_NOT_DECLARATION)
+
     def test_python_import_alias_and_constructor_names_are_not_suspect(self):
         (self.root / "m.py").write_text(
             "class Thing:\n    def __init__(self):\n        pass\n"

@@ -190,9 +190,16 @@ parser rule. One that the compiler follows to another file is
 file with no analyzed implementation is `typescript.call-declaration-file`
 (resolved): it names what the call is typed against, not the code that runs.
 The IMPORTS edge still names the file the compiler resolves, declaration file
-included. Where the language rejects a program, as with two `export *` that
-give one name or two exports of one name, the compiler reports an error and
-binds the first or later declaration it keeps; the call follows that binding.
+included. Where the language rejects an export on the way, the compiler
+reports an error and keeps one declaration, and the call links to it with its
+own rule, `typescript.call-export-conflict` (resolved). The cases are two
+export clauses, or a clause and a declaration, that give one name (TS2300,
+TS2323, TS2484), and a name that two of a module's `export *` give as
+different symbols while the module does not export it itself (TS2308). They
+are found in the imported module, in each module the compiler follows the
+export through, and in the implementation beside a declaration file. The
+program does not link at run time, so the link names what the compiler kept,
+not code that runs.
 
 The compiler is required. `analyze_repository` itself never starts a process,
 so its result carries no compiler view: callers attach one with
@@ -293,7 +300,12 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 `reason` it gives and, when ambiguous, the
 `candidates`' qualified names. Its caller (the innermost enclosing declaration,
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
-`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. The
+`line` and `column` of a CALLS edge, an `UnresolvedCall` and its
+`HAS_UNRESOLVED_CALL` edge are where the callee's last name is written
+(`CallSite.callee_at`), so each call of a member chain over several lines
+(`new Hono()` then `.basePath('/api')` lines later) sits on its own line;
+`end_line` and `end_column` still close the whole call. So one
 query counts the linked, ambiguous and unresolved calls of a name:
 `get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
@@ -356,7 +368,9 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
-| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, or whose target no declaration names, to the declaration pyright's go-to-definition gives |
+| `pyright.call-alias` | a Python call through a function local assigned once from a name or dotted name (`get = self.fetch`, `S = Segment`) to the declaration pyright gives for that name |
+| `pyright.call-class-parameter` | `cls(...)` in a classmethod to its class |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
@@ -371,11 +385,17 @@ follow a star re-export to the wrong function), an external target for
 index may name a builtin), and more than one target (the index names a
 function nested in a method by the class alone, `Group#decorator().`, so
 same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
-occurrence for (scip-python skips code it treats as unreachable), are answered
+occurrence for (scip-python skips code it treats as unreachable) or whose
+target no declaration names (a local variable), are answered
 by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
 language server's go-to-definition at the callee's last name gives the
 declaration, linked as `pyright.call-definition` with `producer:
-pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+pyright@1.1.409`. When pyright names a local instead (its own assignment), a
+function local assigned exactly once from a name or dotted name is followed to
+that name, up to three hops (`pyright.call-alias`), and a classmethod's first
+parameter to its class (`pyright.call-class-parameter`); locals assigned more
+than once, parameters, call results, module globals and class attributes stay
+unlinked, or the call stays unlinked as `pyright_no_definition`,
 `pyright_external` or `pyright_target_not_declaration`. The parser's link is
 never kept over the index. Pyright is required: binding a covered Python file
 without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
@@ -1163,8 +1183,12 @@ calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
-the variable's name, so calls inside it belong to it. A named function
-expression keeps no declaration of its own.
+the variable's name, so calls inside it belong to it. A class field that holds
+one (`fetch = async () => {}`, `static make = function () {}`, a `#private`
+field too) is a `Method` of the class with the field's name (`static` when the
+field is), so calls inside it belong to the field, impact reaches its
+callers, and `this.fetch()` links to it. A named function expression keeps no
+declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
@@ -4193,6 +4217,7 @@ CARRIES backwards):
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler (a declared function or method, or a func literal written as the route's handler argument, found by the position of its first parameter that the type checker gives) decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
+| HttpRoute -[:CARRIES {direction: request\|response, via}]-> Symbol | `service-contracts.go-request-body-type-in-helper`, `service-contracts.go-response-body-type-in-helper` | resolved | the same body types, read in a function of the module the handler passes its request context to (gin's `*Context`, echo's `Context`, fiber's `*Ctx` or `Ctx`): the type checker gives the call, the callee and the parameter that receives the context, followed up to four calls deep; `via` lists the functions (`file::symbol`), outermost first. A standard-library `*http.Request` or `http.ResponseWriter` passed to a helper is not followed yet |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
@@ -4868,8 +4893,30 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   decodes it, and the module's File is `GENERATED_FROM` each message and
   enum of that descriptor that the repository's `.proto` files declare
   (rule `service-contracts.python-generated-proto-module`, resolved). The
-  classes are built at import time, so no class declaration links. Generated
-  TypeScript and JavaScript are not linked yet.
+  classes are built at import time, so no class declaration links.
+- **Generated JavaScript and TypeScript.** The TypeScript compiler reads
+  each generator's own registrations, with names bound to their modules
+  through the checker:
+  - protoc-gen-js (google-protobuf, as grpc-web and grpc-tools use it):
+    the module's File is `GENERATED_FROM` each type it registers with
+    `goog.exportSymbol('proto.<full name>')`, `goog` bound to
+    `require('google-protobuf')` (rule
+    `service-contracts.js-generated-proto-module`, resolved).
+  - protobuf-es 2: `fileDesc` embeds the file's descriptor (base64, which
+    protobuf decodes), and `messageDesc(file, i, ...)` /
+    `enumDesc(file, i, ...)` index into it; the type that schema's
+    `GenMessage<X>` / `GenEnum<X>` names is `GENERATED_FROM` the indexed
+    message or enum, as is a type alias `Message<"<full name>">`.
+    protobuf-es 1: a class extending `Message` with
+    `static typeName = "<full name>"`, and an enum passed to
+    `proto3.util.setEnumType` (rule
+    `service-contracts.ts-generated-proto-type`, resolved). The schema
+    consts are no graph symbols.
+  - ts-proto embeds no descriptor or type names, only
+    `export const protobufPackage`. A type, interface or enum of that file
+    named as ts-proto names a type of that package (nested path joined
+    with `_`) is `GENERATED_FROM` it (rule
+    `service-contracts.ts-proto-generated-type`, name_matched).
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
