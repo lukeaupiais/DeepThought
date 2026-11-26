@@ -2020,6 +2020,64 @@ def _script_route_resolver(references):
     return route_of
 
 
+# Request methods of HTTP client libraries, by the SCIP symbol the index
+# gives the called name: module functions and the methods of their client
+# objects.
+_CLIENT_METHODS = (
+    (
+        re.compile(
+            r"^scip-python python requests \S+ `requests\.(?:api|sessions)`/"
+            r"(?:Session#)?(?:get|post|put|patch|delete|head|options|request)\(\)\.$"
+        ),
+        "requests",
+    ),
+    (
+        re.compile(
+            r"^scip-python python httpx \S+ `httpx\._(?:api|client)`/"
+            r"(?:(?:Async)?Client#)?(?:get|post|put|patch|delete|head|options|request)"
+            r"\(\)\.$"
+        ),
+        "httpx",
+    ),
+    (
+        re.compile(
+            r"^scip-python python aiohttp \S+ `aiohttp\.client`/ClientSession#"
+            r"(?:get|post|put|patch|delete|head|options|request)\(\)\.$"
+        ),
+        "aiohttp",
+    ),
+    (
+        re.compile(
+            r"^scip-typescript npm axios \S+ \S*(?:Axios|AxiosInstance)#"
+            r"(?:get|post|put|patch|delete|head|options)\.$"
+        ),
+        "axios",
+    ),
+)
+
+
+def _client_resolver(references):
+    """``client_of(file, name node)``: the HTTP client library whose
+    request method the SCIP index resolves the called name to
+    (``_CLIENT_METHODS``), else None. The client object is known by its
+    type, wherever it was made."""
+
+    def client_of(file, name):
+        if name is None or not references.covers(file):
+            return None
+        found = {
+            client
+            for symbol in references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+            for pattern, client in _CLIENT_METHODS
+            if pattern.match(symbol)
+        }
+        return found.pop() if len(found) == 1 else None
+
+    return client_of
+
+
 def _script_router_constructor(references, file):
     """``is_router(value)``: whether the index resolves ``value`` (``new
     Router()``) to a koa-router Router constructor."""
@@ -3235,6 +3293,7 @@ class ServiceContractTool(AnalysisTool):
         indexed = ScipReferences(result, scip_indexes, root)
         python_router_of = _python_router_resolver(indexed, python_routers_found)
         script_route_of = _script_route_resolver(indexed)
+        client_of = _client_resolver(indexed)
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
@@ -3416,6 +3475,7 @@ class ServiceContractTool(AnalysisTool):
                     mounts=python_mounts.get(coverage.file),
                     python_router_of=python_router_of,
                     script_route_of=script_route_of,
+                    client_of=client_of,
                     go_routes=go_routes.get(coverage.file, {}),
                     externals=(
                         scripts.externals(coverage.file)
