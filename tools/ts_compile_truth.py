@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 
 HEADER = "# decl_file\tdecl_line\tname\tref_file\tref_line\tkind"
-_ERROR = re.compile(r"^(.+?\.[cm]?tsx?)\((\d+),(\d+)\): error (TS\d+): (.*)$")
+_ERROR = re.compile(r"^(.+?\.[cm]?[jt]sx?)\((\d+),(\d+)\): error (TS\d+): (.*)$")
 _GONE = "__compile_truth_gone"
 
 
@@ -86,7 +86,7 @@ def unchecked(root, tsc, project):
     files = {
         p.relative_to(root).as_posix()
         for p in root.rglob("*")
-        if p.suffix in (".ts", ".tsx", ".mts", ".cts")
+        if p.suffix in (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
         and "node_modules" not in p.parts
         and p.is_file()
     }
@@ -118,7 +118,7 @@ def candidates(calls, root):
             file, line, name = r[3], int(r[4]), r[2]
             if (
                 not re.fullmatch(r"[A-Za-z_$][\w$]*", name)
-                or not file.endswith((".ts", ".mts", ".cts"))
+                or not file.endswith((".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"))
                 or file.endswith(".d.ts")
             ):
                 continue
@@ -219,7 +219,7 @@ def rename_and_check(root, tsc, project, before, file, line, name):
 
     module = re.compile(
         r"Module '\"[^\"]*?/"
-        + re.escape(re.sub(r"\.[cm]?tsx?$", "", file))
+        + re.escape(re.sub(r"\.[cm]?[jt]sx?$", "", file))
         + r"(\.[cm]?[jt]sx?)?\"'"
     )
 
