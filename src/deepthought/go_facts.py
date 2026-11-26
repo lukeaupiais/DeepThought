@@ -26,6 +26,7 @@ puts it), since an older go/types does not know newer language features. Files t
 are listed with a reason, for the tree-sitter rules to read.
 """
 
+import base64
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cache
@@ -166,6 +167,23 @@ class GoStruct:
 
 
 @dataclass(frozen=True)
+class GoProtoFile:
+    """A protoimpl.TypeBuilder protoc-gen-go writes in a generated file:
+    the serialized FileDescriptorProto it embeds, how many enums and
+    messages that file declares, and the Go type of each GoTypes entry as
+    (file, line of its name, name), None for a map entry or a library's
+    type. protobuf-go lists the file's enums, then its messages, in its
+    flattened ordering, then the types they depend on."""
+
+    file: str
+    line: int
+    descriptor: bytes
+    enums: int
+    messages: int
+    types: tuple
+
+
+@dataclass(frozen=True)
 class GoSignature:
     """The named types a function's parameters and results are built from
     (``namedIn`` in gofacts), at the function's name."""
@@ -237,6 +255,7 @@ class GoFacts:
     aliases: list[tuple] = field(default_factory=list)
     constructors: list[GoNew] = field(default_factory=list)
     structs: list[GoStruct] = field(default_factory=list)
+    proto_files: list[GoProtoFile] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
     models: list[GoModel] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
@@ -843,6 +862,27 @@ def _read(text, directory, members, facts):
                             _type(f.get("type")),
                         )
                         for f in item.get("model_fields") or ()
+                    ),
+                )
+            )
+        elif kind == "protofile":
+            file = relative(item["file"])
+            key = (file, item["line"], "protofile")
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.proto_files.append(
+                GoProtoFile(
+                    file,
+                    item["line"],
+                    base64.b64decode(item.get("raw") or ""),
+                    item.get("enums", 0),
+                    item.get("message_count", 0),
+                    tuple(
+                        (relative(t["file"]), t["line"], t["name"])
+                        if t and t.get("file")
+                        else None
+                        for t in item.get("types") or ()
                     ),
                 )
             )
