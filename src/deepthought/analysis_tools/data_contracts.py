@@ -29,6 +29,11 @@ from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     _owner_at,
+    PRISMA_INPUT_KINDS,
+    prisma_columns,
+    prisma_assignments,
+    prisma_input_columns,
+    prisma_typed_inputs,
     drizzle_helper_name,
     drizzle_spread_columns,
     statement_columns,
@@ -760,6 +765,57 @@ PRISMA_CLIENT_RULE = register_rule(
         "name, first letter lower case): the one such model of the caller's "
         "namespace, else of the repository. The receiver is not checked to "
         "be a PrismaClient.",
+    )
+)
+# A scalar field of a model's payload type in the Prisma Client prisma
+# generate writes (``Prisma/$UserPayload#typeLiteral10:scalars.`...`:
+# typeLiteral11:email.``), or of a groupBy row
+# (``Prisma/UserGroupByOutputType#typeLiteral10:email.``).
+# The prisma-client-js generator declares these in its namespace Prisma
+# (``index.d.ts`/Prisma/``); the prisma-client generator (Prisma 7's
+# default) in a file per model (``models/`User.ts`/``).
+_PRISMA_CLIENT_SCOPE = r"(?:/Prisma/|/models/`\w+\.ts`/)"
+_PRISMA_PAYLOAD = re.compile(
+    r"^scip-typescript .*" + _PRISMA_CLIENT_SCOPE + r"(?:\$(\w+)Payload#[^ ]*"
+    r":scalars\.[^ ]*|(\w+)GroupByOutputType#[^ ]*):(\w+)\.$"
+)
+PRISMA_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-column",
+        "resolved",
+        "Prisma's own schema engine (data-contracts.prisma-model) lists this "
+        "scalar field of the model, with its @map name, in the schema's "
+        "DMMF; used for a table whose migrations give no columns. The DMMF "
+        "leaves out Unsupported and @ignore fields, so the table's columns "
+        "are not marked all known.",
+    )
+)
+PRISMA_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-column-key",
+        "pattern_matched",
+        "A key of a Prisma Client call's arguments (data-contracts."
+        "prisma-client) names a field of the model in Prisma's DMMF: in a "
+        "where, cursor, having, select, orderBy, distinct, by or aggregate "
+        "it reads the field's column, in a data, create or update it "
+        "writes it; a relation key reads (or, written, sets) the foreign "
+        "key fields the model holds and its own keys name the related "
+        "model's fields. Prisma Client types these objects by the model's "
+        "fields, which scip-typescript records as local keys, not "
+        "references.",
+    )
+)
+PRISMA_COLUMN_READ_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-scip-column-read",
+        "resolved",
+        "A scip-typescript index resolves a property access on a row to a "
+        "scalar of the model's payload type in the Prisma Client the "
+        "project's prisma generate wrote ($<Model>Payload scalars, or a "
+        "groupBy row's <Model>GroupByOutputType), and "
+        "Prisma's DMMF maps that field to this column of the model's "
+        "table: the one such model of the reader's namespace, else of the "
+        "repository.",
     )
 )
 TYPEORM_TABLE_RULE = register_rule(
@@ -2218,11 +2274,14 @@ class DataContractTool(AnalysisTool):
                         },
                     )
         # Prisma models and the client calls that use them.
-        prisma_targets = {}
+        prisma_targets, prisma_by_accessor = {}, defaultdict(set)
         for model in sorted(prisma, key=lambda m: (m.file, m.line)):
             target = table(model.file, table_key(model.table))
             prisma_targets.setdefault(prisma_accessor(model.model), set()).add(
                 (scope(model.file), target)
+            )
+            prisma_by_accessor[prisma_accessor(model.model)].add(
+                (scope(model.file), model)
             )
             link(
                 "DECLARES",
@@ -2242,6 +2301,63 @@ class DataContractTool(AnalysisTool):
                     on_delete,
                     PRISMA_FOREIGN_KEY_RULE,
                 )
+        # The column of each Prisma model field: the table's own column
+        # from its migrations, else the field's column in the DMMF.
+        prisma_models = {(scope(m.file), m.model): m for m in prisma}
+        prisma_columns_at = {}
+        prisma_counts = Counter()
+        for model in sorted(prisma, key=lambda m: (m.file, m.line)):
+            owner = table(model.file, table_key(model.table))
+            known = table_columns.get(owner)
+            by_field = {}
+            for field, column in model.columns:
+                if known is not None:
+                    name = (
+                        column
+                        if column in known
+                        else next(
+                            (c for c in known if c.lower() == column.lower()), None
+                        )
+                    )
+                    if name is None:
+                        prisma_counts["field_not_a_table_column"] += 1
+                        continue
+                else:
+                    name = column
+                    target = f"{owner}::column::{name}"
+                    if target not in column_nodes:
+                        prisma_counts["columns_declared"] += 1
+                        column_nodes[target] = NodeData(
+                            ["DbColumn", "Contract"],
+                            {
+                                "qualified_name": target,
+                                "repo_url": repo_url,
+                                "name": f"{model.table}.{name}",
+                                "display_name": f"{model.table}.{name}",
+                                "table": model.table,
+                                "column": name,
+                                "protocol": "sql",
+                                "scope": scope(model.file),
+                            },
+                        )
+                        link(
+                            "HAS_COLUMN",
+                            (["DbTable", "Contract"], owner),
+                            target,
+                            PRISMA_COLUMN_RULE,
+                            {"field": field},
+                            labels=("DbColumn", "Contract"),
+                        )
+                        link(
+                            "DECLARES",
+                            (["File"], f"{repo_url}::{model.file}::file"),
+                            target,
+                            PRISMA_COLUMN_RULE,
+                            {"line": model.line, "field": field},
+                            labels=("DbColumn", "Contract"),
+                        )
+                by_field[field] = f"{owner}::column::{name}"
+            prisma_columns_at[(scope(model.file), model.model)] = by_field
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
         # A caller whose own namespace has a schema the engine did not read
         # is not linked to another namespace's model of the same name.
@@ -2263,19 +2379,179 @@ class DataContractTool(AnalysisTool):
                     orm_counts["prisma_ambiguous"] += 1
                     continue
                 orm_counts["prisma_linked"] += 1
+                target = next(iter(targets))
+                model = next(
+                    m
+                    for s_, m in prisma_by_accessor[use.model]
+                    if table(m.file, table_key(m.table)) == target
+                )
+                model_scope = scope(model.file)
+                found = prisma_columns(
+                    use.call,
+                    content,
+                    use.method,
+                    model,
+                    lambda name, at=model_scope: prisma_models.get((at, name)),
+                )
+                resolved = found.complete
+                for name, field, writes, line, column in found.uses:
+                    column_target = prisma_columns_at.get((model_scope, name), {}).get(
+                        field
+                    )
+                    if column_target is None:
+                        resolved = False
+                        prisma_counts["key_not_a_column"] += 1
+                        continue
+                    prisma_counts["keys"] += 1
+                    link(
+                        "WRITES_COLUMN" if writes else "READS_COLUMN",
+                        code(use.file, use.caller_id),
+                        column_target,
+                        PRISMA_COLUMN_KEY_RULE,
+                        {"field": field, "line": line, "column": column},
+                        labels=("DbColumn", "Contract"),
+                    )
                 for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                     if used:
+                        # A read is resolved when the rows it returns are
+                        # only the fields it selects.
+                        whole = resolved and (kind == "WRITES" or not found.rows)
                         link(
                             kind,
                             code(use.file, use.caller_id),
-                            next(iter(targets)),
+                            target,
                             PRISMA_CLIENT_RULE,
                             {
                                 "model": use.model,
                                 "line": use.line,
                                 "column": use.column,
+                                **({"columns_resolved": True} if whole else {}),
                             },
                         )
+        # Reads of a row's field: the index resolves the property to a
+        # scalar of the model's payload type in the generated client.
+        if prisma_columns_at:
+            owners = defaultdict(list)
+            for d in result.definitions:
+                owners[d.file].append(d)
+            by_model = defaultdict(set)
+            for (at, name), model in prisma_models.items():
+                by_model[name].add((at, model))
+            # Objects written for a Prisma Client input type outside a call
+            # (``const where: Prisma.UserWhereInput = {...}``): the index
+            # resolves the type to the client's, which names the model.
+            for file, content, tree in script_trees:
+                typed = prisma_typed_inputs(tree)
+                # Later assignments to a typed variable, or to one of its
+                # properties, through the index's definition of the name.
+                bound = {
+                    (file, *binding): (line, column, name)
+                    for line, column, name, _, binding in typed
+                    if binding is not None
+                }
+                inputs = [(*t[:4], None) for t in typed if t[3] is not None]
+                for line, column, key, key_line, key_column, value in (
+                    prisma_assignments(tree, content) if bound else ()
+                ):
+                    for site in references.definition_sites(file, line, column) or ():
+                        if site in bound:
+                            inputs.append(
+                                (
+                                    *bound[site],
+                                    value,
+                                    None
+                                    if key is None
+                                    else (key, key_line, key_column),
+                                )
+                            )
+                for line, column, name, value, key in inputs:
+                    natives = references.symbols(file, line, column) or ()
+                    if not any(
+                        re.search(_PRISMA_CLIENT_SCOPE + re.escape(name) + "#$", native)
+                        for native in natives
+                    ):
+                        continue
+                    kind = model = None
+                    for suffix, what in PRISMA_INPUT_KINDS.items():
+                        prefix = name[: -len(suffix)]
+                        if name.endswith(suffix) and prefix in by_model:
+                            if model is None or len(prefix) > len(model):
+                                kind, model = what, prefix
+                    candidates = _nearest(by_model.get(model, ()), scope(file))
+                    if len(candidates) != 1:
+                        prisma_counts["typed_inputs_no_model"] += 1
+                        continue
+                    model = next(iter(candidates))
+                    model_scope = scope(model.file)
+                    found = prisma_input_columns(
+                        kind,
+                        value,
+                        content,
+                        model,
+                        lambda related, at=model_scope: prisma_models.get(
+                            (at, related)
+                        ),
+                        key,
+                    )
+                    prisma_counts["typed_inputs"] += 1
+                    for related, field, writes, at_line, at_column in found.uses:
+                        column_target = prisma_columns_at.get(
+                            (model_scope, related), {}
+                        ).get(field)
+                        if column_target is None:
+                            prisma_counts["key_not_a_column"] += 1
+                            continue
+                        prisma_counts["typed_input_keys"] += 1
+                        link(
+                            "WRITES_COLUMN" if writes else "READS_COLUMN",
+                            code(
+                                file, _owner_at(owners[file], file, at_line, at_column)
+                            ),
+                            column_target,
+                            PRISMA_COLUMN_KEY_RULE,
+                            {
+                                "field": field,
+                                "line": at_line,
+                                "column": at_column,
+                                "input_type": name,
+                            },
+                            labels=("DbColumn", "Contract"),
+                        )
+            for file, line, column, native in references.references_matching(
+                lambda native: _PRISMA_PAYLOAD.search(native) is not None
+            ):
+                match = _PRISMA_PAYLOAD.search(native)
+                model_name = match.group(1) or match.group(2)
+                field = match.group(3)
+                candidates = _nearest(by_model.get(model_name, ()), scope(file))
+                if len(candidates) != 1:
+                    prisma_counts[
+                        "row_reads_ambiguous" if candidates else "row_reads_no_model"
+                    ] += 1
+                    continue
+                model = next(iter(candidates))
+                column_target = prisma_columns_at.get(
+                    (scope(model.file), model.model), {}
+                ).get(field)
+                if column_target is None:
+                    prisma_counts["row_reads_not_a_column"] += 1
+                    continue
+                prisma_counts["row_reads"] += 1
+                tool, receipt = references.tool(file)
+                link(
+                    "READS_COLUMN",
+                    code(file, _owner_at(owners[file], file, line, column)),
+                    column_target,
+                    PRISMA_COLUMN_READ_RULE,
+                    {
+                        "field": field,
+                        "line": line,
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
         # TypeORM entities and the repositories of them.
         typeorm_mappings, typeorm_uses, typeorm_children = [], [], []
         for file, content, tree in script_trees:
@@ -3640,6 +3916,7 @@ class DataContractTool(AnalysisTool):
                     "drizzle_access_resolution": drizzle_access,
                     "drizzle_scip": drizzle_scip,
                     "drizzle_columns": dict(drizzle_columns),
+                    "prisma_columns": dict(prisma_counts),
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

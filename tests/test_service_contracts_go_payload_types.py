@@ -99,6 +99,11 @@ class GoPayloadTypeTests(unittest.TestCase):
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
         self.unresolved = output.metadata.custom_metrics["payload_types_unresolved"]
+        self.via = [
+            r.properties["via"]
+            for r in output.relationships
+            if r.type == "CARRIES" and "via" in r.properties
+        ]
         self.paths = {
             n.properties["qualified_name"]: n.properties["path"]
             for n in output.nodes
@@ -205,6 +210,110 @@ class GoPayloadTypeTests(unittest.TestCase):
                 ("/gin/orders", "Order", "response"),
             ],
         )
+
+    def test_helpers_the_handler_passes_its_context_to(self):
+        # Two calls deep from a func literal, and one from a declared
+        # handler; a helper given another value is not followed.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v2"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": HELPERS,
+                # A file whose handler only delegates: no context call of its
+                # own.
+                "svc/health.go": HEALTH,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2], f[3]) for f in found),
+            [
+                (
+                    "/health",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+                (
+                    "/orders",
+                    "CreateOrder",
+                    "request",
+                    "service-contracts.go-request-body-type-in-helper",
+                ),
+                (
+                    "/orders",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+                (
+                    "/orders/{id}",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+            ],
+        )
+        self.assertEqual(
+            sorted(tuple(v) for v in self.via),
+            [
+                ("svc/main.go::doCreate",),
+                ("svc/main.go::doCreate", "svc/main.go::respond"),
+                ("svc/main.go::respond",),
+                ("svc/main.go::respond",),
+            ],
+        )
+
+
+HELPERS = """package main
+
+import (
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func respond(c *fiber.Ctx, order api.Order) error {
+\treturn c.JSON(order)
+}
+
+func doCreate(c *fiber.Ctx) error {
+\tvar in api.CreateOrder
+\tif err := c.BodyParser(&in); err != nil {
+\t\treturn err
+\t}
+\treturn respond(c, api.Order{ID: in.Item})
+}
+
+func audit(in api.CreateOrder) {
+\t_ = in
+}
+
+func get(c *fiber.Ctx) error {
+\taudit(api.CreateOrder{})
+\treturn respond(c, api.Order{ID: c.Params("id")})
+}
+
+func main() {
+\tapp := fiber.New()
+\tapp.Post("/orders", func(c *fiber.Ctx) error { return doCreate(c) })
+\tapp.Get("/orders/:id", get)
+\tapp.Get("/health", health)
+}
+"""
+
+HEALTH = """package main
+
+import (
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func health(c *fiber.Ctx) error {
+\treturn respond(c, api.Order{ID: "ok"})
+}
+"""
 
 
 INLINE = """package main
