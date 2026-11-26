@@ -238,7 +238,12 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("app.py", 3, "resolved", ["CALLS", "CALLS", "CALLS"]),
             ],
         )
+        # The storage label every node carries is left out.
+        self.assertEqual(
+            sorted(impact["items"][0]["element"]["labels"]), ["Function", "Symbol"]
+        )
         for item in impact["items"]:
+            self.assertNotIn("GraphNode", item["element"]["labels"])
             self.assertTrue(all(len(e["edge_id"]) == 64 for e in item["edges"]))
             self.assertTrue(all(e["rule_id"] for e in item["edges"]))
         # Each dependent carries its line span, signature and the lines of
@@ -452,7 +457,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         # Base.run belongs to the change set, so its callers do not appear as
         # dependents of it; Child depends on Base through INHERITS_FROM.
         self.assertEqual(
-            self.rows(impact), [("Child", 1, "name_matched", ["INHERITS_FROM"])]
+            self.rows(impact), [("Child", 1, "resolved", ["INHERITS_FROM"])]
         )
         self.assertEqual(impact["items"][0]["changed"], names["Base"])
         files = await self.service.get_file_impact(
