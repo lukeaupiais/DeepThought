@@ -2366,7 +2366,11 @@ call rules. The import report carries a
 files with their reasons. The indexes a run writes are checked against their
 receipts again before they are read, and are read whole: the 50 MB cap
 `ingest_scip` keeps for an index from elsewhere does not apply to them
-(scip-python writes over 100 MB for a large monorepo such as superset).
+(scip-python writes over 100 MB for a large monorepo such as superset). The
+SCIP analysis tool reads the indexes it is given the same way, once their
+receipts validate (lobe-chat's 80 MB index used to fail there as "SCIP
+producer differs from the source receipt"), and names an index it cannot
+read with the reason.
 `--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
