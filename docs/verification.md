@@ -1289,6 +1289,23 @@ yields no row. Passed as `--possible-calls`, these make a dependent reached
 only through them unjudged: hono gains one `# unjudged` row
 (`detectLanguage` for the cookie parser), ky and preact none.
 
+A test case is an anonymous function passed to a call, such as
+`it('sums', () => { add(1, 2) })` inside `describe(...)`. scip-typescript
+gives it no symbol, so its calls were dropped and no test was ever a
+dependent. `node tools/ts_callback_regions.cjs TYPESCRIPT_JS ROOT` (files on
+stdin) parses each file with the TypeScript compiler and lists every
+function or arrow that is a call argument and is not inside a named
+callable, with the line of its call and its span. Passed as
+`--initializers`, each one in a file the call truth indexes is a caller of
+the calls it holds (the innermost one wins) and a `# node`, keyed by its
+call's line, the line the engine declares a test case on. It is never a
+seed or a target. A callback inside a named function (`xs.map((x) => f(x))`
+in `g`) still belongs to `g`. Whether a callback runs the callbacks inside
+it (`act(() => ...)` in an `it`, an `it` in a `describe`) is not ruled on:
+a dependent reached only that way is an `# unjudged` row. hono's truth
+grows from 149 to 1710 dependents (221 unjudged) and preact's from 101 to
+6768 (518 unjudged); ky's call truth indexes no tests, so it is unchanged.
+
 Go call truth comes from scip-go, so a separate oracle checks it with the
 compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
 module, renames a seeded sample of declarations one at a time, and runs
