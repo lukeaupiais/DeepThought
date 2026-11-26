@@ -1140,6 +1140,36 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+CARRIES_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-signature-carries-message",
+        "resolved",
+        "The Go type checker (go/types) reads the protobuf message types "
+        "(named types whose pointer has protoc-gen-go's ProtoReflect method) "
+        "that each linked Go stub call of a gRPC method passes or receives, "
+        "type arguments of generic stream types included; a Go function or "
+        "method whose parameter or result types are built from one of them "
+        "(through pointers, slices, arrays, maps, channels and type "
+        "arguments) carries that method's messages. Set only when every "
+        "linked client call and handler of the method is Go and fully "
+        "type-checked.",
+    )
+)
+
+# Rules of this tool's edges that are not contract sites (HANDLES,
+# REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
+# Contract coverage counts sites only, so these may be resolved.
+NON_SITE_RULES = frozenset(
+    {CARRIES_MESSAGE_RULE.rule_id}
+    | {rule.rule_id for rule in PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rules in SENT_PAYLOAD_RULES.values() for rule in rules.values()}
+    | {_GO_KAFKA_VALUE_RULE.rule_id}
+)
+
+
 _BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
 
 
@@ -1791,61 +1821,80 @@ def _go_modules(root, sources):
     return found
 
 
-# The languages each contract family has a reader for in this tool. A
-# language of the repository outside a family's set is stated as not read,
-# so that the sites found for a family are not taken as all of them.
+# The languages each contract family has a reader for in this tool, by
+# (edge family, protocol). A language of the repository outside a family's
+# set is stated as not linked, so that the sites found for a family are not
+# taken as all of them.
 _WEB_LANGUAGES = frozenset(
     {"python", "javascript", "typescript", "go", "java", "csharp", "php"}
 )
+_MESSAGING_LANGUAGES = frozenset({"java", "python", "go", "javascript", "typescript"})
 CONTRACT_READERS = {
-    "http_routes": _WEB_LANGUAGES,
-    "http_requests": _WEB_LANGUAGES,
-    "grpc_handlers": frozenset(grpc_contracts.SERVER_LANGUAGES),
-    "grpc_calls": frozenset(grpc_contracts.CALL_LANGUAGES),
-    "graphql_resolvers": frozenset({"javascript", "typescript"}),
-    "graphql_requests": frozenset({"javascript", "typescript"}),
-    "message_endpoints": frozenset(
-        {"java", "python", "go", "javascript", "typescript"}
-    ),
+    ("HANDLES", "http"): _WEB_LANGUAGES,
+    ("REQUESTS", "http"): _WEB_LANGUAGES,
+    ("HANDLES", "grpc"): frozenset(grpc_contracts.SERVER_LANGUAGES),
+    ("REQUESTS", "grpc"): frozenset(grpc_contracts.CALL_LANGUAGES),
+    ("HANDLES", "graphql"): frozenset({"javascript", "typescript"}),
+    ("REQUESTS", "graphql"): frozenset({"javascript", "typescript"}),
+    ("PUBLISHES", "messaging"): _MESSAGING_LANGUAGES,
+    ("CONSUMES", "messaging"): _MESSAGING_LANGUAGES,
 }
+_RESOLVER = f"service-contracts@{__version__}"
 
 
 def contract_coverage(repo_url, languages, coverage, sites):
-    """One ContractCoverage node per (contract family, language of the
-    repository's source files): whether this tool reads that family in that
-    language (status ``read``, or ``not_read`` with reason ``no_reader``),
-    how many files of the language there are (``languages``, from
-    ``source_languages``), and how many sites it found (and, for client
-    calls, linked). ``sites`` maps each family to (file, linked or None) per
-    site."""
+    """One EdgeCoverage node per (edge family, protocol, language of the
+    repository's source files), in the shape the call and import coverage
+    shares. Every contract site rule of this tool is pattern_matched: the
+    engine's own readers find the sites, and a reader counts only the sites
+    it recognises, so a family is never ``linked`` or ``no_sites`` here. It
+    is ``not_linked`` with reason ``parser_rules`` when this tool reads the
+    family in that language (``sites`` may be 0), and with reason
+    ``not_supported`` when it has no reader; ``files_linked`` is 0.
+    ``resolver``; ``files`` (``languages``, from ``source_languages``);
+    ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
+    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
+    resolution status or None) per site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
-    for family in sorted(CONTRACT_READERS):
-        found, linked = {}, {}
-        for file, link in sites.get(family, ()):
-            language = language_of.get(file)
-            found[language] = found.get(language, 0) + 1
-            if link:
-                linked[language] = linked.get(language, 0) + 1
-        clients = family in ("http_requests", "grpc_calls")
+    for family, protocol in sorted(CONTRACT_READERS):
+        counts = {}
+        for file, status in sites.get((family, protocol), ()):
+            found = counts.setdefault(language_of.get(file), {})
+            found["sites"] = found.get("sites", 0) + 1
+            if status is not None:
+                found[status] = found.get(status, 0) + 1
         for language in sorted(languages):
-            read = language in CONTRACT_READERS[family]
+            read = language in CONTRACT_READERS[(family, protocol)]
+            found = counts.get(language, {})
+            reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
-                    ["ContractCoverage"],
+                    ["EdgeCoverage"],
                     {
                         "qualified_name": (
-                            f"{repo_url}::contract-coverage::{family}::{language}"
+                            f"{repo_url}::edge-coverage::{family}::{protocol}::"
+                            f"{language}"
                         ),
                         "repo_url": repo_url,
-                        "name": f"{family} {language}",
+                        "name": f"{family} {protocol} {language}",
                         "family": family,
+                        "protocol": protocol,
                         "language": language,
-                        "status": "read" if read else "not_read",
-                        **({} if read else {"reason": "no_reader"}),
+                        "status": "not_linked",
+                        "reason": reason,
+                        "resolver": [_RESOLVER] if read else [],
                         "files": languages[language],
-                        "sites": found.get(language, 0),
-                        **({"linked": linked.get(language, 0)} if clients else {}),
+                        "files_linked": 0,
+                        "sites": found.get("sites", 0),
+                        **(
+                            {
+                                key: found.get(key, 0)
+                                for key in ("linked", "ambiguous", "unresolved")
+                            }
+                            if family == "REQUESTS"
+                            else {}
+                        ),
                     },
                 )
             )
@@ -1952,6 +2001,76 @@ def _declaration_node(tree, definition):
             return node
         stack.extend(node.children)
     return None
+
+
+def _go_grpc_carriers(root, sources, grpc, definitions):
+    """({(service, method): message types}, [(definition id, (service,
+    method), carried types)]) from the Go type checker: the protobuf
+    messages each gRPC method's linked Go stub calls pass or receive, and
+    the Go functions whose signatures are built from them. A method gets
+    message types only when every linked client call of it is Go, in a
+    fully type-checked file, and matched to the checker's call, and every
+    handler of it is in such a file too. Without the
+    Go toolchain go_facts raises GoMissing."""
+    calls = {c.id: c for c in grpc.calls}
+    linked = defaultdict(list)
+    for resolution in grpc.resolutions:
+        if resolution.status == "linked":
+            linked[(resolution.service, resolution.method)].append(
+                calls[resolution.call_id]
+            )
+    if not any(c.file.endswith(".go") for found in linked.values() for c in found):
+        return {}, []
+    files = [
+        c.file for c, _, _ in sources if c.language == "go" and c.file.endswith(".go")
+    ]
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    unchecked = set(facts.uncovered) | set(facts.partial)
+    written = {}
+    for call in facts.calls:
+        if call.name_line is not None and call.messages:
+            written[(call.file, call.name_line, call.name_column, call.method)] = (
+                call.messages
+            )
+    messages = {}
+    for key, found in linked.items():
+        types = set()
+        for call in found:
+            carried = (
+                None
+                if not call.file.endswith(".go") or call.file in unchecked
+                else written.get((call.file, call.line, call.column, call.method))
+            )
+            if not carried:
+                break
+            types.update(carried)
+        else:
+            messages[key] = frozenset(types)
+    # A handler outside the checked Go files may carry the messages unseen.
+    files_of = {d.id: d.file for d in definitions}
+    for handler in grpc.handlers:
+        file = files_of.get(handler.handler_id, "")
+        if not file.endswith(".go") or file in unchecked:
+            messages.pop((handler.service, handler.method), None)
+    if not messages:
+        return {}, []
+    carriers_of = defaultdict(set)
+    for key, types in messages.items():
+        for t in types:
+            carriers_of[t].add(key)
+    at = defaultdict(list)
+    for d in definitions:
+        if d.file.endswith(".go") and d.kind in ("Function", "Method"):
+            at[(d.file, d.line)].append(d.id)
+    carriers = []
+    for signature in facts.signatures:
+        found = at.get((signature.file, signature.line), ())
+        if signature.file in unchecked or len(found) != 1:
+            continue
+        for key in sorted({k for t in signature.types for k in carriers_of[t]}):
+            carried = sorted(t for t in signature.types if t in messages[key])
+            carriers.append((found[0], key, carried))
+    return messages, carriers
 
 
 def _php_wrapper_calls(sources):
@@ -2714,6 +2833,9 @@ class ServiceContractTool(AnalysisTool):
             ),
             tests=frozenset(tests),
         )
+        grpc_messages, grpc_carriers = _go_grpc_carriers(
+            root, sources, grpc, result.definitions
+        )
         # An rpc's google.api.http option is an HTTP route the gRPC method
         # serves through grpc-gateway or Kratos.
         for binding in grpc.http_bindings:
@@ -3273,6 +3395,7 @@ class ServiceContractTool(AnalysisTool):
             return {scope for scope, d in depth.items() if d == deepest}
 
         groups = {}
+        graphql_status = {}  # id(request) -> linked | ambiguous | unresolved
         for request in graphql_requests:
             package = _node_package(root, request.file)
             if package not in groups:
@@ -3285,7 +3408,9 @@ class ServiceContractTool(AnalysisTool):
             if len(scopes) != 1:
                 reason = "client_field_ambiguous" if scopes else "client_field_unknown"
                 graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+                graphql_status[id(request)] = "ambiguous" if scopes else "unresolved"
                 continue
+            graphql_status[id(request)] = "linked"
             full = f"{request.operation}.{request.field}"
             if request.caller_id is None:
                 labels, source = file_node(request.file)
@@ -3336,6 +3461,20 @@ class ServiceContractTool(AnalysisTool):
                             and declared[0].streaming
                             else {}
                         ),
+                        # The protobuf message types its Go clients pass
+                        # and receive (see CARRIES_MESSAGE).
+                        **(
+                            {
+                                "message_types": sorted(
+                                    f"{package}.{name}"
+                                    for package, name in grpc_messages[
+                                        (service, method)
+                                    ]
+                                )
+                            }
+                            if (service, method) in grpc_messages
+                            else {}
+                        ),
                     },
                 )
             )
@@ -3354,6 +3493,21 @@ class ServiceContractTool(AnalysisTool):
                     {
                         "line": handler.line,
                         **_evidence(GRPC_SERVER_RULES[handler.rule]),
+                    },
+                )
+            )
+        for definition_id, key, carried in grpc_carriers:
+            labels, source = symbol_node(definition_id)
+            relationships.append(
+                RelationshipData(
+                    "CARRIES_MESSAGE",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {"qualified_name": grpc_names[key], "repo_url": repo_url},
+                    {
+                        "message_types": [f"{p}.{n}" for p, n in carried],
+                        **_evidence(CARRIES_MESSAGE_RULE),
                     },
                 )
             )
@@ -3537,7 +3691,7 @@ class ServiceContractTool(AnalysisTool):
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
-        linked_requests = {r.request_id for r in resolutions if r.route_id}
+        request_status = {r.request_id: r.status for r in resolutions}
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3547,16 +3701,25 @@ class ServiceContractTool(AnalysisTool):
             ),
             result.coverage,
             {
-                "http_routes": [(r.file, None) for r in routes],
-                "http_requests": [(q.file, q.id in linked_requests) for q in requests],
-                "grpc_handlers": [(h.file, None) for h in grpc.handlers],
-                "grpc_calls": [
-                    (grpc_calls[r.call_id].file, r.status == "linked")
-                    for r in grpc.resolutions
+                ("HANDLES", "http"): [(r.file, None) for r in routes],
+                ("REQUESTS", "http"): [
+                    (q.file, request_status.get(q.id, "unresolved")) for q in requests
                 ],
-                "graphql_resolvers": [(r.file, None) for r in graphql_resolvers],
-                "graphql_requests": [(r.file, None) for r in graphql_requests],
-                "message_endpoints": [(e.file, None) for e in endpoints],
+                ("HANDLES", "grpc"): [(h.file, None) for h in grpc.handlers],
+                ("REQUESTS", "grpc"): [
+                    (grpc_calls[r.call_id].file, r.status) for r in grpc.resolutions
+                ],
+                ("HANDLES", "graphql"): [(r.file, None) for r in graphql_resolvers],
+                ("REQUESTS", "graphql"): [
+                    (r.file, graphql_status.get(id(r), "unresolved"))
+                    for r in graphql_requests
+                ],
+                ("PUBLISHES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role == "publish"
+                ],
+                ("CONSUMES", "messaging"): [
+                    (e.file, None) for e in endpoints if e.role != "publish"
+                ],
             },
         )
         nodes = (
@@ -3603,6 +3766,8 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
+                "grpc_methods_with_message_types": len(grpc_messages),
+                "grpc_message_carriers": len(grpc_carriers),
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
