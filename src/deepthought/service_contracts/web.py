@@ -147,6 +147,9 @@ class _Context:
                 path=full,
                 framework=framework,
                 base_unknown=base_unknown,
+                # Every unknown base read here is text written before the
+                # path (``_unknown_base``).
+                base_written=base_unknown,
                 payloads=tuple(payloads),
             )
         )
@@ -335,6 +338,25 @@ def python_routers(tree, content):
             own = folder.evaluate(keywords[_PY_PREFIX[constructor]])
         routers[name] = (framework, own)
     return routers, mounts, imports
+
+
+def _fastapi_payloads(function, keywords):
+    """(direction, start, end, None) of what a FastAPI path operation
+    writes for its payloads: each parameter of the handler ``function``
+    (``request``, the parameter's span; which of them is the body is decided
+    where the names resolve, ``python_payloads``) and its response, the
+    decorator's ``response_model`` or else the return annotation."""
+    found = []
+    parameters = function.child_by_field_name("parameters")
+    for parameter in [] if parameters is None else parameters.named_children:
+        if parameter.type in ("typed_parameter", "typed_default_parameter"):
+            found.append(("request", parameter.start_byte, parameter.end_byte, None))
+    model = keywords.get("response_model")
+    if model is None:
+        model = function.child_by_field_name("return_type")
+    if model is not None and model.type != "none":
+        found.append(("response", model.start_byte, model.end_byte, None))
+    return tuple(found)
 
 
 def _python_module_file(file, module, files):
@@ -592,6 +614,11 @@ def extract_python(context):
                         methods = [m.upper() for m in methods]
                 else:
                     continue
+                payloads = (
+                    _fastapi_payloads(definition, keywords)
+                    if framework == "fastapi"
+                    else ()
+                )
                 for prefix in prefixes:
                     path = _python_path(
                         prefix + context.folder.evaluate(path_node), framework
@@ -599,7 +626,15 @@ def extract_python(context):
                     # A prefix the code does not fix (a setting) leaves the
                     # route, with its base marked unknown.
                     path, base_unknown = _unknown_base(path)
-                    context.route(call, methods, path, framework, handler, base_unknown)
+                    context.route(
+                        call,
+                        methods,
+                        path,
+                        framework,
+                        handler,
+                        base_unknown,
+                        payloads=payloads,
+                    )
         elif node.type == "call":
             function = node.child_by_field_name("function")
             if function.type != "attribute":
