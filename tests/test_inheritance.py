@@ -17,6 +17,7 @@ from deepthought.inheritance import (
     resolve_supertypes,
 )
 from deepthought.models import AnalysisResult
+from deepthought.scip_bases import SCIP_TYPESCRIPT_BASE
 from deepthought.ts_modules import with_compiler_modules
 
 READY = {
@@ -280,8 +281,8 @@ class InheritanceToolTests(unittest.TestCase):
                     "extends",
                     "Base",
                     2,
-                    "name_matched",
-                    BASE_IMPORTED_NAME,
+                    "resolved",
+                    SCIP_TYPESCRIPT_BASE,
                 ),
                 (
                     "A",
@@ -290,14 +291,15 @@ class InheritanceToolTests(unittest.TestCase):
                     "implements",
                     "Shape",
                     2,
-                    "name_matched",
-                    BASE_IMPORTED_NAME,
+                    "resolved",
+                    SCIP_TYPESCRIPT_BASE,
                 ),
             ],
         )
+        # Error is declared by TypeScript's own library, not the repository.
         self.assertEqual(
             output.metadata.custom_metrics["supertype_resolution"],
-            {"linked": 2, "unresolved:unbound_name": 1},
+            {"linked": 2, "unresolved:scip_external": 1},
         )
         rules = registered_rules()
         for rule_id in (BASE_LEXICAL_NAME, BASE_IMPORTED_NAME, BASE_MODULE_ATTRIBUTE):
@@ -403,14 +405,14 @@ class InheritanceCommandTests(unittest.TestCase):
             self.assertEqual(
                 sorted(rows("bases", "A")),
                 [
-                    ("Base", "extends", "name_matched"),
-                    ("Round", "implements", "name_matched"),
+                    ("Base", "extends", "resolved"),
+                    ("Round", "implements", "resolved"),
                 ],
             )
-            self.assertEqual(rows("subtypes", "A"), [("B", "extends", "name_matched")])
-            self.assertEqual(rows("bases", "A", "--evidence", "resolved"), [])
+            self.assertEqual(rows("subtypes", "A"), [("B", "extends", "resolved")])
+            self.assertEqual(rows("bases", "A", "--evidence", "name_matched"), [])
             self.assertEqual(
-                rows("subtypes", "Shape"), [("Round", "extends", "name_matched")]
+                rows("subtypes", "Shape"), [("Round", "extends", "resolved")]
             )
             # Ancestry follows classes and interfaces alike: B -> A -> Round -> Shape.
             ancestors = asyncio.run(
@@ -440,8 +442,10 @@ class InheritanceCommandTests(unittest.TestCase):
         await manager.connect()
         try:
             service = GraphQueryService(manager.driver, database=manager.database)
+            # Each path repeats its edges, and an indexer-resolved edge names
+            # its producer and receipt.
             return await service.get_class_hierarchy(
-                qualified_name, repo, snapshot_id=snapshot
+                qualified_name, repo, snapshot_id=snapshot, max_output_bytes=32000
             )
         finally:
             await manager.close()

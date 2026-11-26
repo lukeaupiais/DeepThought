@@ -24,6 +24,7 @@ from .. import scip_calls, ts_modules
 from ..pyright_calls import PyrightDefinitions
 from ..signature_types import signature_types
 from ..scip_calls import ScipReferences, bind_calls
+from .. import scip_bases
 from ..edge_coverage import edge_coverage
 from ..fastapi_dependencies import dependency_uses
 from ..pytest_fixtures import FixtureUse
@@ -71,16 +72,41 @@ NESTS_RULE = register_rule(
     )
 )
 
-PYTHON_PACKAGE_RULE = register_rule(
-    EvidenceRule(
-        scip_imports.SCIP_PYTHON_IMPORT_PACKAGE,
-        "resolved",
-        "scip-python (pyright) resolves the module an absolute import names "
-        "to an installed distribution or the standard library, which the "
-        "index names with its version; the package's own files are not "
-        "analyzed.",
+PACKAGE_RULES = {
+    rule.rule_id: rule
+    for rule in (
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_PYTHON_IMPORT_PACKAGE,
+                "resolved",
+                "scip-python (pyright) resolves the module an absolute import "
+                "names to an installed distribution or the standard library, "
+                "which the index names with its version; the package's own "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_GO_IMPORT_PACKAGE,
+                "resolved",
+                "scip-go (the go command's package loading) resolves the import "
+                "path to a package of another module, or of the standard "
+                "library, which the index names with the module's version; its "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_SCRIPT_IMPORT_PACKAGE,
+                "resolved",
+                "scip-typescript (the TypeScript compiler's module resolution) "
+                "resolves the specifier to a file of an npm package, which the "
+                "index names with the version its package.json declares; the "
+                "package's files are not analyzed.",
+            )
+        ),
     )
-)
+}
 FIXTURE_PARAMETER_RULE = register_rule(
     EvidenceRule(
         "pytest.fixture-parameter",
@@ -179,6 +205,26 @@ IMPORT_RULES = {
                 "names from the interpreter's search path (the project's source "
                 "roots, installed dependencies, the standard library) to a "
                 "document of the index, which is the analyzed file.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_GO_IMPORT_MODULE,
+                "resolved",
+                "scip-go (the go command's package loading, through go.mod and "
+                "replace directives) resolves the import path to a package whose "
+                "files the index defines; the link reaches each of its non-test "
+                "files.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_SCRIPT_IMPORT_MODULE,
+                "resolved",
+                "scip-typescript (the TypeScript compiler's module resolution, "
+                "through tsconfig, package.json and workspaces) resolves the "
+                "specifier to a document of the index, which is the analyzed "
+                "file.",
             )
         ),
         register_rule(
@@ -604,6 +650,26 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[scip_bases.SCIP_PYTHON_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_PYTHON_BASE,
+        "resolved",
+        "scip-python records, at the last name of a base written in a Python "
+        "class statement, a reference to the symbol of exactly one class "
+        "declared in the analyzed files: the base as Python's import and name "
+        "lookup bind it.",
+    )
+)
+BASE_RULES[scip_bases.SCIP_TYPESCRIPT_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_TYPESCRIPT_BASE,
+        "resolved",
+        "scip-typescript records, at the last name of an extends or implements "
+        "entry of a TypeScript or JavaScript class or interface, a reference "
+        "to the symbol of exactly one class or interface declared in the "
+        "analyzed files: the base as the TypeScript compiler binds it.",
+    )
+)
 BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_SUPERTRAIT,
@@ -851,16 +917,20 @@ class TreeSitterTool(AnalysisTool):
             for r in import_rules.resolve_imports(result)
             if r.reason != import_rules.RESOLUTION_CONFIGURATION
         )
-        # Absolute Python imports in files scip-python covers resolve as the
-        # interpreter would; external modules name their package.
-        python_imports = scip_imports.bind_python_imports(
+        # Imports in files an index covers resolve as the language's own
+        # tooling resolves them; external modules name their package.
+        languages_by_file = {c.file: c.language for c in result.coverage}
+        language_of = {
+            item.id: languages_by_file.get(item.file) for item in result.imports
+        }
+        scip_bound = scip_imports.bind_imports(
             result,
             scip_indexes,
             self.repo_path,
             {r.import_id: r for r in resolutions},
         )
         resolutions = tuple(
-            python_imports[r.import_id][0] if r.import_id in python_imports else r
+            scip_bound[r.import_id][0] if r.import_id in scip_bound else r
             for r in resolutions
         )
         undisclosed = {}
@@ -1132,10 +1202,13 @@ class TreeSitterTool(AnalysisTool):
                     )
                 )
         packages = {}
-        for import_id, (_, found) in sorted(python_imports.items()):
+        for import_id, (_, found) in sorted(scip_bound.items()):
             item = imports[import_id]
             for package in found:
-                name = f"{repo_url}::python-package::{package.name}::{package.version}"
+                name = (
+                    f"{repo_url}::{package.ecosystem}-package::"
+                    f"{package.name}::{package.version}"
+                )
                 if name not in packages:
                     packages[name] = package
                     nodes.append(
@@ -1146,7 +1219,7 @@ class TreeSitterTool(AnalysisTool):
                                 "repo_url": repo_url,
                                 "name": package.name,
                                 "version": package.version,
-                                "ecosystem": "python",
+                                "ecosystem": package.ecosystem,
                             },
                         )
                     )
@@ -1164,7 +1237,7 @@ class TreeSitterTool(AnalysisTool):
                             "names": list(item.names),
                             "modules": list(package.modules),
                             "line": item.line,
-                            **_evidence(PYTHON_PACKAGE_RULE),
+                            **_evidence(PACKAGE_RULES[package.rule_id]),
                         },
                     )
                 )
@@ -1292,7 +1365,10 @@ class TreeSitterTool(AnalysisTool):
             )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
-        for resolution in base_rules.resolve_supertypes(result):
+        for base_binding in scip_bases.bind_supertypes(
+            result, base_rules.resolve_supertypes(result), references
+        ):
+            resolution = base_binding.resolution
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
@@ -1316,6 +1392,7 @@ class TreeSitterTool(AnalysisTool):
                         "heritage": item.kind,
                         "line": item.line,
                         "column": item.column,
+                        **_produced(base_binding.producer),
                         **_evidence(BASE_RULES[resolution.rule_id]),
                     },
                 )
@@ -1477,11 +1554,16 @@ class TreeSitterTool(AnalysisTool):
                 "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
-                # Of those, the absolute Python imports scip-python decided.
-                "scip_python_imports": _count(
-                    r.reason or r.status for r, _ in python_imports.values()
-                ),
-                "python_packages": len(packages),
+                # Of those, the imports an index decided, by language.
+                "scip_imports": {
+                    language: _count(
+                        r.reason or r.status
+                        for key, (r, _) in scip_bound.items()
+                        if language_of[key] == language
+                    )
+                    for language in sorted({language_of[key] for key in scip_bound})
+                },
+                "external_packages": len(packages),
                 "call_resolution": dict(sorted(call_counts.items())),
                 "call_resolution_by_resolver": {
                     resolver: dict(sorted(counts.items()))

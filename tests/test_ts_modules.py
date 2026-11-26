@@ -356,7 +356,13 @@ class CompilerImportTests(unittest.TestCase):
             ("./side", "typescript.compiler-module", "resolved", "typescript@6.0.3"),
             edges,
         )
-        self.assertEqual({e[1] for e in edges}, {"typescript.compiler-module"})
+        # scip-typescript decides the imports its index records; the
+        # compiler decides the rest (a side-effect import names nothing the
+        # index can reference).
+        self.assertEqual(
+            {e[1] for e in edges},
+            {"typescript.compiler-module", "scip.typescript-import-module"},
+        )
 
 
 class LocateTypeScriptTests(unittest.TestCase):

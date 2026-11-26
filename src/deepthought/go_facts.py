@@ -103,6 +103,27 @@ class GoCall:
 
 
 @dataclass(frozen=True)
+class GoField:
+    """A field of a struct type declared in the module (exported or
+    embedded): the (file, line, name) of the module's named types its type
+    holds, and whether it holds an interface."""
+
+    name: str
+    line: int
+    embedded: bool
+    types: tuple[tuple[str, int, str], ...]
+    interface: bool
+
+
+@dataclass(frozen=True)
+class GoStruct:
+    file: str
+    line: int  # of the type's name
+    name: str
+    fields: tuple[GoField, ...]
+
+
+@dataclass(frozen=True)
 class GoSignature:
     """The named types a function's parameters and results are built from
     (``namedIn`` in gofacts), at the function's name."""
@@ -143,6 +164,7 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    structs: list[GoStruct] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
@@ -635,6 +657,32 @@ def _read(text, directory, members, facts):
                     item["column"] - 1,
                     _type(item["type"]),
                     tuple((e["key"], _value(e)) for e in item.get("elements") or ()),
+                )
+            )
+        elif kind == "struct":
+            file = relative(item["file"])
+            key = (file, item["line"], "struct")
+            if key in seen:
+                continue  # every package is read, not only the members'
+            seen.add(key)
+            facts.structs.append(
+                GoStruct(
+                    file,
+                    item["line"],
+                    item["type"]["name"],
+                    tuple(
+                        GoField(
+                            f["name"],
+                            f["line"],
+                            bool(f.get("embedded")),
+                            tuple(
+                                (relative(t["file"]), t["line"], t["name"])
+                                for t in f.get("types") or ()
+                            ),
+                            bool(f.get("interface")),
+                        )
+                        for f in item.get("fields") or ()
+                    ),
                 )
             )
         elif kind == "table_name":
