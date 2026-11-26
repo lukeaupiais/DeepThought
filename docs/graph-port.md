@@ -314,6 +314,41 @@ tool's `call_resolution_by_resolver` metric counts call outcomes separately for
 (the parser's link kept over a suspect index target) and `tree-sitter` (files
 no index covers).
 
+### Uses besides calls
+
+Code also couples through names it does not call: a type in an annotation,
+conversion or `isinstance`, a function passed as a value (a handler, a
+callback, an entry in a lookup table), a field read or written. In a file a
+SCIP index covers, every reference that is not at a call's name, not in an
+import statement, not a base a class declaration names (its INHERITS_FROM
+edge) and not a declaration's own name (scip-python records a redefinition as
+a reference) becomes a use edge
+(`deepthought.scip_uses`), from the innermost parsed declaration around it
+(or its file), all `resolved`:
+
+| Rule | Edge |
+|---|---|
+| `scip.use-type` | USES_TYPE to a parsed class, struct, interface, type alias or enum |
+| `scip.use-function-value` | REFERENCES_FUNCTION to a parsed function or method named without being called |
+| `scip.use-field-read` | READS_FIELD to a Field |
+| `scip.use-field-write` | WRITES_FIELD to a Field: the reference is the target of an assignment, augmented assignment, `++`/`--`, `del`, or the key of a Go composite literal element (`T{Field: v}`) |
+| `scip.field-definition` | type CONTAINS Field |
+
+Fields are not parsed declarations: each term the index defines on a type
+(`T#name.`) inside a parsed class, struct, interface or enum is a
+`Field`/`Symbol` node of that type (its name `Type.name`). Whether a use
+writes is read from the file's tree-sitter syntax, since the indexers mark
+every reference `ReadAccess` (scip-go, scip-python) or nothing
+(scip-typescript). Uses of one kind from one source to one target are one
+edge with the first site (`line`, `column`) and the number of sites
+(`sites`), the producer and the receipt. A reference to a local variable has
+no declaration to link and adds nothing; a declaration naming itself (a
+recursive reference) neither. `get_impact` follows the four edges backwards,
+and a type contains its fields, so a changed type reaches the readers and
+writers of its fields. On chi (Go) the graph gains 108 fields and 859 use
+edges (1,320 sites), on miniflux 1,596 fields and 10,914 edges (16,493
+sites), on flask 1,119 edges; binding them takes under a second.
+
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
@@ -6147,7 +6182,7 @@ rows (`format: "json"`, which keep their MCP structured content) still carry
 them. What every row shares is
 said once, repeating leading values become headings, rows that differ only in
 a number merge (`at lines 195, 209`), and rows in test files follow under
-`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot; it
+`In tests:`. The text opens with the row count and whether the limit cut it, then, when the answer carries `freshness` with status `changed`, a line naming the files edited or removed since the snapshot (in text, freshness covers the files of the link ends looked up for the sentences as well as the rows' own); it
 closes with a `Coverage:` line from the snapshot's `EdgeCoverage` records for
 the link families in the result, for the result's languages and for every
 other analyzed language where the family is not linked (`(none returned)`):
