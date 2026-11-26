@@ -29,6 +29,12 @@ def connection_settings():
     )
 
 
+def workspace_setting():
+    """The working copy graph answers are checked against
+    (``DEEPTHOUGHT_WORKSPACE``; see GraphQueryService freshness), or None."""
+    return os.environ.get("DEEPTHOUGHT_WORKSPACE") or None
+
+
 def query_observer():
     """Load optional evaluation instrumentation only when explicitly configured."""
     keys = (
@@ -514,6 +520,7 @@ async def _execute(args, scip_report, scip_indexes):
             driver,
             database=config["database"],
             observer=query_observer(),
+            workspace=workspace_setting(),
         )
         if args.command == "diff":
             return await service.diff_snapshots(

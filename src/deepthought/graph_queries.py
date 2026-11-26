@@ -11,6 +11,7 @@ import math
 import re
 import time
 from hashlib import sha256
+from pathlib import Path
 
 from .components import PACKAGE_KINDS
 from .source_roles import ROLE_PATTERNS, exclusion_pattern
@@ -51,6 +52,38 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+# At most this many distinct files are checked per answer, and listed.
+_FRESHNESS_PATHS = 500
+_FRESHNESS_LISTED = 20
+_PATH_KEYS = frozenset({"file_path", "path", "file"})
+# A workspace file whose real path is outside the workspace (a symlink out
+# of it) is not read: it is left out of the check.
+_OUTSIDE = object()
+
+
+def _path_key(key):
+    """file_path, path or file, also as a raw query's unaliased column
+    (``f.path``, ``s.file_path``)."""
+    return isinstance(key, str) and key.rsplit(".", 1)[-1] in _PATH_KEYS
+
+
+def _named_paths(value):
+    """Relative file paths an answer names under file_path, path or file
+    keys, at any depth."""
+    found = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if _path_key(key) and isinstance(item, str):
+                if item and not item.startswith("/") and ".." not in item.split("/"):
+                    found.add(item)
+            else:
+                found |= _named_paths(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= _named_paths(item)
+    return found
 
 
 def _cypher_code(query):
@@ -225,10 +258,15 @@ class GraphQueryService:
     additionally enforce read-only access; routing mode alone is not security.
     """
 
-    def __init__(self, driver, database="neo4j", *, observer=None):
+    def __init__(self, driver, database="neo4j", *, observer=None, workspace=None):
         self.driver = driver
         self.database = _text(database, "database")
         self.observer = observer
+        # The working copy the snapshot was taken from, if the caller names
+        # one: each answer then says which of the files it names have
+        # changed there since (``freshness``).
+        self.workspace = None if workspace is None else Path(workspace)
+        self._digests = {}
 
     @staticmethod
     async def _marker(tx, repo_url, snapshot_id):
@@ -341,6 +379,19 @@ class GraphQueryService:
                         response["returned"] -= 1
                         response["truncated"] = True
                         break
+                if self.workspace is not None and not repository_scope:
+                    response["freshness"] = await self._freshness(
+                        tx, repo_url, snapshot_id, response["items"]
+                    )
+                    # The note may push the answer over budget: drop whole
+                    # items, as the loop above does.
+                    while (
+                        response["items"]
+                        and len(_json(response).encode()) + 1 > max_output_bytes
+                    ):
+                        response["items"].pop()
+                        response["returned"] -= 1
+                        response["truncated"] = True
                 if len(_json(response).encode()) > max_output_bytes:
                     raise ValueError("Query metadata exceeds the output byte budget")
                 # Optional evidence hook shared by CLI, MCP and embedded callers.
@@ -367,6 +418,73 @@ class GraphQueryService:
                 if event is not None:
                     event["wall_seconds"] = time.monotonic() - started
                     self.observer(event)
+
+    def _workspace_digest(self, path):
+        """sha256 of a workspace file's bytes, as the analysis records it in
+        File.file_sha256; None when it is gone, ``_OUTSIDE`` when its real
+        path leaves the workspace. Cached by size and mtime, so an edit that
+        keeps both (``cp -p``, an archive restore) reads as unchanged."""
+        target = self.workspace / path
+        try:
+            stat = target.stat()
+            real = target.resolve(strict=True)
+        except OSError:
+            return None
+        if not real.is_relative_to(self.workspace.resolve()):
+            return _OUTSIDE
+        key = (path, stat.st_size, stat.st_mtime_ns)
+        if key not in self._digests:
+            try:
+                self._digests[key] = sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                return None
+        return self._digests[key]
+
+    async def _freshness(self, tx, repo_url, snapshot_id, items):
+        """Whether the files an answer names still hold the bytes the
+        snapshot analyzed, in the workspace this service was given.
+
+        ``status`` is ``current`` (every named file is unchanged),
+        ``changed`` (``changed_files`` were edited since and ``missing_files``
+        are gone: their lines may have moved) or ``unverified`` (no
+        workspace was given, or the answer names no analyzed file)."""
+        paths = sorted(_named_paths(items))
+        if self.workspace is None or not paths:
+            return {"status": "unverified"}
+        result = await tx.run(
+            "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE f.path IN $paths AND f.file_sha256 IS NOT NULL "
+            "RETURN f.path AS path, f.file_sha256 AS digest",
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+            paths=paths[:_FRESHNESS_PATHS],
+        )
+        recorded = {record["path"]: record["digest"] async for record in result}
+        if not recorded:
+            return {"status": "unverified"}
+        changed, missing, checked = [], [], 0
+        for path, digest in sorted(recorded.items()):
+            current = self._workspace_digest(path)
+            if current is _OUTSIDE:
+                continue
+            checked += 1
+            if current is None:
+                missing.append(path)
+            elif current != digest:
+                changed.append(path)
+        if not checked:
+            return {"status": "unverified"}
+        freshness = {
+            "status": "changed" if changed or missing else "current",
+            "files_checked": checked,
+        }
+        if changed:
+            freshness["changed_files"] = changed[:_FRESHNESS_LISTED]
+        if missing:
+            freshness["missing_files"] = missing[:_FRESHNESS_LISTED]
+        if len(changed) > _FRESHNESS_LISTED or len(missing) > _FRESHNESS_LISTED:
+            freshness["files_listed_truncated"] = True
+        return freshness
 
     async def list_snapshots(
         self,

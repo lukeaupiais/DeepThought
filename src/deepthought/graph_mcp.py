@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import os
 from typing import Annotated, Literal
 
-from .graph_cli import connection_settings, query_observer
+from .graph_cli import connection_settings, query_observer, workspace_setting
 
 
 def create_server():
@@ -33,6 +33,7 @@ def create_server():
                 driver,
                 database=settings["database"],
                 observer=query_observer(),
+                workspace=workspace_setting(),
             )
         finally:
             await manager.close()

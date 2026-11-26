@@ -507,6 +507,29 @@ value in `Hono`'s constructor, now of the wrong type). The compiler side
 covers value uses and type errors; the graph side covers callers past the
 first break, other languages and other services.
 
+### Answers against the working copy
+
+A graph answer describes one snapshot, so after an edit its lines can point at
+code that has since moved. When `GraphQueryService` is given the workspace the
+snapshot came from (`workspace=`; `DEEPTHOUGHT_WORKSPACE` for the CLI and the
+MCP server), every snapshot answer, raw Cypher included, carries `freshness`.
+It covers the files the answer names under `file_path`, `path` or `file`, at
+any depth, also as a raw query's unaliased column such as `f.path`:
+
+- `current`: each named analyzed file still has the bytes the snapshot
+  recorded (`File.file_sha256`);
+- `changed`: `changed_files` were edited and `missing_files` are gone since
+  the snapshot, so re-read those or re-index;
+- `unverified`: the answer names no analyzed file it can read in the
+  workspace. A file whose real path leaves the workspace (a symlink out of it)
+  is not read and not counted.
+
+`files_checked` counts the files compared. At most 500 files are checked and
+20 of each kind are listed per answer; `files_listed_truncated` says when the
+lists were cut. Digests are cached by size and modification time, so an edit
+that keeps both (`cp -p`, an archive restore) reads as unchanged. Without a
+workspace, answers carry no `freshness`.
+
 ## Components
 
 The original service detector added weighted points for a Dockerfile (30), a
