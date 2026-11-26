@@ -284,24 +284,28 @@ GO_HELPER_PAYLOAD_RULES = {
             "service-contracts.go-request-body-type-in-helper",
             "resolved",
             "A Go route handler passes its request context (gin's *Context, "
-            "echo's Context, fiber's *Ctx or Ctx) to a function of the module "
-            "that decodes the request body into a value of this type, as "
-            "service-contracts.go-request-body-type reads it; the Go type "
-            "checker gives the call, the callee and the parameter receiving "
-            "the context, followed up to "
-            "four calls deep (via lists the functions).",
+            "echo's Context, fiber's *Ctx or Ctx, net/http's *Request) to a "
+            "function of the module that decodes the request body into a "
+            "value of this type, as service-contracts.go-request-body-type "
+            "reads it; the Go type checker gives the call, the callee and "
+            "the parameter receiving the context, followed up to four calls "
+            "deep (via lists the functions). A value the helper takes as an "
+            "interface parameter (v any) has the static type of the argument "
+            "the call gives it.",
         )
     ),
     "response": register_rule(
         EvidenceRule(
             "service-contracts.go-response-body-type-in-helper",
             "resolved",
-            "A Go route handler passes its request context to a function of "
-            "the module that encodes the response from a value of this type, "
-            "as service-contracts.go-response-body-type reads it; the Go type "
+            "A Go route handler passes its request context (or net/http's "
+            "ResponseWriter) to a function of the module that encodes the "
+            "response from a value of this type, as "
+            "service-contracts.go-response-body-type reads it; the Go type "
             "checker gives the call, the callee and the parameter receiving "
-            "the context, followed up to "
-            "four calls deep (via lists the functions).",
+            "the context, followed up to four calls deep (via lists the "
+            "functions). A value the helper takes as an interface parameter "
+            "(v any) has the static type of the argument the call gives it.",
         )
     ),
 }
@@ -3258,14 +3262,18 @@ class ServiceContractTool(AnalysisTool):
 
         trees = {c.file: (tree, content) for c, content, tree in sources}
 
-        def go_helpers(file, function, parameters, depth=0, seen=None):
-            """[(function node, content, calls, via)] of the module's
+        def go_helpers(file, function, parameters, bound=None, depth=0, seen=None):
+            """[(function node, content, calls, via, bound)] of the module's
             functions a Go handler passes its request context to: the
             type checker's "pass" facts of calls in ``function`` (of
             ``file``) whose argument is one of ``parameters`` (references of
             its parameters that hold the context), followed up to
             _GO_HELPER_DEPTH calls deep; via names the functions
-            ("file::symbol"), outermost first."""
+            ("file::symbol"), outermost first. bound maps a helper's
+            interface parameters (v any) to the (named type, declaration)
+            of the argument the call gives them, through the helpers
+            before it."""
+            bound = {} if bound is None else bound
             seen = set() if seen is None else seen
             if depth >= _GO_HELPER_DEPTH:
                 return []
@@ -3283,10 +3291,20 @@ class ServiceContractTool(AnalysisTool):
                 callee = item.callee
                 if not received or callee is None:
                     continue
+                given = {}
+                for argument, parameter, sent, where, interface in item.typed:
+                    if parameter is None:
+                        continue
+                    if interface:
+                        if argument in bound:
+                            given[parameter] = bound[argument]
+                    elif sent is not None:
+                        given[parameter] = (sent, where)
                 ids = go_declarations.get(callee[1:3], [])
-                if len(ids) != 1 or ids[0] in seen:
+                key = (tuple(ids), tuple(sorted(given.items(), key=repr)))
+                if len(ids) != 1 or key in seen:
                     continue
-                seen.add(ids[0])
+                seen.add(key)
                 helper = definitions.get(ids[0])
                 calls = go_handler_calls.get(callee[1])
                 tree, content = trees.get(callee[1], (None, None))
@@ -3299,11 +3317,13 @@ class ServiceContractTool(AnalysisTool):
                     c for c in calls or () if helper.line <= c.line <= helper.end_line
                 ]
                 name = f"{helper.file}::{helper.symbol}"
-                found.append((node, content, inside, (name,)))
-                for deeper, text, deeper_calls, via in go_helpers(
-                    callee[1], node, received, depth + 1, seen
+                found.append((node, content, inside, (name,), given))
+                for deeper, text, deeper_calls, via, deeper_bound in go_helpers(
+                    callee[1], node, received, given, depth + 1, seen
                 ):
-                    found.append((deeper, text, deeper_calls, (name, *via)))
+                    found.append(
+                        (deeper, text, deeper_calls, (name, *via), deeper_bound)
+                    )
             return found
 
         for route in routes:
@@ -3337,11 +3357,11 @@ class ServiceContractTool(AnalysisTool):
                 start = (function.start_point.row + 1, function.start_point.column)
                 end = (function.end_point.row + 1, function.end_point.column)
                 inside = [c for c in calls if start <= (c.line, c.column) < end]
-            bodies = [(function, content, inside, ())]
+            bodies = [(function, content, inside, (), {})]
             bodies += go_helpers(file, function, _go_parameter_refs(function, file))
-            for body, body_content, body_calls, via in bodies:
+            for body, body_content, body_calls, via, bound in bodies:
                 for direction, sent, where in handler_payloads(
-                    body, body_content, body_calls
+                    body, body_content, body_calls, bound
                 ):
                     if sent is None:
                         payload_unresolved += 1  # an interface value

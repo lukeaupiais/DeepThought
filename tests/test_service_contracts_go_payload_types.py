@@ -285,6 +285,85 @@ class GoPayloadTypeTests(unittest.TestCase):
             ],
         )
 
+    def test_net_http_helpers_and_values_given_as_any(self):
+        # net/http's request and response writer are followed into helpers;
+        # a helper's interface parameter (v any) carries the type of what
+        # each call gives it, through a second helper too.
+        found = self.carried(
+            {
+                "svc/go.mod": "module example.com/shop\n\ngo 1.22\n",
+                "svc/api/types.go": TYPES + ERROR_TYPE,
+                "svc/main.go": NET_HTTP_HELPERS,
+            }
+        )
+        self.assertEqual(
+            sorted(
+                (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
+            ),
+            [
+                ("/orders", "CreateOrder", "request", "go-request-body-type-in-helper"),
+                ("/orders", "Order", "response", "go-response-body-type-in-helper"),
+                ("/orders", "Problem", "response", "go-response-body-type-in-helper"),
+                ("/status", "Order", "response", "go-response-body-type-in-helper"),
+            ],
+        )
+        # The value given to writeJSON as an any is not known.
+        self.assertEqual(self.unresolved, 1)
+
+
+ERROR_TYPE = """
+type Problem struct {
+\tDetail string `json:"detail"`
+}
+"""
+
+NET_HTTP_HELPERS = """package main
+
+import (
+\t"encoding/json"
+\t"net/http"
+
+\t"example.com/shop/api"
+)
+
+func readJSON(r *http.Request, v any) error {
+\treturn json.NewDecoder(r.Body).Decode(v)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+\tjson.NewEncoder(w).Encode(v)
+}
+
+func fail(w http.ResponseWriter, detail string) {
+\twriteJSON(w, api.Problem{Detail: detail})
+}
+
+func writeOrder(w http.ResponseWriter, o api.Order) {
+\tjson.NewEncoder(w).Encode(o)
+}
+
+func create(w http.ResponseWriter, r *http.Request) {
+\tvar in api.CreateOrder
+\tif err := readJSON(r, &in); err != nil {
+\t\tfail(w, err.Error())
+\t\treturn
+\t}
+\twriteJSON(w, &api.Order{ID: in.Item})
+}
+
+func status(w http.ResponseWriter, r *http.Request) {
+\twriteOrder(w, api.Order{})
+\tvar unknown any = api.Order{}
+\twriteJSON(w, unknown)
+}
+
+func main() {
+\thttp.HandleFunc("/orders", create)
+\thttp.HandleFunc("/status", status)
+\thttp.ListenAndServe(":8080", nil)
+}
+"""
+
 
 FIBER_ORDER = """package main
 

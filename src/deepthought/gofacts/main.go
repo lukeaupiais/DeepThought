@@ -89,6 +89,16 @@ type argument struct {
 	Parameter string `json:"parameter,omitempty"`
 }
 
+// typedArgument is an argument a "pass" fact's call gives an interface
+// parameter (v any): the named type of what it holds, when its static
+// type is not an interface itself.
+type typedArgument struct {
+	Ref       string     `json:"ref,omitempty"`
+	Parameter string     `json:"parameter"`
+	Type      *namedType `json:"type,omitempty"`
+	Interface bool       `json:"interface,omitempty"`
+}
+
 type element struct {
 	Key string `json:"key"`
 	argument
@@ -126,6 +136,8 @@ type fact struct {
 	NameLine    int          `json:"name_line,omitempty"`
 	NameColumn  int          `json:"name_column,omitempty"`
 	Types       []*namedType `json:"types,omitempty"`
+	// "pass": the arguments given to interface parameters.
+	Typed []typedArgument `json:"typed,omitempty"`
 }
 
 func ignored(name string) bool {
@@ -314,6 +326,20 @@ func main() {
 			}
 		}
 	}
+}
+
+// netHTTP reports whether t is net/http's *Request or ResponseWriter, what
+// a net/http handler passes on to the functions that read the request body
+// or write the response.
+func netHTTP(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "net/http" {
+		return false
+	}
+	return n.Obj().Name() == "Request" || n.Obj().Name() == "ResponseWriter"
 }
 
 // namedIn is the named types a parameter or result type is built from:
@@ -696,13 +722,14 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			return true
 		}
 		// A call of the module's own function that passes a value of a
-		// library type: which parameter receives it ("pass").
+		// library type, or net/http's request or response writer: which
+		// parameter receives it ("pass").
 		if fn := called(call.Fun); fn != nil {
 			if callee := functionRef(fn); callee != "" {
 				params := fn.Type().(*types.Signature).Params()
 				out := fact{Kind: "pass", Callee: callee}
 				for i, arg := range call.Args {
-					if i >= params.Len() || library(info.TypeOf(arg)) == nil {
+					if i >= params.Len() || (library(info.TypeOf(arg)) == nil && !netHTTP(info.TypeOf(arg))) {
 						continue
 					}
 					if r := reference(arg); r != "" {
@@ -710,6 +737,23 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 					}
 				}
 				if len(out.Arguments) > 0 {
+					for i, arg := range call.Args {
+						if i >= params.Len() || !types.IsInterface(params.At(i).Type()) {
+							continue
+						}
+						parameter := objectRef(params.At(i))
+						t := info.TypeOf(arg)
+						if parameter == "" || t == nil {
+							continue
+						}
+						typed := typedArgument{Ref: reference(arg), Parameter: parameter}
+						if types.IsInterface(t) {
+							typed.Interface = true
+						} else {
+							typed.Type = named(t)
+						}
+						out.Typed = append(out.Typed, typed)
+					}
 					out.File, out.Line, out.Column = where(call.Pos())
 					emit(out)
 				}
