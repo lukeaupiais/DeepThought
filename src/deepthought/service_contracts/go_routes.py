@@ -88,7 +88,9 @@ _CHI = _Framework(
     roots=frozenset({"Mux"}),
     mounts=frozenset({"Mount"}),
 )
-# Fiber v2: Get(path, handlers ...Handler), the handler last.
+# Fiber v2: Get(path, handlers ...Handler), run in order; the endpoint is
+# the first that does not call c.Next() (GoRoute.candidates), by
+# convention the last.
 _FIBER_V2 = _Framework(
     "fiber",
     _TITLE,
@@ -103,9 +105,11 @@ _FIBER_V2 = _Framework(
     mounts=frozenset({"Mount"}),
 )
 # Fiber v3: Get(path, handler, middleware ...Handler), which registers
-# append([]any{handler}, middleware...) run in order, so the endpoint is
-# the last (auth.Post("/logout", Protected(), Logout)); Route(path) returns
-# a Register whose verbs take no path.
+# append([]any{handler}, middleware...) run in order: the endpoint is the
+# first that does not call c.Next() (GoRoute.candidates), written last
+# (auth.Post("/logout", Protected(), Logout)) or first
+# (Get("/x", ctl.Get, Restrict())); Route(path) returns a Register whose
+# verbs take no path.
 _FIBER_V3 = _Framework(
     "fiber",
     _TITLE,
@@ -145,6 +149,9 @@ class GoRoute:
     paths: tuple[str, ...]
     handler: tuple | None
     literal: tuple | None = None
+    # Fiber: (function reference, func literal parameter reference) of each
+    # handler argument in the order Fiber runs them, when more than one.
+    candidates: tuple = ()
 
 
 def _joined(prefix, path):
@@ -342,6 +349,13 @@ class GoRouters:
             tuple(paths),
             self._handler(call, handler_at),
             self._literal(call, handler_at),
+            (
+                tuple(
+                    (self._handler(call, i), self._literal(call, i)) for i in handlers
+                )
+                if framework in (_FIBER_V2, _FIBER_V3) and len(handlers) > 1
+                else ()
+            ),
         )
 
     @staticmethod

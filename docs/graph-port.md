@@ -2635,9 +2635,17 @@ which only client requests are read:
   (any method); Fiber `Get`/.../`Patch`, `All` (any method) and `Add` (one
   method in v2, a `[]string` in v3), and the verbs of the `Register` a v3
   `Route(path)` returns, which take no path. The handler is the last
-  argument in Gin, chi and Fiber (v3 runs `append([]any{handler},
-  middleware...)` in order, so middleware written first precedes the
-  endpoint), and the first after the path in Echo. Paths and methods are
+  argument in Gin and chi, and the first after the path in Echo. Fiber
+  (v2 and v3) runs a route's handlers in the order written and stops at
+  one that does not call `c.Next()`, so the endpoint is the first handler
+  argument that never calls `Next` on its context: the type checker gives
+  each `Ctx.Next` call's receiver variable, a func literal argument calls
+  it when that variable is its parameter, and a module function, method
+  value or handler factory when the variable is declared inside it. Both
+  `Post(path, Protected(), Logout)` and `Get(path, ctl.Show, Restrict())`
+  are read. When a handler before the endpoint is a library's or not one
+  declaration, whether it passes the request on is not known and the last
+  argument is taken. Paths and methods are
   the values the type checker's constant and string folding gives; a
   method that is not literal leaves the route unread
   (`method_not_literal`), and a file importing a router package that the

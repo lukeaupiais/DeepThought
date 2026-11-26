@@ -288,6 +288,7 @@ type Ctx struct{}
 
 func (c *Ctx) BodyParser(out any) error { return nil }
 func (c *Ctx) JSON(data any) error      { return nil }
+func (c *Ctx) Next() error              { return nil }
 
 type Handler = func(*Ctx) error
 
@@ -354,6 +355,7 @@ func (b *Bind) Body(out any) error { return nil }
 type Ctx interface {
 \tBind() *Bind
 \tJSON(data any, ctype ...string) error
+\tNext() error
 }
 
 type Handler = func(Ctx) error

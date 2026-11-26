@@ -1981,7 +1981,7 @@ def _go_messaging_facts(root, sources):
     if not routers:
         routing = []
     if not files and not handlers and not routing:
-        return {}, {}, {}, ([], []), {}
+        return {}, {}, {}, ([], []), {}, set()
     facts = go_facts.collect(
         root,
         sorted({*files, *handlers, *routing}),
@@ -2013,7 +2013,56 @@ def _go_messaging_facts(root, sources):
     passes = defaultdict(list)
     for item in facts.passes:
         passes[item.file].append(item)
-    return found, go_facts.gopath_report(facts), handler_calls, routes, passes
+    # The parameters (references) that Fiber's c.Next() is called on: the
+    # handlers declaring them pass the request on (middleware).
+    fiber_next = {
+        call.operand
+        for call in facts.calls
+        if call.method == "Next"
+        and call.receiver is not None
+        and call.receiver[0] in _FIBER_PACKAGES
+        and call.receiver[1] == "Ctx"
+        and call.operand is not None
+        and call.operand[0] == "o"
+    }
+    return (
+        found,
+        go_facts.gopath_report(facts),
+        handler_calls,
+        routes,
+        passes,
+        fiber_next,
+    )
+
+
+_FIBER_PACKAGES = ("github.com/gofiber/fiber/v2", "github.com/gofiber/fiber/v3")
+
+
+def _fiber_endpoint(candidates, fiber_next, declarations, definitions):
+    """The (function reference, literal reference) of the handler Fiber
+    ends a route's chain with: the first, in run order, that never calls
+    c.Next() on its context. None when a handler before it is not the
+    module's (a library's middleware or handler) or not one declaration,
+    since whether it passes the request on is then not known."""
+    for function, literal in candidates:
+        if literal is not None:
+            passes_on = literal in fiber_next
+        elif function is not None:
+            ids = declarations.get(function[1:3], [])
+            if len(ids) != 1 or ids[0] not in definitions:
+                return None
+            # The function, a factory returning the handler, or a method
+            # value: any c.Next() on a parameter declared inside it.
+            found = definitions[ids[0]]
+            passes_on = any(
+                ref[1] == found.file and found.line <= ref[2] <= found.end_line
+                for ref in fiber_next
+            )
+        else:
+            return None
+        if not passes_on:
+            return function, literal
+    return None
 
 
 def _declaration_node(tree, definition):
@@ -2543,6 +2592,7 @@ class ServiceContractTool(AnalysisTool):
             go_handler_calls,
             (go_found_routes, go_route_unread),
             go_passes,
+            go_fiber_next,
         ) = _go_messaging_facts(root, sources)
         # Go handler declarations by (file, line) of their name.
         go_declarations = defaultdict(list)
@@ -2558,12 +2608,23 @@ class ServiceContractTool(AnalysisTool):
         # The first parameter of each Go route's func literal handler, by the
         # (file, line, column) of the route call.
         go_literals = {}
+        go_definitions = {d.id: d for d in result.definitions}
         for route in go_found_routes:
-            if route.literal is not None and route.literal[1] == route.file:
-                go_literals[(route.file, route.line, route.column)] = route.literal
+            function, literal = route.handler, route.literal
+            chosen = (
+                _fiber_endpoint(
+                    route.candidates, go_fiber_next, go_declarations, go_definitions
+                )
+                if route.candidates
+                else None
+            )
+            if chosen is not None:
+                function, literal = chosen
+            if literal is not None and literal[1] == route.file:
+                go_literals[(route.file, route.line, route.column)] = literal
             handler = None
-            if route.handler is not None:
-                ids = go_declarations.get(route.handler[1:3], [])
+            if function is not None:
+                ids = go_declarations.get(function[1:3], [])
                 handler = ids[0] if len(ids) == 1 else None
             go_routes[route.file][(route.line, route.column, route.method)] = (
                 route,
