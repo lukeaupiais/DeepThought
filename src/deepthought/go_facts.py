@@ -197,6 +197,9 @@ class GoFacts:
     # assigned from a variable, field or parameter.
     aliases: list[tuple] = field(default_factory=list)
     constructors: list[GoNew] = field(default_factory=list)
+    # (function reference, returned reference) of the module's functions
+    # that return a library-typed variable (a router they build).
+    returns: list[tuple] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
@@ -705,6 +708,13 @@ def _read(text, directory, members, facts):
                 continue
             seen.add(key)
             facts.aliases.append((ref(item["assigned"]), ref(item["operand"])))
+        elif kind == "return":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "return")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.returns.append((ref(item["callee"]), ref(item["operand"])))
         elif kind == "new":
             file = relative(item["file"])
             key = (file, item["line"], item["column"], "new")

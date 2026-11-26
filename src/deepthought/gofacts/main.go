@@ -680,6 +680,39 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		}
 		return n
 	}
+	// "return": a library-typed variable a module function returns (a
+	// router it builds), so a router mounted from the call's result is
+	// that variable.
+	for _, decl := range file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		fn, _ := info.Defs[fd.Name].(*types.Func)
+		callee := functionRef(fn)
+		if callee == "" {
+			continue
+		}
+		ast.Inspect(fd.Body, func(node ast.Node) bool {
+			switch n := node.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.ReturnStmt:
+				if len(n.Results) == 0 || library(info.TypeOf(n.Results[0])) == nil {
+					return true
+				}
+				if _, ok := ast.Unparen(n.Results[0]).(*ast.Ident); !ok {
+					return true
+				}
+				if r := reference(n.Results[0]); r != "" {
+					out := fact{Kind: "return", Callee: callee, Operand: r}
+					out.File, out.Line, out.Column = where(n.Pos())
+					emit(out)
+				}
+			}
+			return true
+		})
+	}
 	// The variable or field each call's result is assigned to; and, as
 	// "alias" facts, a library-typed variable, field or parameter assigned
 	// to another (a struct field set from a constructor's parameter).
