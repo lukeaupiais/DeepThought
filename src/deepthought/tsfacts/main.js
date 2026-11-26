@@ -620,7 +620,84 @@ function declaredTypes(checker, file, offset, out) {
     }
     return undefined;
   }
+  // The 1-based line of a node's start.
+  function lineOf(node) {
+    return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+  }
+  // The fields of a class, an interface or an object type alias: for each
+  // property with a written type (a class's parameter properties too), the
+  // repository's declarations of the named types it carries, as named()
+  // reads them; and the declarations of the classes and interfaces it
+  // extends or implements (name null).
+  function fields(node) {
+    if (!node.name) return;
+    const members = [];
+    const field = (name, at, type) => {
+      const found = [];
+      unresolved = 0;
+      try {
+        named(type, 0, found);
+      } catch (error) {
+        unresolved += 1;
+      }
+      if (found.length > 0 || unresolved > 0) {
+        members.push({ name, line: lineOf(at), types: found, unresolved });
+      }
+    };
+    for (const clause of node.heritageClauses || []) {
+      for (const base of clause.types) {
+        const found = [];
+        try {
+          declared(checker.getSymbolAtLocation(base.expression), found);
+        } catch (error) {
+          // not resolved: no base
+        }
+        (base.typeArguments || []).forEach((t) => named(t, 0, found));
+        if (found.length > 0) {
+          members.push({ name: null, line: lineOf(base), types: found, unresolved: 0 });
+        }
+      }
+    }
+    const list = ts.isTypeAliasDeclaration(node)
+      ? ts.isTypeLiteralNode(node.type)
+        ? node.type.members
+        : []
+      : node.members;
+    for (const member of list) {
+      if (
+        (ts.isPropertyDeclaration(member) || ts.isPropertySignature(member)) &&
+        member.type &&
+        member.name &&
+        (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name))
+      ) {
+        const static_ = (ts.getModifiers(member) || []).some(
+          (m) => m.kind === ts.SyntaxKind.StaticKeyword,
+        );
+        if (!static_) field(member.name.text, member, member.type);
+      } else if (ts.isConstructorDeclaration(member)) {
+        for (const p of member.parameters) {
+          if (
+            ts.isParameterPropertyDeclaration(p, member) &&
+            p.type &&
+            ts.isIdentifier(p.name)
+          ) {
+            field(p.name.text, p, p.type);
+          }
+        }
+      }
+    }
+    if (members.length > 0) {
+      emit({ file: out, name: node.name.text, line: lineOf(node.name), fields: members });
+    }
+  }
   function visit(node) {
+    if (
+      ts.isClassDeclaration(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node)
+    ) {
+      fields(node);
+    }
     const value = sent(node);
     if (value) {
       const found = [];
