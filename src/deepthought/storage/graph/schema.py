@@ -46,3 +46,40 @@ async def setup_schema(driver, *, database="neo4j"):
             await result.consume()
         result = await session.run("CALL db.awaitIndexes(30)")
         await result.consume()
+
+
+# How each relationship type reads as a sentence, for text query results:
+# "<source> <verb> <target>", followed by "at line N" when the link has a line.
+# One entry per relationship type the engine writes; a test checks that every
+# type in an analyzed graph has one. Keep the verb in the reader's words.
+RELATIONSHIP_SENTENCES = {
+    "CALLS": "calls",
+    "DISPATCHES_TO": "can dispatch to",
+    "HAS_UNRESOLVED_CALL": "makes",
+    "IMPORTS": "imports",
+    "INHERITS_FROM": "inherits from",
+    "IMPLEMENTS": "implements",
+    "REFERENCES": "refers to",
+    "CONTAINS": "contains",
+    "CONTAINS_REFERENCE": "contains the reference",
+    "DEFINES": "defines",
+    "DECLARES": "declares",
+    "HAS_AST_DECLARATION": "has the syntax-tree declaration",
+    "DEPENDS_ON": "depends on",
+    "PART_OF": "is part of",
+    "REQUIRES": "requires",
+    "DEPLOYS": "deploys",
+    "REQUESTS": "sends a request to",
+    "HANDLES": "handles",
+    "PUBLISHES": "publishes to",
+    "CONSUMES": "consumes from",
+    "USES_CONTRACT_OF": "uses the contract of",
+    "READS": "reads",
+    "WRITES": "writes",
+    "SELECTS": "selects from",
+    "MAPS_TO": "maps to",
+    "REFERENCES_TABLE": "references the table",
+    "CARRIES_MESSAGE": "is a message type of",
+    "CARRIES": "carries the payload type",
+    "HAS_COLUMN": "has the column",
+}
