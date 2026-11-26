@@ -499,7 +499,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1100
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1536
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
@@ -773,9 +773,13 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(
-            impact["forward_relations"], ["HANDLES", "PUBLISHES", "WRITES"]
+            impact["forward_relations"],
+            ["HANDLES", "PUBLISHES", "WRITES", "WRITES_COLUMN"],
         )
-        self.assertIn("forwards over HANDLES", impact["semantics"])
+        self.assertIn(
+            "forwards over HANDLES, PUBLISHES, WRITES, WRITES_COLUMN edges",
+            impact["semantics"],
+        )
         # Edges are listed from the dependent towards the change.
         # From the handler, the contract hops are pattern matched.
         handler = await self.service.get_impact(
@@ -1138,6 +1142,94 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("totals", 2, ["READS", "REFERENCES_TABLE"]),
             ],
         )
+
+    async def test_column_impact_separates_readers_writers_and_unknown(self):
+        from deepthought.analysis_tools.data_contracts import DataContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        files = {
+            "pyproject.toml": '[project]\nname = "shop"\n',
+            "db/schema.sql": "CREATE TABLE users (id int, email text, name text);\n",
+            "shop/store.py": "import sqlite3\n"
+            "\n"
+            "def find(conn, key):\n"
+            '    return conn.execute("SELECT email FROM users WHERE id = ?", (key,))\n'
+            "\n"
+            "def names(conn):\n"
+            '    return conn.execute("SELECT name FROM users")\n'
+            "\n"
+            "def set_email(conn, value):\n"
+            '    conn.execute("UPDATE users SET email = ?, name = ?", (value, value))\n'
+            "\n"
+            "def odd(conn):\n"
+            '    return conn.execute("SELECT nope FROM users")\n'
+            "\n"
+            "def page(conn):\n"
+            "    return find(conn, 1)\n"
+            "\n"
+            "def save(conn):\n"
+            '    set_email(conn, "x")\n',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in files.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(repo, languages={"python"})
+            tables = await DataContractTool(Path(directory)).analyze(
+                repo, languages=["python"]
+            )
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, tables], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        found = await self.service.search_contracts(
+            "users.email", repo, snapshot_id=snapshot, kind="DbColumn"
+        )
+        self.assertEqual([i["name"] for i in found["items"]], ["users.email"])
+        impact = await self.service.get_contract_impact(
+            found["items"][0]["qualified_name"], repo, snapshot_id=snapshot
+        )
+        # The writer and the declaring file are the change set.
+        self.assertEqual(
+            [
+                (p["file_path"] if p["top_level"] else p["name"], p["relations"])
+                for p in impact["providers"]
+            ],
+            [("db/schema.sql", ["DECLARES"]), ("set_email", ["WRITES_COLUMN"])],
+        )
+        # The reader must change; callers of the reader and of the writer
+        # re-test; names reads other columns of users and is not affected.
+        self.assertEqual(
+            sorted(
+                (item["element"]["name"], item["depth"], item["action"])
+                for item in impact["items"]
+                if item["element"].get("kind") == "Function"
+            ),
+            [
+                ("find", 1, "must_change"),
+                ("page", 2, "retest"),
+                ("save", 1, "retest"),
+            ],
+        )
+        # The writer's other column (name) is not a dependent, nor a way to
+        # its readers (names).
+        self.assertEqual(
+            [
+                item["element"]["name"]
+                for item in impact["items"]
+                if "DbColumn" in item["element"]["labels"]
+                or item["element"]["name"] == "names"
+            ],
+            [],
+        )
+        # odd names no column of users: whether it uses email is unknown.
+        self.assertEqual(
+            [(u["name"], u["relations"]) for u in impact["unresolved_users"]],
+            [("odd", ["READS"])],
+        )
+        self.assertFalse(impact["unresolved_users_truncated"])
 
     @staticmethod
     def rows_edges(response):
