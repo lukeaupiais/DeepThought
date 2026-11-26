@@ -669,6 +669,7 @@ def score(
     with) is one the oracle never saw: unjudged, not extra.
     """
     from deepthought.calls import resolve_calls
+    from deepthought.syntax import TEST_KINDS
 
     known = {}
     known.update(nodes or {})
@@ -696,6 +697,11 @@ def score(
     }
 
     def oracle_node(d):
+        # A test case's symbol is its runner call written out
+        # (`describe("x").it.each("y")`), not the oracle's label
+        # (`it.each([...])("y")`); both key it by the line of its call.
+        if d.kind in TEST_KINDS and (d.file, d.line) in known:
+            return (d.file, d.line, known[(d.file, d.line)])
         name = name_of(d)
         candidates = named.get((d.file, name), ())
         lines = [n for n in candidates if d.line <= n <= d.end_line]
@@ -720,6 +726,7 @@ def score(
 
     definitions = {d.id: d for d in result.definitions}
     node_of = {i: oracle_node(d) for i, d in definitions.items()}
+    folded = set()
     if fold_nested:
         # Outermost first, so an enclosing declaration is already read.
         order = sorted(definitions.values(), key=lambda d: (d.line - d.end_line, d.id))
@@ -740,15 +747,44 @@ def score(
                     # does name (a method) is never merged into another.
                     if node_of[inner.id][:2] in known:
                         node_of[d.id] = node_of[inner.id]
+                        folded.add(d.id)
             by_file[d.file].append(d)
     sites = {s.id: s for s in result.call_sites}
-    incoming = defaultdict(set)
+    # A table-driven test case (`it.each(rows)("x", fn)`) holds its rows,
+    # where the engine puts the calls inside them; the oracle's node is the
+    # test callback only, so it never rules on a call in the rows (the
+    # arrows a table passes for the callback to run).
+    starts = {
+        (site.file, site.line, site.column): site
+        for site in result.call_sites
+        if site.callee.endswith(".each")
+    }
+    rows = {}
+    for d in definitions.values():
+        site = starts.get((d.file, d.line, d.column))
+        if d.kind in TEST_KINDS and site is not None:
+            rows[d.id] = (site.line, site.column, site.end_line, site.end_column)
+
+    def in_rows(site):
+        span = rows.get(site.caller_id)
+        return span is not None and (
+            span[:2] < (site.line, site.column)
+            and (site.end_line, site.end_column) <= span[2:]
+        )
+
+    # A call into a folded declaration is one the oracle cannot see (the
+    # index makes the callee local): the caller of a local helper is not a
+    # caller of the callable that encloses it. Dependents reached only
+    # through such a call are unjudged.
+    incoming, strict = defaultdict(set), defaultdict(set)
     for r in resolve_calls(result) if resolutions is None else resolutions:
         site = sites[r.call_id]
         if r.status == "linked" and site.caller_id in node_of:
             source, target = node_of[site.caller_id], node_of[r.target_id]
             if source != target:
                 incoming[target].add(source)
+                if r.target_id not in folded and not in_rows(site):
+                    strict[target].add(source)
     engine_nodes = set(node_of.values())
     # An unjudged row names the oracle's line for a callable (its name
     # line); an engine node the truth does not otherwise list keeps its
@@ -766,6 +802,24 @@ def score(
             start <= ln <= end for start, end in spans.get(node, ()) for ln in lines
         )
 
+    # A test case the engine declares holds the anonymous callbacks inside
+    # it (expect(() => f()), an it in a describe), which the oracle keeps as
+    # their own nodes. Whether the test case runs one is not ruled on
+    # (enclosing_regions), so an engine test case that encloses an oracle
+    # dependent of the seed, judged or not, is unjudged rather than extra.
+    test_nodes = {node_of[i] for i, d in definitions.items() if d.kind in TEST_KINDS}
+
+    def encloses_dependent(seed, node, expected):
+        if node not in test_nodes:
+            return False
+        lines = {ln for f, ln, _ in expected if f == node[0]}
+        lines |= unjudged_lines.get((*seed[:2], node[0]), set())
+        return any(
+            start <= ln <= end and ln != node[1]
+            for start, end in spans.get(node, ())
+            for ln in lines
+        )
+
     totals = {"seeds": len(truth), "seeds_undeclared": 0}
     counts = {"expected": 0, "confirmed": 0, "missed": 0, "extra": 0, "unjudged": 0}
     by_depth = defaultdict(lambda: {"expected": 0, "confirmed": 0})
@@ -775,9 +829,10 @@ def score(
         if seed not in engine_nodes:
             totals["seeds_undeclared"] += 1
             samples["seeds_undeclared"].append(list(seed))
-            reached = {}
+            reached = direct = {}
         else:
             reached = {k: v for k, v in reach(incoming, seed, max_depth).items() if v}
+            direct = reach(strict, seed, max_depth)
         counts["expected"] += len(expected)
         for node, depth in expected.items():
             by_depth[depth]["expected"] += 1
@@ -791,6 +846,8 @@ def score(
             if node not in expected and (
                 (nodes and node[:2] not in nodes)
                 or is_unjudged(seed, node)
+                or encloses_dependent(seed, node, truth[seed])
+                or node not in direct
                 or (indexed is not None and node[0] not in indexed)
             ):
                 counts["unjudged"] += 1
