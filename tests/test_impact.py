@@ -333,7 +333,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         # Base.run belongs to the change set, so its callers do not appear as
         # dependents of it; Child depends on Base through INHERITS_FROM.
         self.assertEqual(
-            self.rows(impact), [("Child", 1, "name_matched", ["INHERITS_FROM"])]
+            self.rows(impact), [("Child", 1, "resolved", ["INHERITS_FROM"])]
         )
         self.assertEqual(impact["items"][0]["changed"], names["Base"])
         files = await self.service.get_file_impact(

@@ -400,14 +400,14 @@ class InheritanceCommandTests(unittest.TestCase):
             self.assertEqual(
                 sorted(rows("bases", "A")),
                 [
-                    ("Base", "extends", "name_matched"),
-                    ("Round", "implements", "name_matched"),
+                    ("Base", "extends", "resolved"),
+                    ("Round", "implements", "resolved"),
                 ],
             )
-            self.assertEqual(rows("subtypes", "A"), [("B", "extends", "name_matched")])
-            self.assertEqual(rows("bases", "A", "--evidence", "resolved"), [])
+            self.assertEqual(rows("subtypes", "A"), [("B", "extends", "resolved")])
+            self.assertEqual(rows("bases", "A", "--evidence", "name_matched"), [])
             self.assertEqual(
-                rows("subtypes", "Shape"), [("Round", "extends", "name_matched")]
+                rows("subtypes", "Shape"), [("Round", "extends", "resolved")]
             )
             # Ancestry follows classes and interfaces alike: B -> A -> Round -> Shape.
             ancestors = asyncio.run(
