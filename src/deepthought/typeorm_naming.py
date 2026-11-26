@@ -127,6 +127,28 @@ def table_names(root, entities, environ=None):
     """(names, unread): ``names`` maps (file, class name) to TypeORM's
     default table name for ``entities`` [(file, class name)], and
     ``unread`` maps each file with no name to the reason."""
+    return _names(root, entities, environ)
+
+
+def column_names(root, requests, environ=None):
+    """(names, unread) for ``requests`` [(file, request)], a request being
+    ("column", property, custom name or None, embedded prefixes) for
+    ``DefaultNamingStrategy.columnName`` or ("join", relation property,
+    referenced column) for ``joinColumnName``: ``names`` maps (file,
+    request) to the column name."""
+    return _names(root, requests, environ)
+
+
+def _key(request):
+    if isinstance(request, str):
+        return request
+    return json.dumps(
+        [list(r) if isinstance(r, tuple) else r for r in request],
+        separators=(",", ":"),
+    )
+
+
+def _names(root, entities, environ=None):
     environ = dict(os.environ if environ is None else environ)
     node, npm = (
         shutil.which("node", path=environ.get("PATH")),
@@ -172,7 +194,14 @@ def table_names(root, entities, environ=None):
             with resources.as_file(script) as path:
                 completed = subprocess.run(
                     [node, str(path), str(package)],
-                    input=json.dumps(sorted({entity for _, entity in group})),
+                    input=json.dumps(
+                        [
+                            e
+                            if isinstance(e, str)
+                            else [list(r) if isinstance(r, tuple) else r for r in e]
+                            for e in sorted({entity for _, entity in group}, key=_key)
+                        ]
+                    ),
                     capture_output=True,
                     text=True,
                     timeout=_TIMEOUT,
@@ -187,5 +216,5 @@ def table_names(root, entities, environ=None):
                 unread[file] = f"typeorm {release}: {e}"
             continue
         for file, entity in group:
-            names[file, entity] = tables[entity]
+            names[file, entity] = tables[_key(entity)]
     return names, unread

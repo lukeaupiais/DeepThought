@@ -33,6 +33,7 @@ from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
+from ..service_contracts.django_urls import django_routes
 from ..service_contracts.deployed import (
     Deployments,
     command_line,
@@ -63,7 +64,7 @@ from ..service_contracts.graphql import (
     schema_fields,
     template_schemas,
 )
-from ..service_contracts.http import PLACEHOLDER
+from ..service_contracts.http import ANY_METHOD, PLACEHOLDER
 from ..service_contracts.model import HttpRequest, HttpRoute, Unread
 from ..service_contracts.listeners import kratos_ports
 from ..service_contracts.protoc import python_descriptors, route_path
@@ -436,6 +437,56 @@ ROUTE_RULES = {
             "A function carries a route decorator of a FastAPI app or APIRouter "
             "bound once in the file; the APIRouter's own prefix is joined, but not "
             "the prefix given to include_router.",
+        )
+    ),
+    "flask-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.flask-route-imported-router",
+            "pattern_matched",
+            "A function carries a route decorator whose receiver the scip-python "
+            "index resolves to a Flask app or Blueprint another module binds to "
+            "flask.Flask or flask.Blueprint (a Blueprint imported from its "
+            "package); the url_prefix it is registered with is joined.",
+        )
+    ),
+    "fastapi-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-route-imported-router",
+            "pattern_matched",
+            "A function carries a route decorator whose receiver the scip-python "
+            "index resolves to a FastAPI app or APIRouter another module binds; "
+            "the router's own prefix and the prefixes it is included with are "
+            "joined.",
+        )
+    ),
+    "django": register_rule(
+        EvidenceRule(
+            "service-contracts.django-urlconf-route",
+            "pattern_matched",
+            "A URLconf entry the scip-python index resolves to Django's path, "
+            "re_path or url names a view the index resolves to a function or "
+            "class of the repository; the patterns of the includes that reach "
+            "its URLconf are joined, and every method is dispatched to the view.",
+        )
+    ),
+    "express-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.express-route-resolved-method",
+            "pattern_matched",
+            "A call the scip-typescript index resolves to an Express router "
+            "method (get, post, ..., all of IRouter, Application or an "
+            "IRoute chain from route(path)) with a handler argument declares "
+            "this path; prefixes given to use are joined.",
+        )
+    ),
+    "koa-router-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.koa-router-route",
+            "pattern_matched",
+            "A call the scip-typescript index resolves to a koa-router Router "
+            "method (get, post, put, patch, del, delete, all) with a handler "
+            "argument declares this path, joined with the router's prefix "
+            "option and the paths it is mounted at with use.",
         )
     ),
     "express": register_rule(
@@ -1952,7 +2003,10 @@ def _follow_resolver_maps(root, sources, references, repo_url, definitions):
 
 def _python_mounts(sources):
     """{file: {router name: full prefixes}} of Python routers mounted in
-    other routers (``include_router``, ``register_blueprint``)."""
+    other routers (``include_router``, ``register_blueprint``), and
+    {(file, router name): (framework, full prefixes)} of every Python
+    router, for decorators whose receiver the index resolves to a router
+    another module defines (``_python_router_resolver``)."""
     found = {
         coverage.file: python_routers(tree, content)
         for coverage, content, tree in sources
@@ -1962,7 +2016,189 @@ def _python_mounts(sources):
     if any(m for _, m, _ in found.values()):
         for (file, name), prefixes in compose_python_prefixes(found).items():
             mounts.setdefault(file, {})[name] = prefixes
-    return mounts
+    routers = {
+        (file, name): (framework, mounts.get(file, {}).get(name, [own]))
+        for file, (named, _, _) in found.items()
+        for name, (framework, own) in named.items()
+    }
+    return mounts, routers
+
+
+# Registration methods of JavaScript router libraries, by the SCIP symbol
+# the index gives the called name: (pattern, framework, kind). ``route``
+# is an Express route chain (``router.route(path).get(h)``). The method is
+# the symbol's last name.
+_SCRIPT_ROUTE_METHODS = (
+    (
+        re.compile(
+            r"^scip-typescript npm @types/express-serve-static-core \S+ "
+            r"`index\.d\.ts`/(?:IRouter|Application|Router|Express)#"
+            r"(get|post|put|patch|delete|options|head|all)\.$"
+        ),
+        "express",
+    ),
+    (
+        re.compile(
+            r"^scip-typescript npm @types/express-serve-static-core \S+ "
+            r"`index\.d\.ts`/IRoute#(get|post|put|patch|delete|options|head|all)\.$"
+        ),
+        "express-route",
+    ),
+    (
+        re.compile(
+            r"^scip-typescript npm (?:@types/koa-router|@types/koa__router|"
+            r"koa-router|@koa/router) \S+ \S*Router#"
+            r"(get|post|put|patch|delete|del|options|head|all)\(\)\.$"
+        ),
+        "koa-router",
+    ),
+)
+_SCRIPT_ROUTER_CONSTRUCTORS = re.compile(
+    r"^scip-typescript npm (?:@types/koa-router|@types/koa__router|koa-router|"
+    r"@koa/router) \S+ \S*Router#`<constructor>`\(\)\.$"
+)
+
+
+def _script_route_resolver(references):
+    """``route_of(file, name node)``: (framework, HTTP method) when the
+    SCIP index resolves the called name to a registration method of a
+    router library (``_SCRIPT_ROUTE_METHODS``), else None. The receiver's
+    type is the compiler's answer, so a router passed in from another
+    module, or a chain on one, is known by what it is."""
+
+    def route_of(file, name):
+        if name is None or not references.covers(file):
+            return None
+        found = set()
+        for symbol in references.symbols(
+            file, name.start_point.row + 1, name.start_point.column
+        ):
+            for pattern, framework in _SCRIPT_ROUTE_METHODS:
+                match = pattern.match(symbol)
+                if match:
+                    verb = match.group(1)
+                    found.add(
+                        (
+                            framework,
+                            ANY_METHOD
+                            if verb == "all"
+                            else "DELETE"
+                            if verb == "del"
+                            else verb.upper(),
+                        )
+                    )
+        return found.pop() if len(found) == 1 else None
+
+    return route_of
+
+
+# Request methods of HTTP client libraries, by the SCIP symbol the index
+# gives the called name: module functions and the methods of their client
+# objects.
+_CLIENT_METHODS = (
+    (
+        re.compile(
+            r"^scip-python python requests \S+ `requests\.(?:api|sessions)`/"
+            r"(?:Session#)?(?:get|post|put|patch|delete|head|options|request)\(\)\.$"
+        ),
+        "requests",
+    ),
+    (
+        re.compile(
+            r"^scip-python python httpx \S+ `httpx\._(?:api|client)`/"
+            r"(?:(?:Async)?Client#)?(?:get|post|put|patch|delete|head|options|request)"
+            r"\(\)\.$"
+        ),
+        "httpx",
+    ),
+    (
+        re.compile(
+            r"^scip-python python aiohttp \S+ `aiohttp\.client`/ClientSession#"
+            r"(?:get|post|put|patch|delete|head|options|request)\(\)\.$"
+        ),
+        "aiohttp",
+    ),
+    (
+        re.compile(
+            r"^scip-typescript npm axios \S+ \S*(?:Axios|AxiosInstance)#"
+            r"(?:get|post|put|patch|delete|head|options)\.$"
+        ),
+        "axios",
+    ),
+)
+
+
+def _client_resolver(references):
+    """``client_of(file, name node)``: the HTTP client library whose
+    request method the SCIP index resolves the called name to
+    (``_CLIENT_METHODS``), else None. The client object is known by its
+    type, wherever it was made."""
+
+    def client_of(file, name):
+        if name is None or not references.covers(file):
+            return None
+        found = {
+            client
+            for symbol in references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+            for pattern, client in _CLIENT_METHODS
+            if pattern.match(symbol)
+        }
+        return found.pop() if len(found) == 1 else None
+
+    return client_of
+
+
+def _script_router_constructor(references, file):
+    """``is_router(value)``: whether the index resolves ``value`` (``new
+    Router()``) to a koa-router Router constructor."""
+
+    def is_router(value):
+        if value.type != "new_expression" or not references.covers(file):
+            return False
+        constructor = value.child_by_field_name("constructor")
+        if constructor is None:
+            return False
+        if constructor.type == "member_expression":
+            constructor = constructor.child_by_field_name("property")
+        return any(
+            _SCRIPT_ROUTER_CONSTRUCTORS.match(symbol)
+            for symbol in references.symbols(
+                file, constructor.start_point.row + 1, constructor.start_point.column
+            )
+        )
+
+    return is_router
+
+
+def _python_router_resolver(references, routers):
+    """``resolve(file, receiver)`` for Python route decorators whose
+    receiver is not a router bound in their own file: the (framework, full
+    prefixes) of the router the scip-python index defines the receiver
+    name as (``bp`` imported from the package that makes the Blueprint),
+    else None. Which object a name is, through imports and re-exports, is
+    the index's answer, not a rule over the file's imports."""
+
+    def resolve(file, receiver):
+        if receiver.type != "identifier" or not references.covers(file):
+            return None
+        sites = references.definition_sites(
+            file, receiver.start_point.row + 1, receiver.start_point.column
+        )
+        found = set()
+        for defined_in, line, column in sites or ():
+            text = references.lines.get(defined_in, line)
+            match = re.match(rb"[A-Za-z_][A-Za-z0-9_]*", text[column:])
+            router = routers.get((defined_in, (match or [b""])[0].decode()))
+            if router is not None:
+                found.add((router[0], tuple(router[1])))
+        if len(found) != 1:
+            return None
+        framework, prefixes = found.pop()
+        return framework, list(prefixes)
+
+    return resolve
 
 
 def _composer_framework(root, file, cache):
@@ -2649,14 +2885,21 @@ def _laravel_route_prefixes(root, sources, composer):
     return {target: sorted(settings) for target, settings in found.items()}
 
 
-def _express_mounts(sources):
-    """{file: {router name: full prefixes}} of Express routers mounted with
+def _express_mounts(sources, references=None):
+    """{file: {router name: full prefixes}} of Express routers, and
+    koa-router routers the index resolves (``references``), mounted with
     ``use`` in other routers or apps."""
     found = {
-        coverage.file: express_routers(tree, content)
+        coverage.file: express_routers(
+            tree,
+            content,
+            None
+            if references is None
+            else _script_router_constructor(references, coverage.file),
+        )
         for coverage, content, tree in sources
         if coverage.language in ("javascript", "typescript")
-        and (b"express" in content or b".use(" in content)
+        and (b"express" in content or b".use(" in content or b"Router" in content)
     }
     if not any(facts[2] for facts in found.values()):
         return {}
@@ -3265,7 +3508,11 @@ class ServiceContractTool(AnalysisTool):
             return lists[0]
 
         nest = _nest_applications(root, sources)
-        python_mounts = _python_mounts(sources)
+        python_mounts, python_routers_found = _python_mounts(sources)
+        indexed = ScipReferences(result, scip_indexes, root)
+        python_router_of = _python_router_resolver(indexed, python_routers_found)
+        script_route_of = _script_route_resolver(indexed)
+        client_of = _client_resolver(indexed)
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
@@ -3328,7 +3575,7 @@ class ServiceContractTool(AnalysisTool):
             ],
         )
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
-        python_mounts.update(_express_mounts(sources))
+        python_mounts.update(_express_mounts(sources, indexed))
         scripts = _script_constants(root, sources)
         if scripts is not None:
             self._compiler_stack.enter_context(
@@ -3458,6 +3705,9 @@ class ServiceContractTool(AnalysisTool):
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
                     mounts=python_mounts.get(coverage.file),
+                    python_router_of=python_router_of,
+                    script_route_of=script_route_of,
+                    client_of=client_of,
                     go_routes=go_routes.get(coverage.file, {}),
                     externals=(
                         scripts.externals(coverage.file)
@@ -3592,6 +3842,16 @@ class ServiceContractTool(AnalysisTool):
                 )
                 stream_sites.extend(found[0])
                 messaging_unread.extend(found[1])
+        # Django URLconf entries, identified through the scip-python index.
+        found_django, unread_django = django_routes(
+            [source for source in sources if source[0].language == "python"],
+            indexed,
+            result.definitions,
+            repo_url,
+        )
+        routes.extend(found_django)
+        unread.extend(unread_django)
+
         for path in sorted(
             p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
         ):
@@ -3892,7 +4152,12 @@ class ServiceContractTool(AnalysisTool):
                         "route_id": route.id,
                         "line": route.line,
                         "column": route.column,
-                        **_evidence(ROUTE_RULES[route.framework]),
+                        **_evidence(
+                            ROUTE_RULES[
+                                route.framework
+                                + ("-indexed" if route.receiver_indexed else "")
+                            ]
+                        ),
                     },
                 )
             )

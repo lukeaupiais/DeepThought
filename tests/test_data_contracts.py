@@ -1475,6 +1475,58 @@ TYPEORM_SCIP = {
 }
 
 
+TYPEORM_COLUMNS = {
+    "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    "src/base.entity.ts": "import { CreateDateColumn } from 'typeorm';\n"
+    "export abstract class Base {\n"
+    "  @CreateDateColumn() createdAt: Date;\n"
+    "}\n",
+    "src/role.entity.ts": "import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';\n"
+    "@Entity('roles')\n"
+    "export class Role {\n"
+    "  @PrimaryGeneratedColumn() id: number;\n"
+    "  @Column() name: string;\n"
+    "}\n",
+    "src/user.entity.ts": "import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';\n"
+    "import { Base } from './base.entity';\n"
+    "import { Role } from './role.entity';\n"
+    "@Entity('users')\n"
+    "export class User extends Base {\n"
+    "  @PrimaryGeneratedColumn() id: number;\n"
+    "  @Column({ name: 'email_address' }) email: string;\n"
+    "  @Column() firstName: string;\n"
+    "  @ManyToOne(() => Role) role: Role;\n"
+    "}\n",
+    "src/user.service.ts": "import { Repository } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserService {\n"
+    "  constructor(private repo: Repository<User>) {}\n"
+    "  byEmail(email: string) { return this.repo.findOne({ where: { email, role: { name: 'a' } }, select: { id: true, firstName: true } }); }\n"
+    "  rename(u: User) { u.firstName = 'x'; return u.email; }\n"
+    "  add() { return this.repo.save({ email: 'a', role: { id: 1 } }); }\n"
+    "  change(id: number) { return this.repo.update({ id }, { firstName: 'b' }); }\n"
+    "  dynamic(where: any) { return this.repo.find({ where }); }\n"
+    "}\n",
+    "src/more.ts": "import { Repository, EntityManager, FindOptionsWhere } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserRepository extends Repository<User> {}\n"
+    "export class More {\n"
+    "  constructor(private users: UserRepository, private repo: Repository<User>) {}\n"
+    "  named() { return this.users.findBy({ firstName: 'c' }); }\n"
+    "  managed(m: EntityManager) { return m.delete(User, { firstName: 'c', ...(1 && { id: 2 }) }); }\n"
+    "  built() { return this.repo.createQueryBuilder().update().set({ firstName: 'd' }).where({ id: 1 }).execute(); }\n"
+    "  typed(u: User): typeof u.email { return ''; }\n"
+    "  own(r: Own) { return r.update({ firstName: 'e' }); }\n"
+    "  rel() { const r: FindOptionsWhere<User> = { firstName: 'f' }; return r; }\n"
+    "  byIds(o: FindOptionsWhere<User>) { return o; }\n"
+    "  call() { return this.byIds({ firstName: 'g' }); }\n"
+    "}\n"
+    "export interface Own { update(u: Partial<User>): void; }\n",
+    "db/migrations/0001_init.sql": "CREATE TABLE users (id int, email_address text, "
+    '"firstName" text, "createdAt" timestamp, "roleId" int);\n',
+}
+
+
 DRIZZLE_SCIP = {
     "src/schema.ts": """import { pgTable, text } from "drizzle-orm/pg-core";
 export const users = pgTable("users", { id: text("id") });
@@ -6115,6 +6167,231 @@ class Prefix
         metrics = output.metadata.custom_metrics
         self.assertEqual(metrics["doctrine_unresolved"], {"metadata_listener": 6})
         self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 11)
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+@unittest.skipUnless(
+    NODE, "TypeORM's naming strategy is installed with npm from its registry"
+)
+class TypeormColumnTests(unittest.TestCase):
+    """TypeORM entity properties: columns by TypeORM's own naming, accesses
+    through the index, repository call keys by the entity's metadata."""
+
+    def index(self, directory):
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        typeorm = "scip-typescript npm typeorm 0.3.28 "
+        repository = typeorm + "repository/`Repository.d.ts`/Repository#"
+        app = "scip-typescript npm app 1 src/"
+        user = app + "`user.entity.ts`/User#"
+        role = app + "`role.entity.ts`/Role#"
+        service = app + "`user.service.ts`/UserService#"
+        more = app + "`more.ts`/More#"
+        more_repo = app + "`more.ts`/UserRepository#"
+        own = app + "`more.ts`/Own#"
+        where = typeorm + "find-options/`FindOptionsWhere.d.ts`/FindOptionsWhere#"
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        builder = (
+            typeorm + "query-builder/`UpdateQueryBuilder.d.ts`/UpdateQueryBuilder#"
+        )
+        documents = {
+            "src/base.entity.ts": [
+                (2, "createdAt", app + "`base.entity.ts`/Base#createdAt.", True, 0)
+            ],
+            "src/role.entity.ts": [
+                (2, "Role", role, True, 0),
+                (3, "id", role + "id.", True, 0),
+                (4, "name", role + "name.", True, 0),
+            ],
+            "src/user.entity.ts": [
+                (4, "User", user, True, 0),
+                (5, "id", user + "id.", True, 0),
+                (6, "email", user + "email.", True, 0),
+                (7, "firstName", user + "firstName.", True, 0),
+                (8, "role", user + "role.", True, 0),
+            ],
+            "src/user.service.ts": [
+                (1, "User", user, False, 0),
+                (3, "repo", service + "repo.", True, 0),
+                (3, "Repository", repository, False, 0),
+                (3, "User", user, False, 0),
+                (4, "repo", service + "repo.", False, 0),
+                (4, "findOne", repository + "findOne().", False, 0),
+                (5, "User", user, False, 0),
+                (5, "firstName", user + "firstName.", False, 0),
+                (5, "email", user + "email.", False, 0),
+                (6, "repo", service + "repo.", False, 0),
+                (6, "save", repository + "save().", False, 0),
+                # The index resolves a DeepPartial key to the property.
+                (6, "email", user + "email.", False, 0),
+                (7, "repo", service + "repo.", False, 0),
+                (7, "update", repository + "update().", False, 0),
+                (8, "repo", service + "repo.", False, 0),
+                (8, "find", repository + "find().", False, 0),
+            ],
+            "src/more.ts": [
+                (1, "User", user, False, 0),
+                (2, "UserRepository", more_repo, True, 0),
+                (2, "Repository", repository, False, 0),
+                (2, "User", user, False, 0),
+                (4, "users", more + "users.", True, 0),
+                (4, "UserRepository", more_repo, False, 0),
+                (4, "repo", more + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 0),
+                (5, "users", more + "users.", False, 0),
+                (5, "findBy", repository + "findBy().", False, 0),
+                (6, "EntityManager", manager, False, 0),
+                (6, "m", "local 1", True, 0),
+                (6, "m", "local 1", False, 1),
+                (6, "delete", manager + "delete().", False, 0),
+                (6, "User", user, False, 0),
+                (7, "repo", more + "repo.", False, 0),
+                (
+                    7,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (7, "update", builder + "update().", False, 0),
+                (7, "set", builder + "set().", False, 0),
+                (7, "where", builder + "where().", False, 0),
+                (7, "execute", builder + "execute().", False, 0),
+                (8, "User", user, False, 0),
+                (8, "email", user + "email.", False, 0),
+                (9, "Own", own, False, 0),
+                (9, "update", own + "update().", False, 0),
+                (9, "firstName", user + "firstName.", False, 0),
+                (10, "FindOptionsWhere", where, False, 0),
+                (10, "User", user, False, 0),
+                (10, "firstName", user + "firstName.", False, 0),
+                (11, "byIds", more + "byIds().", True, 0),
+                (11, "FindOptionsWhere", where, False, 0),
+                (12, "byIds", more + "byIds().", False, 0),
+                (12, "firstName", user + "firstName.", False, 0),
+                (14, "Own", own, True, 0),
+                (14, "update", own + "update().", True, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = TYPEORM_COLUMNS[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_typeorm_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=[self.index(directory)]
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties.get("line"),
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN", "HAS_COLUMN")
+        )
+        users = "users::column::"
+        roles = "roles::column::"
+        key, access = "typeorm-column-key", "typeorm-scip-column-access"
+        self.assertEqual(
+            [e for e in edges if e[0] != "HAS_COLUMN"],
+            [
+                ("READS_COLUMN", "More.built", users + "id", 8, key),
+                # A FindOptionsWhere, declared or a parameter's type, reads.
+                ("READS_COLUMN", "More.call", users + "firstName", 13, access),
+                ("READS_COLUMN", "More.managed", users + "firstName", 7, key),
+                ("READS_COLUMN", "More.managed", users + "id", 7, key),
+                ("READS_COLUMN", "More.named", users + "firstName", 6, key),
+                ("READS_COLUMN", "More.rel", users + "firstName", 11, access),
+                ("READS_COLUMN", "UserService.byEmail", roles + "name", 5, key),
+                (
+                    "READS_COLUMN",
+                    "UserService.byEmail",
+                    users + "email_address",
+                    5,
+                    key,
+                ),
+                ("READS_COLUMN", "UserService.byEmail", users + "firstName", 5, key),
+                ("READS_COLUMN", "UserService.byEmail", users + "id", 5, key),
+                ("READS_COLUMN", "UserService.byEmail", users + "roleId", 5, key),
+                ("READS_COLUMN", "UserService.change", users + "id", 8, key),
+                (
+                    "READS_COLUMN",
+                    "UserService.rename",
+                    users + "email_address",
+                    6,
+                    access,
+                ),
+                ("WRITES_COLUMN", "More.built", users + "firstName", 8, key),
+                # The project's own update takes values.
+                ("WRITES_COLUMN", "More.own", users + "firstName", 10, access),
+                (
+                    "WRITES_COLUMN",
+                    "UserService.add",
+                    users + "email_address",
+                    7,
+                    access,
+                ),
+                ("WRITES_COLUMN", "UserService.add", users + "roleId", 7, key),
+                ("WRITES_COLUMN", "UserService.change", users + "firstName", 8, key),
+                ("WRITES_COLUMN", "UserService.rename", users + "firstName", 6, access),
+            ],
+        )
+        # Roles has no migration: its columns are declared by the entity.
+        self.assertEqual(
+            sorted(e[2] for e in edges if e[4] == "typeorm-column"),
+            [roles + "id", roles + "name"],
+        )
+        resolved = {
+            r.source_match["qualified_name"].split("::")[-2]: r.properties.get(
+                "columns_resolved"
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        }
+        # A select limits byEmail's row; find with a variable is not read.
+        self.assertEqual(
+            resolved,
+            {
+                "More.built": True,
+                "More.managed": True,
+                "More.named": False,
+                "UserService.byEmail": True,
+                "UserService.add": True,
+                "UserService.change": True,
+                "UserService.dynamic": False,
+            },
+        )
+        metrics = output.metadata.custom_metrics["typeorm_columns"]
+        self.assertEqual(metrics["columns"], 7)
+        self.assertEqual(metrics["columns_declared"], 2)
 
 
 if __name__ == "__main__":
