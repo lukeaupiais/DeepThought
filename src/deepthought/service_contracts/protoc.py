@@ -585,3 +585,41 @@ def python_descriptors(source):
         if data is not None:
             found.append(data)
     return found
+
+
+def indexed_type(serialized, kind, path):
+    """The full name of the message or enum protobuf-es's messageDesc /
+    enumDesc indexes in a serialized FileDescriptorProto: the first index
+    picks a top-level message (or, for an enum given one index, a top-level
+    enum), each next one a message nested in it, and an enum's last index
+    an enum of that message. None when it does not parse or an index is out
+    of range."""
+    from google.protobuf import descriptor_pb2
+    from google.protobuf.message import DecodeError
+
+    descriptor = descriptor_pb2.FileDescriptorProto()
+    try:
+        descriptor.ParseFromString(serialized)
+    except DecodeError:
+        return None
+    if not path:
+        return None
+    names = [descriptor.package] if descriptor.package else []
+    if kind == "enum" and len(path) == 1:
+        items = descriptor.enum_type
+        if not 0 <= path[0] < len(items):
+            return None
+        return ".".join([*names, items[path[0]].name])
+    messages = path[:-1] if kind == "enum" else path
+    items, current = descriptor.message_type, None
+    for index in messages:
+        if not 0 <= index < len(items):
+            return None
+        current = items[index]
+        names.append(current.name)
+        items = current.nested_type
+    if kind == "enum":
+        if current is None or not 0 <= path[-1] < len(current.enum_type):
+            return None
+        names.append(current.enum_type[path[-1]].name)
+    return ".".join(names)

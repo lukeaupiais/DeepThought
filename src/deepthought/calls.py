@@ -36,6 +36,7 @@ GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_TS_COMPILER_EXPORT = "typescript.call-compiler-export"
 CALL_TS_DECLARATION_FILE = "typescript.call-declaration-file"
+CALL_TS_EXPORT_CONFLICT = "typescript.call-export-conflict"
 CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
 CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
@@ -1835,13 +1836,18 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         """What the TypeScript compiler says ``module`` exports as ``name``,
         followed through re-exports to its declarations. When any of them
         is in a declaration file, the whole resolution carries
-        ``CALL_TS_DECLARATION_FILE``."""
+        ``CALL_TS_DECLARATION_FILE``; when the language rejects an export
+        on the way, ``CALL_TS_EXPORT_CONFLICT``."""
         declared = {}
         for at in compiled.exports.get(module, {}).get(name, ()):
             found = declaration_at(*at)
             if found is not None:
                 declared[found.id] = found
-        if any(is_declaration_file(d.file) for d in declared.values()):
+        if (module, name) in compiled.conflicts:
+            # The language rejects an export on the way: the compiler
+            # reports it and keeps one declaration, which nothing runs.
+            rule = CALL_TS_EXPORT_CONFLICT
+        elif any(is_declaration_file(d.file) for d in declared.values()):
             # No implementation is analyzed beside the declaration file: the
             # call binds to what it declares.
             rule = CALL_TS_DECLARATION_FILE

@@ -6,7 +6,8 @@ answers that from the program's SSA form with variable type analysis: for
 each such call site, the functions and methods that may reach it. Those
 edges replace matching method sets by name (``go_interfaces``) wherever a
 call is involved. The tool is pinned (``GO_CALLGRAPH_VERSION``) and required
-where Go is analyzed: a missing or wrong-version binary is an error.
+where Go is analyzed: when it is not installed, the engine builds it into its
+cache (``tool_provisioning``), and a tool it cannot have is an error.
 
 Each package is analyzed as its own program with its tests, offline and
 from the module cache, as ``go_facts`` runs the go command.
@@ -56,34 +57,58 @@ class DynamicCall:
     callee_name: str
 
 
-def locate_go_callgraph(environ=None, go="go"):
-    """The ``callgraph`` binary: ``$DEEPTHOUGHT_GO_CALLGRAPH`` if set, else
-    PATH, built from ``golang.org/x/tools`` at the pinned version (as ``go
-    version -m`` reports). Raises ``GoCallgraphUnavailable`` otherwise."""
-    environ = os.environ if environ is None else environ
-    found = environ.get(GO_CALLGRAPH_ENVIRONMENT_VARIABLE) or shutil.which(
-        "callgraph", path=environ.get("PATH")
-    )
-    install = f"go install {GO_CALLGRAPH_MODULE}/cmd/callgraph@{GO_CALLGRAPH_VERSION}"
-    if not found or not Path(found).is_file():
-        raise GoCallgraphUnavailable(
-            f"the Go call graph tool is required to analyze Go: {install}, "
-            f"or set ${GO_CALLGRAPH_ENVIRONMENT_VARIABLE}"
-        )
-    built = subprocess.run(
-        [go, "version", "-m", found], capture_output=True, text=True, timeout=60
-    ).stdout
+def _built_from_pin(binary, go, environ):
+    try:
+        built = subprocess.run(
+            [go, "version", "-m", str(binary)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**environ},
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        raise GoCallgraphUnavailable(f"go cannot be run: {error}") from None
     modules = {
         tuple(line.split()[1:3])
         for line in built.splitlines()
         if line.split()[:1] in (["mod"], ["dep"])
     }
-    if (GO_CALLGRAPH_MODULE, GO_CALLGRAPH_VERSION) not in modules:
+    return (GO_CALLGRAPH_MODULE, GO_CALLGRAPH_VERSION) in modules
+
+
+def locate_go_callgraph(environ=None, go="go"):
+    """The ``callgraph`` binary: ``$DEEPTHOUGHT_GO_CALLGRAPH`` if set, else
+    PATH's if built from ``golang.org/x/tools`` at the pinned version (as
+    ``go version -m`` reports), else the pinned version that the engine
+    builds into its cache with ``go install``. Raises
+    ``GoCallgraphUnavailable`` when none can be had."""
+    from .tool_provisioning import ToolInstallFailed, go_command
+
+    environ = os.environ if environ is None else environ
+    configured = environ.get(GO_CALLGRAPH_ENVIRONMENT_VARIABLE)
+    if configured:
+        found = Path(configured)
+        if not found.is_file():
+            raise GoCallgraphUnavailable(
+                f"${GO_CALLGRAPH_ENVIRONMENT_VARIABLE} names no file: {found}"
+            )
+    else:
+        on_path = shutil.which("callgraph", path=environ.get("PATH"))
+        if on_path and _built_from_pin(on_path, go, environ):
+            return Path(on_path)
+        try:
+            found = go_command(
+                GO_CALLGRAPH_MODULE, "callgraph", GO_CALLGRAPH_VERSION, environ, go
+            )
+        except ToolInstallFailed as error:
+            raise GoCallgraphUnavailable(
+                f"the Go call graph tool is required to analyze Go: {error}"
+            ) from None
+    if not _built_from_pin(found, go, environ):
         raise GoCallgraphUnavailable(
-            f"{found} is not built from {GO_CALLGRAPH_MODULE} "
-            f"{GO_CALLGRAPH_VERSION}: {install}"
+            f"{found} is not built from {GO_CALLGRAPH_MODULE} {GO_CALLGRAPH_VERSION}"
         )
-    return Path(found)
+    return found
 
 
 def dynamic_calls(root, packages, binary, go="go", timeout=1200):

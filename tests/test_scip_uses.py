@@ -149,3 +149,57 @@ class GoUsesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-typescript"])
+    and importlib.util.find_spec("google.protobuf"),
+    "Install scip-typescript and the scip extra",
+)
+class SkippedFileUsesTest(unittest.TestCase):
+    def test_uses_in_files_the_analysis_left_out_are_not_edges(self):
+        # The index's project covers the whole tsconfig, a Next.js page in
+        # route-group and dynamic-segment folders included; the analysis
+        # skips the page, whose uses then have no File to start from.
+        page = "src/(all)/[slug]/index.tsx"
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            for name, text in {
+                "package.json": '{"name": "w", "version": "1.0.0"}',
+                "tsconfig.json": (
+                    '{"compilerOptions": {"strict": true, "module": "esnext",'
+                    ' "moduleResolution": "bundler", "jsx": "preserve"},'
+                    ' "include": ["src"]}'
+                ),
+                "src/a.ts": (
+                    "export interface Props { slug: string }\n"
+                    "export function helper(p: Props) { return p.slug; }\n"
+                ),
+                page: (
+                    'import { Props, helper } from "../../a";\n'
+                    "export default function Page(p: Props) {\n"
+                    "  const f = helper;\n"
+                    "  return f(p);\n"
+                    "}\n"
+                ),
+                "src/main.ts": (
+                    'import { helper, Props } from "./a";\n'
+                    "const p: Props = { slug: 's' };\n"
+                    "export const f = helper;\n"
+                ),
+            }.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            output = asyncio.run(
+                TreeSitterTool(root).analyze(
+                    "r", languages=["typescript"], skip_patterns=["src/(all)/*"]
+                )
+            )
+        sources = {
+            r.source_match["qualified_name"]
+            for r in output.relationships
+            if r.type in {"USES_TYPE", "REFERENCES_FUNCTION", "READS_FIELD"}
+        }
+        self.assertIn("r::src/main.ts::file", sources)
+        self.assertFalse(any(page in source for source in sources), sources)

@@ -108,8 +108,10 @@ class LocateTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.directory)
 
     def test_missing_tool_is_an_error(self):
-        with self.assertRaisesRegex(GoCallgraphUnavailable, "go install"):
-            locate_go_callgraph({"PATH": self.directory})
+        with self.assertRaisesRegex(GoCallgraphUnavailable, "needs go"):
+            locate_go_callgraph(
+                {"PATH": self.directory, "DEEPTHOUGHT_CACHE": self.directory}
+            )
 
     @unittest.skipUnless(GO_READY, "Provision Go")
     def test_a_binary_not_built_from_the_pinned_module_is_refused(self):
@@ -117,7 +119,12 @@ class LocateTests(unittest.TestCase):
         fake.write_text("#!/bin/sh\n")
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         with self.assertRaisesRegex(GoCallgraphUnavailable, "is not built from"):
-            locate_go_callgraph({GO_CALLGRAPH_ENVIRONMENT_VARIABLE: str(fake)})
+            locate_go_callgraph(
+                {
+                    GO_CALLGRAPH_ENVIRONMENT_VARIABLE: str(fake),
+                    "PATH": os.environ.get("PATH", ""),
+                }
+            )
 
     @unittest.skipUnless(
         os.environ.get(GO_CALLGRAPH_ENVIRONMENT_VARIABLE), "No configured tool"
