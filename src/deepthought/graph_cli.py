@@ -29,6 +29,12 @@ def connection_settings():
     )
 
 
+def workspace_setting():
+    """The working copy graph answers are checked against
+    (``DEEPTHOUGHT_WORKSPACE``; see GraphQueryService freshness), or None."""
+    return os.environ.get("DEEPTHOUGHT_WORKSPACE") or None
+
+
 def query_observer():
     """Load optional evaluation instrumentation only when explicitly configured."""
     keys = (
@@ -161,12 +167,13 @@ def parser():
         "contracts",
         "contract-impact",
         "call-sites",
+        "snapshot",
         "cypher",
     ):
         q = commands.add_parser(name)
         q.add_argument("--repository-id", required=True)
         q.add_argument("--snapshot", required=True)
-        if name != "explain-edge":
+        if name not in {"explain-edge", "snapshot"}:
             q.add_argument("--limit", type=int, default=20)
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
@@ -274,6 +281,10 @@ def parser():
                 "--name", required=True, help="Last name of the callee (param)"
             )
             q.add_argument("--file", help="Only calls written in this file")
+            q.add_argument(
+                "--target",
+                help="Only calls of this declaration (qualified name or file:line)",
+            )
         if name == "components":
             q.add_argument("--kind", help="Only components of this kind")
         if name == "file-components":
@@ -518,6 +529,7 @@ async def _execute(args, scip_report, scip_indexes):
             driver,
             database=config["database"],
             observer=query_observer(),
+            workspace=workspace_setting(),
         )
         if args.command == "diff":
             return await service.diff_snapshots(
@@ -538,6 +550,12 @@ async def _execute(args, scip_report, scip_indexes):
         if args.command == "explain-edge":
             return await service.explain_edge(
                 args.edge_id,
+                args.repository_id,
+                snapshot_id=args.snapshot,
+                max_output_bytes=args.max_output_bytes,
+            )
+        if args.command == "snapshot":
+            return await service.describe_snapshot(
                 args.repository_id,
                 snapshot_id=args.snapshot,
                 max_output_bytes=args.max_output_bytes,
@@ -646,7 +664,11 @@ async def _execute(args, scip_report, scip_indexes):
             return await service.get_shared_tables(args.repository_id, **kwargs)
         if args.command == "call-sites":
             return await service.get_call_sites(
-                args.name, args.repository_id, file_path=args.file, **kwargs
+                args.name,
+                args.repository_id,
+                file_path=args.file,
+                target=args.target,
+                **kwargs,
             )
         if args.command == "component-files":
             return await service.get_component_files(

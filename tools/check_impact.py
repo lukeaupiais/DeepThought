@@ -16,10 +16,12 @@ import asyncio
 from collections import defaultdict, deque
 import json
 import os
+import tempfile
 from uuid import uuid4
 
 from deepthought.analysis_tools import TreeSitterTool
 from deepthought.graph_queries import GraphQueryService
+from deepthought.indexers import required_indexes
 from deepthought.storage.graph import (
     Neo4jConnectionManager,
     WriteCoordinator,
@@ -28,17 +30,21 @@ from deepthought.storage.graph import (
 
 WEAKNESS = {"resolved": 0, "pattern_matched": 1, "name_matched": 2}
 EVIDENCE = ["resolved", "pattern_matched", "name_matched"]
-RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
+# Code relations; get_impact also follows a test's USES_FIXTURE edges and an
+# endpoint's USES_DEPENDENCY edges.
+CODE_RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
+RELATIONS = CODE_RELATIONS | {"USES_FIXTURE", "USES_DEPENDENCY"}
 
 
-def expected(output, root, max_depth):
-    """{dependent qualified_name: (depth, evidence)} by reverse BFS."""
+def expected(output, root, max_depth, relations=RELATIONS):
+    """{dependent qualified_name: (depth, evidence)} by reverse BFS over
+    ``relations``."""
     incoming = defaultdict(list)
     children = defaultdict(list)
     for r in output.relationships:
         source = r.source_match["qualified_name"]
         target = r.target_match["qualified_name"]
-        if r.type in RELATIONS:
+        if r.type in relations:
             incoming[target].append((source, WEAKNESS[r.properties["evidence_type"]]))
         elif r.type == "CONTAINS" and "Symbol" in r.source_labels:
             children[source].append(target)
@@ -75,9 +81,15 @@ async def main():
     parser.add_argument("--max-depth", type=int, default=3)
     args = parser.parse_args()
     repo = "impact-check-" + uuid4().hex
-    output = await TreeSitterTool(args.workspace).analyze(
-        repo, languages=(args.language,), file_patterns=args.include
-    )
+    with tempfile.TemporaryDirectory() as scratch:
+        # Calls are bound from the pinned SCIP indexers, as on graph import.
+        _, indexes = required_indexes(args.workspace, scratch, (args.language,), repo)
+        output = await TreeSitterTool(args.workspace).analyze(
+            repo,
+            languages=(args.language,),
+            file_patterns=args.include,
+            scip_indexes=indexes,
+        )
     manager = Neo4jConnectionManager(
         os.environ["DEEPTHOUGHT_NEO4J_URI"],
         os.environ.get("DEEPTHOUGHT_NEO4J_USER", "neo4j"),

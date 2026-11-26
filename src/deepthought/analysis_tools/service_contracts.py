@@ -823,6 +823,17 @@ REQUEST_RULES = {
             "repository; the host, base URL and gateway are not checked.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            contract_rules.HTTP_UNKNOWN_BASE,
+            "pattern_matched",
+            "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_LOCAL_PORT: register_rule(
         EvidenceRule(
             contract_rules.HTTP_LOCAL_PORT,
@@ -914,6 +925,24 @@ ORVAL_REQUEST_RULES = {
     )
     for rule in REQUEST_RULES
 }
+_HEY_API = (
+    "@hey-api/openapi-ts generated this file from an OpenAPI spec (its "
+    "header says so) and sends the operation through its client: "
+    "client.<method>({url, ...}), the method named by the call, or "
+    "__request(OpenAPI, {method, url, ...}) in its legacy clients. The path "
+    "is the one it wrote, each {parameter} filled in at run time, under the "
+    "base URL the client is configured with at run time, which is not read. "
+)
+HEY_API_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.hey-api-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _HEY_API + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -990,6 +1019,18 @@ OPENAPI_REQUEST_RULES = {
             "that program serves.",
         )
     ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
+        )
+    ),
     contract_rules.HTTP_GATEWAY: register_rule(
         EvidenceRule(
             "service-contracts.openapi-client-gateway",
@@ -1019,6 +1060,18 @@ OPENAPI_FEIGN_REQUEST_RULES = {
             _OPENAPI_FEIGN
             + "The request fits this route more specifically than any other "
             "route in the repository.",
+        )
+    ),
+    contract_rules.HTTP_UNKNOWN_BASE: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-feign-client-path-unknown-base",
+            "pattern_matched",
+            _OPENAPI_FEIGN
+            + "The request fits no route by its whole path, and this route is "
+            "declared under a base the source does not fix (a prefix read from "
+            "settings or a variable, so its path is stored without it). The "
+            "request's path, after one or more leading literal segments that "
+            "stand for that base, fits this route, and no other such route fits.",
         )
     ),
     contract_rules.HTTP_GATEWAY: register_rule(
@@ -1845,7 +1898,18 @@ CONTRACT_READERS = {
 _RESOLVER = f"service-contracts@{__version__}"
 
 
-def contract_coverage(repo_url, languages, coverage, sites):
+# Unread GraphQL sites of client operations; the others are of servers.
+_GRAPHQL_CLIENT_UNREAD = frozenset({"operation_not_parsed", "client_fragment_root"})
+# The edge family of an unread messaging site by its role; a role naming no
+# direction (a file the Go type checker could not check) counts for both.
+_MESSAGING_UNREAD = {
+    "publish": ("PUBLISHES",),
+    "consume": ("CONSUMES",),
+    "subscribe": ("CONSUMES",),
+}
+
+
+def contract_coverage(repo_url, languages, coverage, sites, unread=None):
     """One EdgeCoverage node per (edge family, protocol, language of the
     repository's source files), in the shape the call and import coverage
     shares. Every contract site rule of this tool is pattern_matched: the
@@ -1856,8 +1920,13 @@ def contract_coverage(repo_url, languages, coverage, sites):
     ``not_supported`` when it has no reader; ``files_linked`` is 0.
     ``resolver``; ``files`` (``languages``, from ``source_languages``);
     ``sites``, and for REQUESTS how many were ``linked``, ``ambiguous`` and
-    ``unresolved``. ``sites`` maps each (family, protocol) to (file,
-    resolution status or None) per site."""
+    ``unresolved``; ``unread`` and ``files_unread``, the sites the readers
+    saw but could not read (a path, destination or field that is not a
+    literal, a handler without its declaration, ...), and the files holding
+    them. Calls no reader recognises are in neither count. ``sites`` maps
+    each (family, protocol) to (file, resolution status or None) per site;
+    ``unread`` maps each (family, protocol) to the file of each unread
+    site."""
     language_of = {item.file: item.language for item in coverage}
     nodes = []
     for family, protocol in sorted(CONTRACT_READERS):
@@ -1867,9 +1936,14 @@ def contract_coverage(repo_url, languages, coverage, sites):
             found["sites"] = found.get("sites", 0) + 1
             if status is not None:
                 found[status] = found.get(status, 0) + 1
+        missed = {}
+        for file in (unread or {}).get((family, protocol), ()):
+            files = missed.setdefault(language_of.get(file), {})
+            files[file] = files.get(file, 0) + 1
         for language in sorted(languages):
             read = language in CONTRACT_READERS[(family, protocol)]
             found = counts.get(language, {})
+            not_read = missed.get(language, {})
             reason = "parser_rules" if read else "not_supported"
             nodes.append(
                 NodeData(
@@ -1890,6 +1964,8 @@ def contract_coverage(repo_url, languages, coverage, sites):
                         "files": languages[language],
                         "files_linked": 0,
                         "sites": found.get("sites", 0),
+                        "unread": sum(not_read.values()),
+                        "files_unread": len(not_read),
                         **(
                             {
                                 key: found.get(key, 0)
@@ -3411,6 +3487,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
                                     "orval": ORVAL_REQUEST_RULES,
+                                    "hey-api": HEY_API_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -3857,6 +3934,22 @@ class ServiceContractTool(AnalysisTool):
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         request_status = {r.request_id: r.status for r in resolutions}
+        unread_sites = defaultdict(list)
+        for item in unread:
+            if item.kind in ("route", "request"):
+                family = "HANDLES" if item.kind == "route" else "REQUESTS"
+                unread_sites[(family, "http")].append(item.file)
+            elif item.kind == "graphql":
+                family = (
+                    "REQUESTS" if item.reason in _GRAPHQL_CLIENT_UNREAD else "HANDLES"
+                )
+                unread_sites[(family, "graphql")].append(item.file)
+        for file, _, kind, _ in grpc.unread:
+            if kind == "server":
+                unread_sites[("HANDLES", "grpc")].append(file)
+        for item in messaging_unread:
+            for family in _MESSAGING_UNREAD.get(item.role, ("PUBLISHES", "CONSUMES")):
+                unread_sites[(family, "messaging")].append(item.file)
         coverage_nodes = contract_coverage(
             repo_url,
             source_languages(
@@ -3886,6 +3979,7 @@ class ServiceContractTool(AnalysisTool):
                     (e.file, None) for e in endpoints if e.role != "publish"
                 ],
             },
+            unread_sites,
         )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
