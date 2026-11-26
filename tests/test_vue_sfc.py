@@ -16,6 +16,7 @@ from deepthought.analysis_tools.service_contracts import ServiceContractTool
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository
 from deepthought.ts_modules import with_compiler_modules
+from typescript_ready import needs_typescript
 
 
 def _available():
@@ -179,6 +180,7 @@ class ComponentTests(unittest.TestCase):
             [("@/helper", 11), ("vue", 10)],
         )
 
+    @needs_typescript
     def test_a_component_is_recorded_by_the_digest_of_its_file(self):
         # The digest is the file's, not its script's: the contract tools
         # compare it with the file on disk to find files changed meanwhile.
