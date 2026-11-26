@@ -70,6 +70,10 @@ class CompilerExport:
     # implementation's export of ``runtime_name``.
     runtime: str | None = None
     runtime_name: str | None = None
+    # The language rejects this export, or one the compiler follows for it:
+    # two exports of the name, or two ``export *`` that give it. The
+    # compiler reports an error and keeps one declaration.
+    conflict: bool = False
 
 
 @dataclass(frozen=True)
@@ -117,12 +121,16 @@ class CompilerModules:
     declarations each analyzed module exports under each name.
     ``injections``: ``{(class id, property): (provided class ids, ...)}``,
     what NestJS injects into each constructor parameter property whose
-    token a class provider binds, between analyzed classes."""
+    token a class provider binds, between analyzed classes.
+    ``conflicts``: the (module, name) exports among them that the language
+    rejects (``CompilerExport.conflict``) along the way to the
+    declarations."""
 
     resolutions: tuple
     runtime: dict
     exports: dict
     injections: dict = field(default_factory=dict)
+    conflicts: frozenset = frozenset()
 
 
 def locate_typescript(environ=None):
@@ -228,6 +236,7 @@ def compiler_modules(root, files, environ=None, timeout=1800):
                     row.get("character"),
                     row.get("runtime"),
                     row.get("runtime_name"),
+                    row.get("conflict", False),
                 )
             )
         else:
@@ -349,26 +358,33 @@ def with_compiler_modules(result, root, environ=None):
         rows.setdefault((row.module, row.name), []).append(row)
 
     def declarations(module, name, seen):
-        found = set()
+        """(declarations, whether the language rejects an export on the
+        way to them)."""
+        found, conflict = set(), False
         if (module, name) in seen:
-            return found
+            return found, conflict
         seen = seen | {(module, name)}
         for row in rows.get((module, name), ()):
+            conflict = conflict or row.conflict
             if row.runtime is not None:
-                found |= declarations(row.runtime, row.runtime_name, seen)
+                more, rejected = declarations(row.runtime, row.runtime_name, seen)
+                found |= more
+                conflict = conflict or rejected
             elif row.declared in languages:
                 column = _to_utf8(
                     lines.get(row.declared, row.line), row.character, "utf-16"
                 )
                 found.add((row.declared, row.line, column))
-        return found
+        return found, conflict
 
-    exports = {}
+    exports, conflicts = {}, set()
     for module, name in rows:
         if module in languages:
-            found = declarations(module, name, frozenset())
+            found, conflict = declarations(module, name, frozenset())
             if found:
                 exports.setdefault(module, {})[name] = tuple(sorted(found))
+                if conflict:
+                    conflicts.add((module, name))
     classes = defaultdict(list)
     for d in result.definitions:
         if d.kind == "Class":
@@ -401,6 +417,7 @@ def with_compiler_modules(result, root, environ=None):
             runtime,
             exports,
             {key: tuple(sorted(ids)) for key, ids in sorted(injections.items())},
+            frozenset(conflicts),
         ),
     )
 
