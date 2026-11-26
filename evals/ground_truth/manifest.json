@@ -38,6 +38,18 @@
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/httpx.tsv HISTORY --language python --revision 26d48e0634e6ee9cdc0533996db289ce4b430177"
     },
     {
+      "name": "rich",
+      "url": "https://github.com/Textualize/rich",
+      "commit": "43d3b04725ab9731727fb1126e35980c62f32377",
+      "license": "MIT",
+      "languages": [
+        "python"
+      ],
+      "truth": "calls/rich.tsv",
+      "oracle": "scip-python 0.6.8",
+      "oracle_command": "python -m venv env && env/bin/pip install --only-binary=:all: pygments markdown-it-py typing_extensions pytest attrs ipywidgets && PATH=$PWD/env/bin:$PATH scip-python index --project-name rich --output index.scip ."
+    },
+    {
       "name": "ky",
       "url": "https://github.com/sindresorhus/ky",
       "commit": "3541888878c4d303a8bc2ad61815f4e048f55a5d",

@@ -1644,6 +1644,82 @@
     "unresolved_expected": 4,
     "unresolved_unjudged": 15322
   },
+  "rich": {
+    "ambiguous_includes": 1,
+    "ambiguous_no_candidates": 41,
+    "ambiguous_unjudged": 6,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 2654,
+        "unjudged": 37
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 693,
+        "contradicted": 2
+      },
+      "tree-sitter.call-module-attribute": {
+        "confirmed": 71
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 182
+      },
+      "tree-sitter.python-call-attribute-receiver": {
+        "confirmed": 64
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 16
+      },
+      "tree-sitter.python-call-result-receiver": {
+        "confirmed": 44
+      },
+      "tree-sitter.python-call-super": {
+        "confirmed": 10
+      },
+      "tree-sitter.python-call-typed-receiver": {
+        "confirmed": 829
+      }
+    },
+    "confirmed": 4563,
+    "contradicted": 2,
+    "expected": 5780,
+    "missed": 1354,
+    "missed_by_engine_outcome": {
+      "ambiguous:multiple_bindings": 41,
+      "ambiguous:multiple_declarations": 1,
+      "unresolved:attribute_call": 947,
+      "unresolved:attribute_not_typed": 20,
+      "unresolved:attribute_type_not_declared": 17,
+      "unresolved:base_not_resolved": 17,
+      "unresolved:imported_name_not_declared": 3,
+      "unresolved:local_binding": 307,
+      "unresolved:receiver_type_not_declared": 1
+    },
+    "precision": 0.9996,
+    "recall": 0.7657,
+    "scip": {
+      "by_rule": {
+        "scip.call-occurrence": {
+          "confirmed": 5903,
+          "unjudged": 37
+        },
+        "scip.call-overload-implementation": {
+          "confirmed": 20
+        }
+      },
+      "confirmed": 5923,
+      "contradicted": 0,
+      "expected": 5780,
+      "missed": 0,
+      "missed_by_engine_outcome": {},
+      "precision": 1.0,
+      "recall": 1.0,
+      "unjudged": 37,
+      "unresolved_unjudged": 3517
+    },
+    "unjudged": 37,
+    "unresolved_expected": 1318,
+    "unresolved_unjudged": 3509
+  },
   "ripgrep": {
     "ambiguous_includes": 18,
     "ambiguous_unjudged": 1,
