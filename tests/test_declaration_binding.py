@@ -207,6 +207,36 @@ class BoundContextTests(unittest.IsolatedAsyncioTestCase):
                 )
             ).consume()
 
+    async def test_a_place_names_the_parsed_declaration_not_indexer_nodes(self):
+        # b.ts:3 declares alpha and its parameter; the index defines both
+        # there too. The place names the parsed function alone.
+        callers = await self.service.get_function_callers(
+            "b.ts:3", self.repo, snapshot_id=self.snapshot
+        )
+        owner = await self.service.get_impact(
+            "b.ts:3", self.repo, snapshot_id=self.snapshot
+        )
+        self.assertNotIn(
+            "scip-definition",
+            owner["items"][0]["element"]["qualified_name"] if owner["items"] else "",
+        )
+        self.assertEqual(
+            [i["relationship"]["properties"]["line"] for i in callers["items"]], [5]
+        )
+        async with self.manager.driver.session(
+            database=self.manager.database
+        ) as session:
+            on_line = await (
+                await session.run(
+                    "MATCH (d:Symbol {repo_url:$repo,snapshot_id:$snapshot,"
+                    "file_path:'b.ts',start_line:3}) RETURN count(d) AS n",
+                    repo=self.repo,
+                    snapshot=self.snapshot,
+                )
+            ).single()
+        # The fixture does put indexer definitions on that line.
+        self.assertGreater(on_line["n"], 1)
+
     async def test_an_indexer_symbol_returns_its_declaration_source(self):
         context = await self.service.get_code_context(
             "a.ts",

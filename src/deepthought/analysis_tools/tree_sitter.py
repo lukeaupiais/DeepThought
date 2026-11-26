@@ -20,7 +20,12 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
-from ..scip_calls import bind_calls
+from ..scip_calls import ScipReferences, bind_calls
+from ..edge_coverage import edge_coverage
+from ..fastapi_dependencies import dependency_uses
+from ..pytest_fixtures import FixtureUse
+from ..python_ast_facts import ast_facts
+from ..python_runtime import read_ast_facts
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -59,6 +64,47 @@ NESTS_RULE = register_rule(
         "resolved",
         "The parse tree places the inner declaration within the outer one; the "
         "outer is the innermost declaration whose span encloses it.",
+    )
+)
+
+FIXTURE_PARAMETER_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-parameter",
+        "pattern_matched",
+        "A test or fixture parameter names a pytest fixture, found as pytest "
+        "looks it up: the class, the module, then conftest.py in each "
+        "directory up to the root (deepthought.pytest_fixtures).",
+    )
+)
+FIXTURE_MARK_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-usefixtures",
+        "pattern_matched",
+        "@pytest.mark.usefixtures on a test or test class names a pytest "
+        "fixture, found as pytest looks it up.",
+    )
+)
+FIXTURE_AUTOUSE_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-autouse",
+        "pattern_matched",
+        "A pytest fixture declared autouse=True in the test's class, module or "
+        "a conftest.py above it, which pytest runs for every test that sees it.",
+    )
+)
+_FIXTURE_RULES = {
+    "parameter": FIXTURE_PARAMETER_RULE,
+    "usefixtures": FIXTURE_MARK_RULE,
+    "autouse": FIXTURE_AUTOUSE_RULE,
+}
+DEPENDENCY_RULE = register_rule(
+    EvidenceRule(
+        "fastapi.depends",
+        "resolved",
+        "The SCIP index resolves a call to FastAPI's own Depends or Security, "
+        "and the dependency written in it to one parsed declaration "
+        "(deepthought.fastapi_dependencies); FastAPI calls it for the "
+        "endpoint, router or dependency the call belongs to.",
     )
 )
 
@@ -905,6 +951,98 @@ class TreeSitterTool(AnalysisTool):
                         {"line": inner.line, **_evidence(NESTS_RULE)},
                     )
                 )
+        # Tests and fixtures depend on the pytest fixtures they request.
+        python_files = {
+            c.file: (self.repo_path / c.file).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for c in result.coverage
+            if c.language == "python"
+        }
+        # The pytest and FastAPI rules read Python's ast, in the newest
+        # Python the repository declares; a file it still cannot parse is
+        # reported.
+        if python_files:
+            facts, reader = read_ast_facts(self.repo_path, python_files)
+        else:
+            facts, reader = ast_facts({}), None
+        interpreter = ".".join(facts["python"].split(".")[:2])
+        unparsed = facts["unparsed"]
+        by_line = {
+            (d.file, d.line): d
+            for d in result.definitions
+            if d.kind in {"Function", "Method", "Class"}
+        }
+        for use in (
+            FixtureUse(
+                **{
+                    **f,
+                    "consumer": tuple(f["consumer"]),
+                    "fixture": tuple(f["fixture"]),
+                }
+            )
+            for f in facts["fixtures"]
+        ):
+            consumer = by_line.get(use.consumer)
+            fixture = by_line.get(use.fixture)
+            if consumer is None or fixture is None:
+                continue
+            relationships.append(
+                RelationshipData(
+                    "USES_FIXTURE",
+                    [consumer.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                        "repo_url": repo_url,
+                    },
+                    [fixture.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{fixture.file}::{fixture.symbol}::{fixture.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "name": use.name,
+                        **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
+        # Endpoints and routers depend on the FastAPI dependencies they inject.
+        references = ScipReferences(result, scip_indexes, self.repo_path)
+        for use in dependency_uses(facts["dependencies"], references):
+            file, line = use.consumer
+            if line is None:
+                source = (["File"], files[file])
+            else:
+                consumer = by_line.get(use.consumer)
+                if consumer is None:
+                    continue
+                source = (
+                    [consumer.kind, "Symbol"],
+                    f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                )
+            target = use.dependency
+            relationships.append(
+                RelationshipData(
+                    "USES_DEPENDENCY",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [target.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{target.file}::{target.symbol}::{target.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "column": use.column,
+                        "name": use.name,
+                        "injector": use.injector,
+                        **({"alias": use.alias} if use.alias else {}),
+                        **_evidence(DEPENDENCY_RULE),
+                        **_produced(references.tool(file)),
+                    },
+                )
+            )
         for resolution in resolutions:
             item = imports[resolution.import_id]
             for link in resolution.links:
@@ -1129,6 +1267,38 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
+        # Which families a deterministic resolver linked, per language.
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                {key: value[0] for key, value in binding.producers.items()},
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                # Every import is decided by the parser's rules.
+                {},
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1144,6 +1314,16 @@ class TreeSitterTool(AnalysisTool):
             if result.status == "failed"
             else [],
             warnings=[d["message"] for d in diagnostics]
+            + [
+                f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                "is read from it"
+                for file, error in unparsed.items()
+            ]
+            + [
+                f"python_interpreter_unavailable: {error}"
+                for error in (reader.errors if reader else ())
+            ]
             if result.status != "failed"
             else [],
             custom_metrics={
@@ -1166,6 +1346,16 @@ class TreeSitterTool(AnalysisTool):
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
                 "go_implementations": len(implementations),
+                "python_ast_unparsed": {
+                    "python": interpreter,
+                    "files": sorted(unparsed),
+                },
+                "python_interpreter": {
+                    "version": facts["python"],
+                    "declared": list(reader.declared) if reader else [],
+                    "managed": bool(reader and reader.executable),
+                    "errors": list(reader.errors) if reader else [],
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,
