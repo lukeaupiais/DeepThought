@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
+from typescript_ready import needs_typescript
 
 READY = (
     importlib.util.find_spec("tree_sitter")
@@ -89,6 +90,7 @@ def requests(indexed):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class TypedClientTest(unittest.TestCase):
     def test_client_objects_are_known_by_the_method_the_index_resolves(self):
         self.assertEqual(
