@@ -57,8 +57,14 @@ def dump(workspace, languages, repository_id="determinism"):
         ),
         Path(workspace),
     )
+    from deepthought.indexers import required_indexes
+
     tool = TreeSitterTool(Path(workspace))
-    output = asyncio.run(tool.analyze(repository_id, languages=set(languages)))
+    with tempfile.TemporaryDirectory() as scratch:
+        _, indexes = required_indexes(workspace, scratch, languages, repository_id)
+        output = asyncio.run(
+            tool.analyze(repository_id, languages=set(languages), scip_indexes=indexes)
+        )
     document = {
         "analysis": json.loads(result.to_json()),
         "calls": [asdict(r) for r in resolve_calls(result)],

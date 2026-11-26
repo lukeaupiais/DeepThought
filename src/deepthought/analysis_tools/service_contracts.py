@@ -200,6 +200,35 @@ MESSAGE_PAYLOAD_RULES = {
         )
     ),
 }
+# What a producer sends, by client: the TypeScript compiler's types of the
+# value at the span the site's reader records.
+SENT_PAYLOAD_RULES = {
+    "nestjs-microservices": {
+        "request": register_rule(
+            EvidenceRule(
+                "service-contracts.nestjs-client-data-type",
+                "resolved",
+                "A NestJS ClientProxy's send(pattern, data) or emit(pattern, "
+                "data) sends a value of this type: the TypeScript compiler "
+                "gives the type written where the value's name is declared, "
+                "else its type (an instance, an inferred value), and the "
+                "types of an object or array literal's members.",
+            )
+        )
+    },
+    "kafkajs": {
+        "request": register_rule(
+            EvidenceRule(
+                "service-contracts.kafkajs-message-value-type",
+                "resolved",
+                "A kafkajs producer's send() writes a message whose value is "
+                "JSON.stringify(x) (directly or inside Buffer.from) of a "
+                "value of this type, as the TypeScript compiler gives it.",
+            )
+        )
+    },
+}
+
 GO_PAYLOAD_RULES = {
     "request": register_rule(
         EvidenceRule(
@@ -1135,6 +1164,7 @@ NON_SITE_RULES = frozenset(
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rules in SENT_PAYLOAD_RULES.values() for rule in rules.values()}
 )
 
 
@@ -3558,6 +3588,7 @@ class ServiceContractTool(AnalysisTool):
                     },
                 ),
             )
+            payload_unresolved += endpoint.payloads_unread
             if endpoint.payloads:
                 carries(
                     endpoint.file,
@@ -3565,7 +3596,11 @@ class ServiceContractTool(AnalysisTool):
                     ["MessageDestination", "Contract"],
                     name,
                     endpoint.line,
-                    MESSAGE_PAYLOAD_RULES,
+                    (
+                        SENT_PAYLOAD_RULES[endpoint.client]
+                        if endpoint.role == "publish"
+                        else MESSAGE_PAYLOAD_RULES
+                    ),
                 )
             if endpoint.declaration_id is None:
                 source = file_node(endpoint.file)

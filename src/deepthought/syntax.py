@@ -3022,8 +3022,8 @@ _JS_QUOTE_ESCAPES = {"\\'", '\\"', "\\`", "\\\\"}
 
 
 def _js_test_case(node, content):
-    """(kind, segment, name node) for a statement that declares a test case
-    or a suite: ``it("renders", () => ...)``, ``describe.each(rows)("x", fn)``.
+    """(kind, segment, name node) for a statement (or an array element) that
+    declares a test case or a suite: ``it("renders", () => ...)``, ``describe.each(rows)("x", fn)``.
     The callee is one of the runners' bare functions, optionally with
     modifiers; the first argument is a string without substitutions and a
     later one a function. The segment is the callee as written, without
@@ -3031,7 +3031,9 @@ def _js_test_case(node, content):
     which no identifier can be, so a test case is never a name's target."""
     if node.type != "call_expression" or node.parent is None:
         return None
-    if node.parent.type != "expression_statement":
+    # A statement, or an element of a list of them
+    # (`await Promise.all([it("a", fa), it("b", fb)])`).
+    if node.parent.type not in {"expression_statement", "array"}:
         return None
     arguments = node.child_by_field_name("arguments")
     function = node.child_by_field_name("function")

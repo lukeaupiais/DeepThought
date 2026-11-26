@@ -50,6 +50,8 @@ class IndexerSpec:
         return f"{self.name}-v{PROFILE_VERSION}"
 
 
+DEFAULT_PROJECT_NAME = "workspace"
+
 INDEXERS = {
     spec.name: spec
     for spec in (
@@ -297,9 +299,16 @@ def _environment(spec, root, environ, platform=None, dependencies=None):
         env["PYTHONPATH"] = os.pathsep.join(roots)
     if spec.name == "scip-go":
         env.update(_go_environment(platform or GO_PLATFORM))
+        if dependencies is not None:
+            env.update(_go_cache_environment(dependencies))
     if spec.name == "scip-typescript":
         env.update(PNPM_ENVIRONMENT)
     return env
+
+
+def _go_cache_environment(prepared):
+    """The go command reads modules only from the downloaded cache."""
+    return {"GOMODCACHE": prepared["modcache"], "GOPROXY": "off"}
 
 
 # scip-typescript --pnpm-workspaces runs `pnpm ls`. pnpm 9.7 and later switch
@@ -602,8 +611,8 @@ def run_indexer(
     before = capture_inputs(root, spec, excluded=(output, receipt_path))
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
-        # The workspace's own name would put where it was checked out into
-        # every symbol, so the default project name is fixed.
+        # A fixed default keeps symbols, and so receipts, independent of the
+        # directory the workspace is checked out to.
         indexed_root = root
         if spec.name == "scip-typescript":
             prepared = _prepared_packages(
@@ -617,7 +626,7 @@ def run_indexer(
             spec,
             base if spec.name == "scip-typescript" else indexed_root,
             temporary,
-            project_name or "workspace",
+            project_name or DEFAULT_PROJECT_NAME,
         )
         cwd = base
         project = None
@@ -674,6 +683,12 @@ def run_indexer(
             )
             argv = [a for a in argv if a != "--infer-tsconfig"] + [str(config)]
         dependencies = None
+        if spec.name == "scip-go":
+            prepared = _prepared_go_modules(
+                root, Path(dependencies_dir or scratch), environ, timeout
+            )
+            dependencies = {"modcache": prepared["modcache"]}
+            run.dependencies = prepared["modules"].get(module or ".")
         if spec.name == "scip-python":
             from .python_dependencies import install
 
@@ -845,6 +860,25 @@ def _prepared_packages(root, directory, environ, timeout):
     return prepared
 
 
+def _prepared_go_modules(root, directory, environ, timeout):
+    """What the workspace's Go modules require, downloaded once per
+    ``directory`` (see ``deepthought.go_dependencies``)."""
+    from .go_dependencies import download
+
+    record = directory / "go-modules.json"
+    if record.is_file():
+        return json.loads(record.read_text())
+    prepared = download(
+        root,
+        go_modules(root) or ["."],
+        directory / "go-modules",
+        environ=environ,
+        timeout=timeout,
+    )
+    record.write_text(json.dumps(prepared))
+    return prepared
+
+
 # The compiler's report of a configuration file it could not read, such as
 # the target of an ``extends``.
 _UNREADABLE_CONFIG = re.compile(r"error TS5083: Cannot read file '([^']+)'")
@@ -933,7 +967,8 @@ def _uncovered_project(root, files):
 
 
 def canonical_bytes(index):
-    """The index with documents, occurrences and symbols in a fixed order.
+    """The index with documents, occurrences and symbols in a fixed order,
+    and no project root.
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
@@ -941,6 +976,9 @@ def canonical_bytes(index):
     scip-go 0.2 records its scratch output path there, and the receipt keeps
     the arguments with paths left out.
     """
+    # The absolute root URI would make the bytes depend on where the
+    # workspace lives; documents are already relative to it.
+    index.metadata.project_root = ""
     del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
@@ -1221,6 +1259,14 @@ def _index_workspace(
     # compiles them.
     constrained = set()
     platforms = None
+    if go_runs:
+        # The go command lists packages from the same downloaded modules.
+        environ = {
+            **(os.environ if environ is None else environ),
+            **_go_cache_environment(
+                _prepared_go_modules(root, Path(packages), environ, timeout)
+            ),
+        }
     for module, run in sorted(go_runs.items()):
         if run.status != "indexed":
             continue
@@ -1257,6 +1303,7 @@ def _index_workspace(
                 files=chosen,
                 module=module,
                 platform=platform,
+                dependencies_dir=packages,
             )
             runs.append(extra)
             for path in extra.documents:
@@ -1285,12 +1332,7 @@ def _index_workspace(
                 "status": "covered",
                 "indexer": run.indexer,
                 # Covered, but library calls may bind nowhere: say so.
-                **(
-                    {"warning": "dependencies_unavailable"}
-                    if run.dependencies is not None
-                    and run.dependencies["status"] in {"partial", "failed"}
-                    else {}
-                ),
+                **_dependency_warning(run),
             }
         elif path in passes:
             coverage[path] = {
@@ -1310,6 +1352,8 @@ def _index_workspace(
                 "status": "uncovered",
                 "indexer": run.indexer,
                 "reason": reason,
+                # scip-go fails a module whose required modules are missing.
+                **_dependency_warning(run),
                 **(
                     {"outside_tsconfig_pass": second.reason}
                     if second is not None
@@ -1328,6 +1372,15 @@ def _index_workspace(
         "coverage": coverage,
         "uncovered": sum(1 for c in coverage.values() if c["status"] != "covered"),
     }
+
+
+def _dependency_warning(run):
+    if run.dependencies is not None and run.dependencies["status"] in {
+        "partial",
+        "failed",
+    }:
+        return {"warning": "dependencies_unavailable"}
+    return {}
 
 
 # Reasons a file has no index because an indexer did not do its job: the run
@@ -1353,6 +1406,31 @@ def failed_files(report):
         for path, entry in report["coverage"].items()
         if entry["status"] != "covered" and entry["reason"] in TOOL_FAILURES
     }
+
+
+def required_indexes(workspace, directory, languages, repository_id, selected=None):
+    """Run the pinned indexers the languages need and return the
+    ``index_workspace`` report, cut to ``selected`` files when given, with
+    the ingested indexes. A file left without an index by a missing,
+    failing or wrong-version indexer raises ``ValueError`` naming it."""
+    languages = tuple(sorted(set(languages) & set(LANGUAGE_INDEXERS)))
+    if not languages:
+        return None, []
+    report = index_workspace(workspace, directory, languages=languages)
+    if selected is not None:
+        report["coverage"] = {
+            path: entry
+            for path, entry in report["coverage"].items()
+            if path in selected
+        }
+    failed = failed_files(report)
+    if failed:
+        raise ValueError(
+            f"{len(failed)} files have no SCIP index because an indexer is "
+            "missing or failed (deepthought indexers lists them): "
+            + ", ".join(f"{path} ({reason})" for path, reason in sorted(failed.items()))
+        )
+    return report, ingest_indexed(report, repository_id, workspace)
 
 
 def ingest_indexed(report, repository_id, workspace=None):
