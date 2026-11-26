@@ -3684,6 +3684,16 @@ class ServiceContractTool(AnalysisTool):
                             and declared[0].streaming
                             else {}
                         ),
+                        # protoc's request and response message types, when
+                        # every copy of the proto agrees.
+                        **{
+                            key: values.pop()
+                            for key, values in (
+                                ("request_message", {m.request for m in declared}),
+                                ("response_message", {m.response for m in declared}),
+                            )
+                            if len(values) == 1 and None not in values
+                        },
                         # The protobuf message types its Go clients pass
                         # and receive (see CARRIES_MESSAGE).
                         **(
