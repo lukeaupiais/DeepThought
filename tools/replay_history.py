@@ -3,9 +3,14 @@
 For each of a repository's recent commits that edits two or more source
 files, the parent revision is analyzed and, for every edited file F, the
 declarations the commit's diff touches in F seed an impact query (dependents
-reached backwards over CALLS, INHERITS_FROM, IMPLEMENTS and DISPATCHES_TO, as get_impact
-computes them; see tools/check_impact.py). The files of those dependents are
-the prediction; the other files the commit edited are the outcome. A plain
+reached backwards over CALLS, INHERITS_FROM, IMPLEMENTS and DISPATCHES_TO; see
+tools/check_impact.py). The files of those dependents are the prediction; the
+other files the commit edited are the outcome. A second line,
+``impact_injection``, also follows the edges through which a framework injects
+code: USES_FIXTURE from tests to their pytest fixtures and
+USES_DEPENDENCY from endpoints to their FastAPI dependencies, as get_impact
+does; ``impact`` keeps the code relations
+alone so earlier results stay comparable. A plain
 text search is scored the same way as the baseline: every file that contains
 a seed's name as a whole word.
 
@@ -34,6 +39,7 @@ import tarfile
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_impact import CODE_RELATIONS, RELATIONS  # noqa: E402
 from check_impact import expected as dependents  # noqa: E402
 
 EXTENSIONS = {
@@ -102,7 +108,8 @@ def replay(repo, language, count=40, max_files=12, max_depth=3, revision="HEAD")
     from deepthought.analysis_tools import TreeSitterTool
 
     suffixes = EXTENSIONS[language]
-    totals = {name: Counter() for name in ("impact", "search")}
+    predictors = ("impact", "impact_injection", "search")
+    totals = {name: Counter() for name in predictors}
     cases, skipped = [], Counter()
     for commit, edited in candidates(repo, language, count, max_files, revision):
         parent = f"{commit}^"
@@ -142,11 +149,18 @@ def replay(repo, language, count=40, max_files=12, max_depth=3, revision="HEAD")
                 skipped["no_declaration_touched"] += 1
                 continue
             actual = set(edited) - {file}
-            impact = set()
+            impact, injected = set(), set()
             for seed in seeds:
-                for dependent in dependents(output, seed["qualified_name"], max_depth):
-                    impact.add(file_of.get(dependent))
+                for found, relations in (
+                    (impact, CODE_RELATIONS),
+                    (injected, RELATIONS),
+                ):
+                    for dependent in dependents(
+                        output, seed["qualified_name"], max_depth, relations
+                    ):
+                        found.add(file_of.get(dependent))
             impact -= {file, None}
+            injected -= {file, None}
             names = {s["name"] for s in seeds}
             pattern = re.compile(
                 r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\b"
@@ -155,7 +169,7 @@ def replay(repo, language, count=40, max_files=12, max_depth=3, revision="HEAD")
                 f for f, text in texts.items() if f != file and pattern.search(text)
             }
             case = {"commit": commit[:12], "file": file, "actual": len(actual)}
-            for name, predicted in (("impact", impact), ("search", search)):
+            for name, predicted in zip(predictors, (impact, injected, search)):
                 hits = len(predicted & actual)
                 totals[name].update(
                     {"hits": hits, "predicted": len(predicted), "actual": len(actual)}

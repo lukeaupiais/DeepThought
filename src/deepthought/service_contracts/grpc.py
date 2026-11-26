@@ -43,6 +43,9 @@ class ProtoMethod:
     line: int
     # unary | client | server | bidi, or None when the signature is not read.
     streaming: str | None = None
+    # The request and response message types, fully qualified (pkg.Point).
+    request: str | None = None
+    response: str | None = None
 
     @property
     def full_name(self):

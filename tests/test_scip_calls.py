@@ -297,10 +297,12 @@ class ScipCallTests(unittest.TestCase):
                 "class S extends K { n() { super.m(); } }\n"
                 "make().m(); new K().m(); xs[0].m(); a?.b(); make()?.m();"
                 " (make()).m(); make().m.call(); f?.();\n"
-                # Receivers of other shapes are not recorded.
-                "(a as any)().m(); new (f())().m(); (a as any)[0].m(); f?.().m();\n",
+                # A parenthesized receiver no name describes is `(…)`;
+                # receivers of other shapes are not recorded.
+                "(a as any)().m(); new (f())().m(); (a as any)[0].m(); f?.().m();\n"
+                "(a ? new K() : make()).m(); `x`.trim();\n",
                 "b.py": "def f():\n    pass\n"
-                "f().g()\nxs[0].m()\na.b().c.d()\n(f()).g()\n",
+                "f().g()\nxs[0].m()\na.b().c.d()\n(f()).g()\n(a or b).m()\n",
             }
             for name, text in files.items():
                 Path(root, name).write_text(text)
@@ -327,6 +329,10 @@ class ScipCallTests(unittest.TestCase):
                         ("a.ts", "make().m", (4, 66), "unresolved"),
                         ("a.ts", "make().m.call", (4, 80), "unresolved"),
                         ("a.ts", "f?.().m", (5, 60), "unresolved"),
+                        ("a.ts", "(…)().m", (5, 13), "unresolved"),
+                        ("a.ts", "(…)[].m", (5, 49), "unresolved"),
+                        ("a.ts", "(…).m", (6, 23), "unresolved"),
+                        ("b.py", "(…).m", (7, 9), "unresolved"),
                         ("b.py", "f().g", (3, 4), "unresolved"),
                         ("b.py", "xs[].m", (4, 6), "unresolved"),
                         ("b.py", "a.b().c.d", (5, 8), "unresolved"),
@@ -826,6 +832,42 @@ class ScipCallTests(unittest.TestCase):
                     "scip-typescript@1.0",
                 ),
             ],
+        )
+        # The index covers a.ts and the alias file, not b.ts: the parser's
+        # rules decide b.ts.
+        coverage = {
+            n.properties["qualified_name"]: n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"]
+        }
+        self.assertEqual(
+            sorted(coverage),
+            [
+                "r::edge-coverage::CALLS::typescript",
+                "r::edge-coverage::IMPORTS::typescript",
+            ],
+        )
+        calls = coverage["r::edge-coverage::CALLS::typescript"]
+        self.assertEqual(
+            {k: v for k, v in calls.items() if k not in {"qualified_name", "repo_url"}},
+            {
+                "language": "typescript",
+                "family": "CALLS",
+                "status": "partial",
+                "reason": "parser_rules",
+                "resolver": [
+                    "scip-typescript@1.0",
+                    f"tree-sitter@{deepthought.__version__}",
+                ],
+                "files": 3,
+                "files_linked": 2,
+                "linked": 6,
+                "ambiguous": 0,
+                "unresolved": 3,
+            },
+        )
+        self.assertEqual(
+            coverage["r::edge-coverage::IMPORTS::typescript"]["status"], "not_linked"
         )
 
 
