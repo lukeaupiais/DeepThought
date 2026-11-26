@@ -13,9 +13,10 @@ never a silent fallback.
 import json
 import os
 from pathlib import Path
-import select
+import queue
 import shutil
 import subprocess
+import threading
 from urllib.parse import unquote
 
 PYRIGHT_NAME = "pyright"
@@ -68,6 +69,7 @@ class PyrightDefinitions:
         self.root = Path(root).resolve()
         self.server = Path(server) if server is not None else locate_pyright()
         self._process = None
+        self._messages = None
         self._next = 0
         self._opened = set()
 
@@ -79,6 +81,15 @@ class PyrightDefinitions:
             stderr=subprocess.DEVNULL,
             cwd=self.root,
         )
+        # A thread reads the server's messages: waiting on the pipe itself
+        # misses a message already read into the stream's buffer with the
+        # one before it, and would time out with the answer in hand.
+        self._messages = queue.Queue()
+        threading.Thread(
+            target=_read_messages,
+            args=(self._process.stdout, self._messages),
+            daemon=True,
+        ).start()
         uri = self.root.as_uri()
         self._request(
             "initialize",
@@ -151,23 +162,13 @@ class PyrightDefinitions:
         self._process.stdin.flush()
 
     def _read(self):
-        stream = self._process.stdout
-        if not select.select([stream], [], [], _TIMEOUT)[0]:
-            raise PyrightUnavailable("pyright did not answer in time")
-        length = None
-        while True:
-            header = stream.readline()
-            if not header:
-                raise PyrightUnavailable("pyright stopped")
-            header = header.strip()
-            if not header:
-                break
-            key, _, value = header.decode("ascii").partition(":")
-            if key.lower() == "content-length":
-                length = int(value)
-        if length is None:
-            raise PyrightUnavailable("pyright sent a message without a length")
-        return json.loads(stream.read(length))
+        try:
+            message = self._messages.get(timeout=_TIMEOUT)
+        except queue.Empty:
+            raise PyrightUnavailable("pyright did not answer in time") from None
+        if isinstance(message, PyrightUnavailable):
+            raise message
+        return message
 
     def _request(self, method, params):
         self._next += 1
@@ -185,3 +186,30 @@ class PyrightDefinitions:
                         f"pyright {method} failed: {message['error']}"
                     )
                 return message.get("result")
+
+
+def _read_messages(stream, messages):
+    """Put each LSP message on ``stream`` into ``messages``, then a
+    ``PyrightUnavailable`` saying why the stream ended."""
+    try:
+        while True:
+            length = None
+            while True:
+                header = stream.readline()
+                if not header:
+                    messages.put(PyrightUnavailable("pyright stopped"))
+                    return
+                header = header.strip()
+                if not header:
+                    break
+                key, _, value = header.decode("ascii").partition(":")
+                if key.lower() == "content-length":
+                    length = int(value)
+            if length is None:
+                messages.put(
+                    PyrightUnavailable("pyright sent a message without a length")
+                )
+                return
+            messages.put(json.loads(stream.read(length)))
+    except (OSError, ValueError) as error:
+        messages.put(PyrightUnavailable(f"pyright stopped ({error})"))

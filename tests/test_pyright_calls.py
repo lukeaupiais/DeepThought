@@ -1,5 +1,7 @@
+import io
 import os
 from pathlib import Path
+import queue
 import shutil
 import stat
 import tempfile
@@ -10,6 +12,7 @@ from deepthought.pyright_calls import (
     PYRIGHT_VERSION,
     PyrightDefinitions,
     PyrightUnavailable,
+    _read_messages,
     locate_pyright,
 )
 
@@ -26,6 +29,23 @@ def _script(directory, name, text):
     path.write_text("#!/bin/sh\n" + text)
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return path
+
+
+class ReadMessagesTests(unittest.TestCase):
+    def test_messages_arriving_together_are_each_delivered(self):
+        # Two messages in one write land in the stream's buffer together;
+        # both must reach the reader, then why the stream ended.
+        def frame(body):
+            return b"Content-Length: %d\r\n\r\n%s" % (len(body), body)
+
+        stream = io.BufferedReader(
+            io.BytesIO(frame(b'{"method": "log"}') + frame(b'{"id": 1, "result": 2}'))
+        )
+        messages = queue.Queue()
+        _read_messages(stream, messages)
+        self.assertEqual(messages.get_nowait(), {"method": "log"})
+        self.assertEqual(messages.get_nowait(), {"id": 1, "result": 2})
+        self.assertIsInstance(messages.get_nowait(), PyrightUnavailable)
 
 
 class LocateTests(unittest.TestCase):
