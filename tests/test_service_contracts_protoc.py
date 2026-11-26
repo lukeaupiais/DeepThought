@@ -8,6 +8,7 @@ import unittest
 from deepthought.analysis_tools import ServiceContractTool
 
 from deepthought.service_contracts.protoc import available, read_protos
+from typescript_ready import needs_typescript
 
 COMMON = """
 syntax = "proto3";
@@ -187,6 +188,7 @@ def _google_api():
 
 
 @unittest.skipUnless(_google_api(), "googleapis-common-protos or pyyaml missing")
+@needs_typescript
 class HttpAnnotationTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
