@@ -1102,8 +1102,10 @@ follows CALLS, INHERITS_FROM and IMPLEMENTS backwards to depth 3, the way
 `get_impact` does. The files of the dependents it finds are the prediction,
 and the commit's other edited files are the outcome. The baseline is a plain
 text search: every file that contains one of the seed names as a whole word.
-A third line, `impact_fixtures`, also follows USES_FIXTURE from tests to the
-pytest fixtures they use, as `get_impact` does. The `impact` line keeps the
+A third line, `impact_injection`, also follows the edges through which a
+framework injects code: USES_FIXTURE from tests to their pytest fixtures and
+USES_DEPENDENCY from endpoints to their FastAPI dependencies, as `get_impact`
+does. The `impact` line keeps the
 code relations alone, so the results below stay comparable.
 
 ```sh

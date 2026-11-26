@@ -7,9 +7,11 @@ It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
 
+import ast
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import sys
 import time
 from copy import deepcopy
 
@@ -20,7 +22,8 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
-from ..scip_calls import bind_calls
+from ..scip_calls import ScipReferences, bind_calls
+from ..fastapi_dependencies import dependency_uses
 from ..pytest_fixtures import fixture_uses
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -93,6 +96,16 @@ _FIXTURE_RULES = {
     "usefixtures": FIXTURE_MARK_RULE,
     "autouse": FIXTURE_AUTOUSE_RULE,
 }
+DEPENDENCY_RULE = register_rule(
+    EvidenceRule(
+        "fastapi.depends",
+        "resolved",
+        "The SCIP index resolves a call to FastAPI's own Depends or Security, "
+        "and the dependency written in it to one parsed declaration "
+        "(deepthought.fastapi_dependencies); FastAPI calls it for the "
+        "endpoint, router or dependency the call belongs to.",
+    )
+)
 
 UNLINKED_CALL_RULE = register_rule(
     EvidenceRule(
@@ -945,6 +958,15 @@ class TreeSitterTool(AnalysisTool):
             for c in result.coverage
             if c.language == "python"
         }
+        # The pytest and FastAPI rules read Python's ast, which skips a file
+        # this interpreter cannot parse (such as newer syntax): say which.
+        unparsed = {}
+        for file, text in sorted(python_files.items()):
+            try:
+                ast.parse(text)
+            except (SyntaxError, ValueError) as error:
+                unparsed[file] = str(error)
+        interpreter = "{}.{}".format(*sys.version_info[:2])
         by_line = {
             (d.file, d.line): d
             for d in result.definitions
@@ -972,6 +994,42 @@ class TreeSitterTool(AnalysisTool):
                         "line": use.line,
                         "name": use.name,
                         **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
+        # Endpoints and routers depend on the FastAPI dependencies they inject.
+        references = ScipReferences(result, scip_indexes, self.repo_path)
+        for use in dependency_uses(python_files, references):
+            file, line = use.consumer
+            if line is None:
+                source = (["File"], files[file])
+            else:
+                consumer = by_line.get(use.consumer)
+                if consumer is None:
+                    continue
+                source = (
+                    [consumer.kind, "Symbol"],
+                    f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                )
+            target = use.dependency
+            relationships.append(
+                RelationshipData(
+                    "USES_DEPENDENCY",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [target.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{target.file}::{target.symbol}::{target.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "column": use.column,
+                        "name": use.name,
+                        "injector": use.injector,
+                        **({"alias": use.alias} if use.alias else {}),
+                        **_evidence(DEPENDENCY_RULE),
+                        **_produced(references.tool(file)),
                     },
                 )
             )
@@ -1214,6 +1272,12 @@ class TreeSitterTool(AnalysisTool):
             if result.status == "failed"
             else [],
             warnings=[d["message"] for d in diagnostics]
+            + [
+                f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                "is read from it"
+                for file, error in unparsed.items()
+            ]
             if result.status != "failed"
             else [],
             custom_metrics={
@@ -1236,6 +1300,10 @@ class TreeSitterTool(AnalysisTool):
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
                 "go_implementations": len(implementations),
+                "python_ast_unparsed": {
+                    "python": interpreter,
+                    "files": sorted(unparsed),
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,

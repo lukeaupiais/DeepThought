@@ -161,14 +161,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ).consume()
 
-    async def write(self, tool, files, name):
+    async def write(self, tool, files, name, **options):
         repo = "impact-" + uuid4().hex
         self.repos.append(repo)
         with tempfile.TemporaryDirectory() as directory:
             for path, content in files.items():
                 (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
                 (Path(directory) / path).write_text(content)
-            output = await tool(directory).analyze(repo)
+            output = await tool(directory).analyze(repo, **options)
         written = await WriteCoordinator(
             self.manager.driver, database=self.manager.database
         ).write_tool_output(name, output, repo)
@@ -244,6 +244,34 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(impact["items"][1]["source_roles"], ["test"])
+
+    async def test_endpoints_depend_on_the_fastapi_dependencies_they_inject(self):
+        from test_fastapi_dependencies import OCCURRENCES, SOURCES, scip_index
+
+        # A file that does not parse would leave the analysis incomplete.
+        sources = {p: t for p, t in SOURCES.items() if p != "app/broken.py"}
+        found = {p: o for p, o in OCCURRENCES.items() if p in sources}
+        with tempfile.TemporaryDirectory() as scratch:
+            indexes = (scip_index(sources, found, scratch),)
+            repo, snapshot, names = await self.write(
+                TreeSitterTool,
+                sources,
+                "tree-sitter",
+                languages=("python",),
+                scip_indexes=indexes,
+            )
+        impact = await self.service.get_impact(
+            names["Params"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("b", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("c", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("d", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("f", 1, "resolved", ["USES_DEPENDENCY"]),
+            ],
+        )
 
     async def test_direct_and_transitive_dependents_with_source_roles(self):
         files = dict(SOURCES)
@@ -321,7 +349,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1024
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1100
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
