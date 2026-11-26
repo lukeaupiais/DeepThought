@@ -56,6 +56,30 @@ class DeclaredPythonTests(unittest.TestCase):
             )
             self.assertEqual(declared_pythons(root), ("3.14", ">=3.12"))
 
+    def test_without_a_toml_parser_pyproject_is_named_unread(self):
+        # A core-only install on Python 3.10 has neither tomllib nor tomli.
+        with tempfile.TemporaryDirectory() as root:
+            write(
+                root,
+                {
+                    ".python-version": "3.14\n",
+                    "pyproject.toml": '[project]\nrequires-python = ">=3.12"\n',
+                },
+            )
+            with (
+                mock.patch.dict(sys.modules, {"tomllib": None, "tomli": None}),
+                mock.patch.object(
+                    python_runtime, "_find", side_effect=RuntimeError("no")
+                ),
+            ):
+                self.assertEqual(declared_pythons(root), ("3.14",))
+                chosen = interpreter_for(root)
+            self.assertIn(
+                "1 pyproject.toml not read: "
+                "provision tomli to read requires-python on Python 3.10",
+                chosen.errors,
+            )
+
     def test_the_lowest_admitted_version(self):
         self.assertEqual(_minimum("3.14"), (3, 14))
         self.assertEqual(_minimum("cpython-3.14.1"), (3, 14))

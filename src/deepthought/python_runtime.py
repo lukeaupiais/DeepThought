@@ -42,17 +42,32 @@ class Interpreter:
     errors: tuple = ()
 
 
+def _toml_parser():
+    """tomllib, tomli on Python 3.10, or None when neither is installed (a
+    core-only install on Python 3.10)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        try:
+            import tomli as tomllib
+        except ModuleNotFoundError:
+            return None
+    return tomllib
+
+
 def declared_pythons(root):
     """The Python requests a repository declares, sorted: each
     ``.python-version`` file's first entry and each ``pyproject.toml``'s
     ``requires-python``. Virtual environments and dependency trees are
-    skipped."""
-    try:
-        import tomllib
-    except ModuleNotFoundError:  # Python 3.10
-        import tomli as tomllib
+    skipped. Without a TOML parser, ``pyproject.toml`` files are not read."""
+    return _declared(root)[0]
 
-    found = set()
+
+def _declared(root):
+    """``declared_pythons(root)`` and the ``pyproject.toml`` files left unread
+    because no TOML parser is installed."""
+    tomllib = _toml_parser()
+    found, unread = set(), []
     for directory, names, files in os.walk(root):
         names[:] = [
             n
@@ -70,7 +85,9 @@ def declared_pythons(root):
             ]
             if entries:
                 found.add(entries[0])
-        if "pyproject.toml" in files:
+        if "pyproject.toml" in files and tomllib is None:
+            unread.append(Path(directory) / "pyproject.toml")
+        elif "pyproject.toml" in files:
             try:
                 project = tomllib.loads(
                     (Path(directory) / "pyproject.toml").read_text(encoding="utf-8")
@@ -80,7 +97,7 @@ def declared_pythons(root):
             requested = project.get("requires-python")
             if isinstance(requested, str) and requested.strip():
                 found.add(requested.strip())
-    return tuple(sorted(found))
+    return tuple(sorted(found)), unread
 
 
 def _uv():
@@ -170,8 +187,13 @@ def _minimum(request):
 def interpreter_for(root, environ=None, timeout=600):
     """The interpreter that reads ``root``'s Python sources: the newest one
     the repository declares, or the running one when that is as new."""
-    declared = declared_pythons(root)
+    declared, unread = _declared(root)
     candidates, errors = [], []
+    if unread:
+        errors.append(
+            f"{len(unread)} pyproject.toml not read: "
+            "provision tomli to read requires-python on Python 3.10"
+        )
     for request in declared:
         minimum = _minimum(request)
         if minimum is None or minimum <= _key(_RUNNING):
