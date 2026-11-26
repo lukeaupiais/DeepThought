@@ -9,6 +9,7 @@ import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.service_contracts.http import PLACEHOLDER
+from typescript_ready import needs_typescript
 
 READY = (
     importlib.util.find_spec("tree_sitter")
@@ -65,6 +66,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class AxiosInstanceTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
