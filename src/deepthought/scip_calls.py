@@ -387,6 +387,43 @@ class ScipReferences:
                 sites.add((d.file, d.line, _to_utf8(text, d.column, view.encoding(d))))
         return tuple(sorted(sites))
 
+    def references_to(self, sites):
+        """(file, line, UTF-8 byte column, definition site) of each
+        reference, in the files the indexes cover, to a symbol an index
+        defines at one of ``sites`` ((file, line, UTF-8 byte column)),
+        definitions themselves left out; sorted."""
+        sites = set(sites)
+        found = set()
+        for view in {id(v): v for v in self.covering.values()}.values():
+            for (file, _, _), occurrences in view.references.items():
+                if self.covering.get(file) is not view:
+                    continue
+                for reference in occurrences:
+                    if reference.symbol_roles & 1:
+                        continue
+                    for d in view.definitions.get(_key(file, reference.native_id), ()):
+                        text = self.lines.get(d.file, d.line)
+                        site = (
+                            d.file,
+                            d.line,
+                            _to_utf8(text, d.column, view.encoding(d)),
+                        )
+                        if site in sites:
+                            line = self.lines.get(file, reference.line)
+                            found.add(
+                                (
+                                    file,
+                                    reference.line,
+                                    _to_utf8(
+                                        line,
+                                        reference.column,
+                                        view.encoding(reference),
+                                    ),
+                                    site,
+                                )
+                            )
+        return sorted(found)
+
     def declarations(self, file, line, column, name):
         """The parsed declarations named ``name`` that the reference written
         at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None

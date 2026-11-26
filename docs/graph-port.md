@@ -801,6 +801,19 @@ and the report is then not `complete`; files in other languages are listed in
 `unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
 run, 2 invalid input or a diff that does not apply.
 
+`edit_check.check_working_copy` checks edits already made in place: the
+diff is the working copy against its git HEAD commit, new files included
+(`git add -A` into a scratch index, so the repository's own index is not
+touched; `node_modules` is left out), and the unedited side is the working
+copy with that diff taken out again. A work tree whose git directory is
+elsewhere is read with `git_dir=`. The MCP server serves both as `checkEdit`
+when it has a workspace (`DEEPTHOUGHT_WORKSPACE`, with
+`DEEPTHOUGHT_WORKSPACE_GIT_DIR` for a separate git directory): with no diff it
+checks the working copy's edits, with one it checks that proposed edit on top
+of the working copy as it is now. An agent that edits files directly no longer
+has to write a diff of its own edits, which never applies to the files it
+already changed.
+
 Independent checks against compiler-derived call truth (verification): a
 parameter added to chi's `NewRouter` breaks 115 of 115 call sites (67 in the
 package and its tests, 48 in middleware), to ky's `cancelBody` 12 of 12, and
@@ -1392,8 +1405,37 @@ uses are found with no warning.
 
 ### Interface implementations
 
-Nothing in Go declares that a type implements an interface, so
-`deepthought.go_interfaces` compares method sets
+Nothing in Go declares that a type implements an interface. scip-go, which
+type-checks each package, records the answer as `is_implementation`
+relationships on the symbols of named types and methods (ingested as
+`Definition.implements`), and `deepthought.scip_implements` links them
+(`scip.go-implementation`, `resolved`, with the indexer and receipt as
+`producer` and `receipt`): a struct or other named type IMPLEMENTS an
+interface, and an interface method DISPATCHES_TO the method, when both are
+declarations of the analyzed files. The type checker's method sets count
+pointer receivers, promoted methods and embedded interfaces, so on chi this
+adds 7 implementations (`middleware.WrapResponseWriter` by its five writers,
+`LogFormatter`) and 5 dispatches that comparing method sets misses, and
+loses none. An interface declared outside the repository (`io.Reader`,
+`error`) has no declaration to link to.
+
+The method-set rule below stands only where scip-go records nothing it
+could: for types of files no scip-go index covers; for interfaces declared
+inside a function (scip-go reads only package-level types; miniflux's
+`acceptEncoding.sizer`); for a type and an interface indexed by separate
+scip-go runs (packages in directories `./...` skips, such as `testdata`, get a
+pass of their own); and where the type and the interface are in
+different packages and either package has in-package `_test.go` files.
+scip-go 0.2.7 then reads that package's declarations from its test variant,
+whose named types are not the ones the other package's signatures name, and
+`types.Implements` fails: on simplebank, `mockdb.MockStore` is recorded for
+no interface, though `var _ db.Store = (*mockdb.MockStore)(nil)` compiles,
+and on grpc-go `grpc.Server` is recorded for none of the four interfaces of
+other packages it implements. On grpc-go scip-go adds 363 implementations
+and 243 dispatches, and on sqlc 1 implementation, with none lost. A type in that
+case that relies on promoted methods is missed by both.
+
+Elsewhere `deepthought.go_interfaces` compares method sets
 (`tree-sitter.go-interface-method-set`, `name_matched`). Each Go function,
 method and interface method records `Definition.signature`, its parameter and
 result types without names (`(string,[]byte)(error)`, `...T` for a variadic
@@ -5392,6 +5434,8 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository. Not used in files a scip-typescript index covers, where `drizzle-scip` reads each use; there it runs only where the index records no symbol, or only a local one, at the method (it could not type the call), and the metric `drizzle_scip` counts those as `index_unresolved` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-scip` | resolved | each use in a file a scip-typescript index covers whose method the index resolves to drizzle-orm (`from` and the joins READS, `insert`, `update` and `delete` WRITES, a relational query's `findMany`/`findFirst` READS), at the method's name; the table is the definition the index gives for the written name (the argument, the property of `schema.users` or the `db.query` key), matched to a variable holding a Drizzle table (`drizzle-table`), so imports, aliases, re-exports, `export *` and workspace packages are followed by the TypeScript checker. A method of another library (`cache.from(users)`) gives no edge. The metric `drizzle_scip` counts `linked`, `no_scip_index`, `index_unresolved`, `not_drizzle` and `not_a_table` |
+| Symbol\|File -[:READS_COLUMN]-> DbColumn | `data-contracts.drizzle-scip-column-read` | resolved | a reference a scip-typescript index resolves to a property of a Drizzle table's columns object: `users.email`, `eq(users.id, x)`, or a selected row's `row.email` (Drizzle's inferred row types keep the property). The property's column is its builder's name argument (`text("email_address")`), else the name a helper builder it calls gives (`createdAt: createdAt()`, the helper found through the index and returning `timestamptz("created_at")...`), else its key; it must be a column of the table (`data-contracts.sql-column`), else it is counted `not_a_table_column` (a `casing` option, a column the migrations do not create). Columns spread into the table (`...timestamps`, `...softDeleteColumns()`) are found through the index too. A property such a spread shares between tables is attributed by the access's receiver (`posts.updatedAt`); a row's (`row.updatedAt`) names no one table, so it gives no edge, is counted `reads_unattributed`, and every column of that property gets `reads_unattributed: true`, which puts its tables' users under contract impact's `unresolved_users`. Counted in `drizzle_columns` |
+| Symbol\|File -[:WRITES_COLUMN]-> / -[:READS_COLUMN]-> DbColumn | `data-contracts.drizzle-column-key` | pattern_matched | a key of the objects an insert's `values` (one or an array), an update's `set` or `onConflictDoUpdate`'s `set` writes, or of a relational query's `columns` reads, on a use `data-contracts.drizzle-scip` resolves to a table: Drizzle types those objects by the table's column keys, and the index records the keys as new properties, not references. The use's READS or WRITES edge carries `columns_resolved: true` when its table's columns are all mapped (no unresolved spread, a migration-known column set) and every key names a column of it; an object built elsewhere (`values(rows)`), a spread, an unknown key, or a relational query with an object `where`/`orderBy` or `extras` leave it off |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.script-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `query`, `execute`, `raw`, `prepare`, `exec`, `run`, `all`, `get`, `each` or a pg-promise query method, in a JavaScript or TypeScript file importing a Node SQL driver (`pg`, `mysql`, `mysql2`, `mariadb`, `sqlite3`, `better-sqlite3`, `mssql`, `oracledb`, `@libsql/client`, ...) or `knex`: a literal, a template string or `+` concatenation (unfixed parts dropped), or pg's `{ text }` config. Tagged templates (`sql\`...\``) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
@@ -6072,13 +6116,21 @@ compiler link stands over the index):
 | `reason` | `parser_rules` when not linked: the parser's name rules decided the rest, so their edges are `name_matched` and a source search may still be needed |
 | `resolver` | the producers (`name@version`) that decided the sites, and `tree-sitter@<version>` for the parser's rules |
 | `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
-| `linked`, `ambiguous`, `unresolved` | the sites by outcome |
+| `linked`, `ambiguous`, `unresolved` | the sites by outcome; `unresolved` leaves out `external` sites |
+| `external` | sites a resolver placed outside the repository (`scip_external`, `pyright_external`, `compiler_external_module`): library and standard-library calls and imports. They are decided, and link to nothing here by design |
+| `unresolved_reasons` | the reasons of the ambiguous and unresolved sites, by count (`unknown` when none was recorded), so a gap in the repository's own code (`scip_target_not_declaration`, `receiver_type_unknown`, ...) can be told apart from a site the index has no symbol for (`scip_no_occurrence`, which includes Go builtins such as `len`) |
+
+`linked` therefore means that every site of the family was decided by a
+deterministic resolver: linked to its declaration here, placed outside the
+repository, or left unlinked for the reason it gives. It does not mean
+`unresolved` is 0; read `unresolved_reasons` for what is left.
 
 A file that failed to parse is not counted. Imports in other languages are
 decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
 `no_sites`). An empty
-`resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
-lists are; `describeSnapshot` decodes it.
+`resolver` list and the `unresolved_reasons` object are stored as JSON text
+(`_dt_json_fields`) as other empty lists and objects are; `describeSnapshot`
+decodes them.
 
 ## Incremental re-indexing
 
@@ -6246,6 +6298,22 @@ the selected complete repository/revision. It rejects procedures, administration
 updates and multiple statements, checks the Neo4j EXPLAIN read-only query type,
 bounds transaction time/result rows/serialized bytes, and always rolls back.
 These restrictions are intentional; it is not unrestricted Neo4j administration.
+
+The keyword check reads only the query's own clauses: quoted text, comments,
+property keys (`s.set`, `{use: ...}`), parameters and the variables the query
+binds (`r AS call`, `(set)`) are blanked first, so a read that names a variable
+`call` is not refused. The EXPLAIN plan is also refused when any operator is a
+procedure call or LOAD CSV, which the query type alone does not show. A read
+the database times out is tried once more: the first reads after a start run on
+a cold page cache, and the MCP server reads the whole graph once at startup to
+warm it without making the first question wait.
+
+An empty answer says why where it can, from the paths and code names the query
+looks for (quoted literals and string parameters): `why_empty` in JSON, lines
+under "No results." in text. A path no analyzed file has is named, with
+whether the working copy has it and, when no file of its kind is analyzed at
+all (`.vue`, `.proto`), the kinds that are; a code name that is declared says
+the query's other conditions matched nothing, and one that is not says so.
 
 **Database privileges or a read-only database configuration must enforce read-only
 access for untrusted agents. Driver read routing is not access control.** See the
