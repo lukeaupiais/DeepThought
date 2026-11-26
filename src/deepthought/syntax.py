@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -1541,8 +1545,19 @@ def _python_imports(node, content):
 def _typescript_imports(node, content):
     """Yield (specifier, kind, names, local names) for an import or re-export.
 
-    JavaScript ES modules share this syntax; CommonJS require() is not recorded.
+    JavaScript ES modules share this syntax. A ``require("x")`` call
+    (``require``) or an ``import("x")`` call (``dynamic_import``) is recorded
+    too: the module it loads, as the TypeScript compiler records it. The
+    specifier is a string literal, or a template without substitutions; it
+    is require's only argument and import()'s first. A require() that
+    initializes a destructuring declaration (``const { a, b: c } =
+    require("x")``) binds the names it destructures, which the compiler
+    takes as aliases of what the module exports under those names; any
+    other call binds none.
     """
+    if node.type == "call_expression":
+        yield from _import_call(node, content)
+        return
     if node.type not in {"import_statement", "export_statement"}:
         return
     source = node.child_by_field_name("source")
@@ -1597,6 +1612,62 @@ def _typescript_imports(node, content):
         exported = tuple(alias for _, alias in pairs)
     # A re-export binds no local name in the exporting module.
     yield _text(fragments[0], content), "export_from", names, (), exported
+
+
+def _import_call(node, content):
+    function = node.child_by_field_name("function")
+    arguments = node.child_by_field_name("arguments")
+    if function is None or arguments is None:
+        return
+    if function.type == "import":
+        kind = "dynamic_import"
+    elif _text(function, content) == "require":
+        kind = "require"
+    else:
+        return
+    given = arguments.named_children
+    # import() may take import attributes after the specifier.
+    if not given or (kind == "require" and len(given) != 1):
+        return
+    literal = given[0]
+    if literal.type not in {"string", "template_string"}:
+        return
+    parts = literal.named_children
+    if len(parts) != 1 or parts[0].type != "string_fragment":
+        return
+    pairs = _required_names(node, content) if kind == "require" else []
+    yield (
+        _text(parts[0], content),
+        kind,
+        tuple(name for name, _ in pairs),
+        tuple(local for _, local in pairs),
+    )
+
+
+def _required_names(node, content):
+    """(name, local name) for each property ``const { a, b: c } =
+    require("x")`` destructures into a name of its own: ``a`` and ``c``. A
+    nested pattern, a default value, a rest element or a computed or quoted
+    key binds no export by name, so it is left out."""
+    declarator = node.parent
+    if declarator is None or declarator.type != "variable_declarator":
+        return []
+    # A plain name or an array pattern has no property patterns.
+    pairs = []
+    for child in declarator.child_by_field_name("name").named_children:
+        if child.type == "shorthand_property_identifier_pattern":
+            pairs.append((_text(child, content), _text(child, content)))
+        elif child.type == "pair_pattern":
+            key = child.child_by_field_name("key")
+            value = child.child_by_field_name("value")
+            if (
+                key is not None
+                and key.type == "property_identifier"
+                and value is not None
+                and value.type == "identifier"
+            ):
+                pairs.append((_text(key, content), _text(value, content)))
+    return pairs
 
 
 def _go_imports(node, content):
@@ -2040,6 +2111,9 @@ def _rust_modules(node, content, expander=None):
         yield "/".join((*parents, word)), "module", (), (word,)
 
 
+_IMPORT_CALLS = frozenset({"require", "dynamic_import"})
+
+
 def extract_imports(
     tree,
     content: bytes,
@@ -2049,8 +2123,9 @@ def extract_imports(
     *,
     expander: "RustExpander | None" = None,
 ) -> list[Import]:
-    """Static import statements in source order; dynamic loads are not facts
-    here. An ``expander`` reads Rust items written in pass-through macro
+    """Static import statements in source order, and JavaScript and
+    TypeScript ``require()`` and ``import()`` calls of a string literal. An
+    ``expander`` reads Rust items written in pass-through macro
     invocations."""
     children = expander.children if expander else (lambda node: node.named_children)
     visit = {
@@ -2080,11 +2155,16 @@ def extract_imports(
             else None
         )
         for specifier, kind, names, local_names, *exported in found:
-            ordinal = ordinals.get(specifier, 0)
-            ordinals[specifier] = ordinal + 1
+            # The compiler records require() in JavaScript only.
+            if kind == "require" and language != "javascript":
+                continue
+            # Calls are counted apart, so statement identities stay the same.
+            label = "ImportCall" if kind in _IMPORT_CALLS else "Import"
+            ordinal = ordinals.get((label, specifier), 0)
+            ordinals[(label, specifier)] = ordinal + 1
             imports.append(
                 Import(
-                    id=identifier(repository_id, file, specifier, "Import", ordinal),
+                    id=identifier(repository_id, file, specifier, label, ordinal),
                     file=file,
                     specifier=specifier,
                     kind=kind,

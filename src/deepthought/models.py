@@ -1,7 +1,7 @@
 """Portable artifacts; lines are one-based, columns retain declared encoding."""
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import PurePosixPath, PureWindowsPath
 
 
@@ -253,10 +253,13 @@ class Reference:
 # or an extern crate. "script_config", "path_alias" and "package_entry": a
 # tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
 # files a package.json names; module resolution reads them. "include": a C
-# `#include "path"`.
+# `#include "path"`. "require" and "dynamic_import": a JavaScript
+# `require("x")` or a JavaScript or TypeScript `import("x")` call.
 IMPORT_KINDS = frozenset(
     {
         "import",
+        "require",
+        "dynamic_import",
         "from_import",
         "export_from",
         "module",
@@ -796,6 +799,11 @@ class AnalysisResult:
     supertypes: tuple[Supertype, ...] = ()
     packages: tuple[PackageClause, ...] = ()
     impls: tuple[ImplBlock, ...] = ()
+    # What the TypeScript compiler says about the JavaScript and TypeScript
+    # modules (``deepthought.ts_modules.CompilerModules``). Derived from the
+    # whole workspace rather than parsed from one file, so it is not part of
+    # the artifact.
+    compiler_modules: object = field(default=None, compare=False, repr=False)
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -877,7 +885,8 @@ class AnalysisResult:
             )
 
     def to_dict(self) -> dict:
-        data = json.loads(json.dumps(asdict(self)))
+        data = json.loads(json.dumps(asdict(replace(self, compiler_modules=None))))
+        del data["compiler_modules"]
         # Arity is recorded for Java only; other facts keep their serialized
         # identity.
         for item in data["definitions"]:

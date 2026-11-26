@@ -108,6 +108,7 @@ Every engine call resolution is judged at its source position:
 | contradicted | linked, and the oracle names other targets (including `local` or `external`) |
 | unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
 | not_indexed | linked in a file the oracle did not index |
+| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, so never confirmed; contradicted instead when the oracle names other targets there |
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of
@@ -288,7 +289,7 @@ a package that is not installed, is external.
 | hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 516 | 472 | 0 | 1.0 | 0.9147 |
+| preact | 516 | 499 | 0 | 1.0 | 0.9671 |
 
 The engine's JavaScript and TypeScript imports are scored as it resolves them:
 through the TypeScript compiler (`deepthought.ts_modules`). The compiler
@@ -304,14 +305,10 @@ preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
 groups:
 
 - dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
-- imports in hono's benchmark packages: 69;
+- imports in hono's benchmark packages, whose `.mts` files the parser does not
+  read: 69;
 - preact's `require()` calls: 8;
-- static imports in preact's demo folder: preact's jsconfig excludes it, and
-  `demo/tsconfig.json` (whose `paths` name `preact`) does not allow JavaScript,
-  so its `.jsx` files get default options and no `preact`: 26;
-- the three imports of `compat/test/browser/unstable_batchedUpdates.test.jsx`:
-  a `.js` file of the same name sits beside it, and the compiler includes only
-  one file per name in a project, so the `.jsx` gets default options.
+- side-effect imports of stylesheets in preact's demo folder: 2.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 
