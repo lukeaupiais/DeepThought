@@ -382,6 +382,17 @@ function analyze(program, checker, file, seen) {
 // Types that only wrap the type a value carries: Promise<T>, T[] and the
 // like give T. With noLib the checker has no lib types, so wrappers are
 // read from the type's written form.
+// Array methods whose callback's first parameter is an element.
+const ARRAY_CALLBACKS = new Set([
+  "map",
+  "flatMap",
+  "forEach",
+  "filter",
+  "find",
+  "some",
+  "every",
+]);
+
 const WRAPPERS = new Set([
   "Promise",
   "PromiseLike",
@@ -458,7 +469,177 @@ function declaredTypes(checker, file, offset, out) {
       (node.typeArguments || []).forEach((t) => named(t, depth + 1, found));
     }
   }
+  // The repository's declarations of a symbol's class, interface, type
+  // alias or enum, as named() records them.
+  function declared(symbol, found) {
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      try {
+        symbol = checker.getAliasedSymbol(symbol);
+      } catch (error) {
+        return false;
+      }
+    }
+    const local = ((symbol && symbol.declarations) || []).filter((d) => {
+      if (
+        !(
+          ts.isClassDeclaration(d) ||
+          ts.isInterfaceDeclaration(d) ||
+          ts.isTypeAliasDeclaration(d) ||
+          ts.isEnumDeclaration(d)
+        ) ||
+        !d.name
+      ) {
+        return false;
+      }
+      const where = relative(d.getSourceFile().fileName);
+      return !where.startsWith("..") && !where.split("/").includes("node_modules");
+    });
+    for (const d of local) {
+      const source = d.getSourceFile();
+      const at = source.getLineAndCharacterOfPosition(d.name.getStart(source));
+      const lineStart = source.getPositionOfLineAndCharacter(at.line, 0);
+      const bytes = byteOffsets(source.text, source.fileName);
+      found.push({
+        file: relative(source.fileName),
+        name: d.name.text,
+        line: at.line + 1,
+        column: bytes(d.name.getStart(source)) - bytes(lineStart),
+      });
+    }
+    return local.length > 0;
+  }
+  // The types a value carries: the type written where its name or member
+  // is declared, else the checker's type of it (a class instance, a value
+  // inferred from a call); object and array literals carry the types of
+  // their members and elements, `x as T` carries T.
+  function carried(expression, depth, found) {
+    let node = expression;
+    if (!node || depth > MAX_DEPTH) return;
+    while (ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node)) {
+      node = node.expression;
+    }
+    if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+      named(node.type, depth + 1, found);
+      return;
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      for (const p of node.properties) {
+        if (ts.isPropertyAssignment(p)) carried(p.initializer, depth + 1, found);
+        else if (ts.isShorthandPropertyAssignment(p)) carried(p.name, depth + 1, found);
+        else if (ts.isSpreadAssignment(p)) carried(p.expression, depth + 1, found);
+      }
+      return;
+    }
+    if (ts.isArrayLiteralExpression(node)) {
+      node.elements.forEach((e) => carried(e, depth + 1, found));
+      return;
+    }
+    if (ts.isElementAccessExpression(node)) {
+      // rs[0] carries what rs's elements carry.
+      carried(node.expression, depth + 1, found);
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      // r in rs.map((r) => ...): with noLib the checker cannot type an
+      // array method's callback parameter, so it carries what rs carries.
+      const symbol = checker.getSymbolAtLocation(node);
+      const parameter = symbol && symbol.valueDeclaration;
+      if (
+        parameter &&
+        ts.isParameter(parameter) &&
+        !parameter.type &&
+        parameter.parent.parameters[0] === parameter &&
+        (ts.isArrowFunction(parameter.parent) ||
+          ts.isFunctionExpression(parameter.parent)) &&
+        ts.isCallExpression(parameter.parent.parent) &&
+        parameter.parent.parent.arguments[0] === parameter.parent &&
+        ts.isPropertyAccessExpression(parameter.parent.parent.expression) &&
+        ARRAY_CALLBACKS.has(parameter.parent.parent.expression.name.text)
+      ) {
+        carried(parameter.parent.parent.expression.expression, depth + 1, found);
+        return;
+      }
+    }
+    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
+      const parent = node.parent;
+      const symbol =
+        parent && ts.isShorthandPropertyAssignment(parent) && parent.name === node
+          ? checker.getShorthandAssignmentValueSymbol(parent)
+          : checker.getSymbolAtLocation(node);
+      const declaration = symbol && symbol.valueDeclaration;
+      if (declaration && declaration.type) {
+        const kind = declaration.type.kind;
+        if (kind === ts.SyntaxKind.AnyKeyword || kind === ts.SyntaxKind.UnknownKeyword) {
+          // Written as any: what it carries is not known.
+          unresolved += 1;
+          return;
+        }
+        named(declaration.type, depth + 1, found);
+        return;
+      }
+    }
+    if (ts.isNewExpression(node)) {
+      declared(checker.getSymbolAtLocation(node.expression), found);
+      return;
+    }
+    const type = checker.getTypeAtLocation(node);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      // The checker cannot type it (any, or a name it cannot resolve).
+      unresolved += 1;
+      return;
+    }
+    (type.isUnion() ? type.types : [type]).forEach((t) => {
+      if (declared(t.aliasSymbol || t.getSymbol(), found)) return;
+      if (t.flags & ts.TypeFlags.Object && t.objectFlags & ts.ObjectFlags.Reference) {
+        checker.getTypeArguments(t).forEach((a) => {
+          declared(a.aliasSymbol || a.getSymbol(), found);
+        });
+      }
+    });
+  }
+  // What a call sends: the data of `.emit(pattern, data)` and
+  // `.send(pattern, data)` (a NestJS ClientProxy's), and what
+  // `JSON.stringify(value)` serializes (a kafkajs message's value). Which
+  // calls are a broker's is told where the sites are read (messaging.py).
+  function sent(node) {
+    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
+      return undefined;
+    }
+    const name = node.expression.name.text;
+    if ((name === "emit" || name === "send") && node.arguments.length >= 2) {
+      return node.arguments[1];
+    }
+    const owner = node.expression.expression;
+    if (
+      name === "stringify" &&
+      ts.isIdentifier(owner) &&
+      owner.text === "JSON" &&
+      node.arguments.length >= 1
+    ) {
+      return node.arguments[0];
+    }
+    return undefined;
+  }
   function visit(node) {
+    const value = sent(node);
+    if (value) {
+      const found = [];
+      unresolved = 0;
+      try {
+        carried(value, 0, found);
+      } catch (error) {
+        unresolved += 1;
+      }
+      if (found.length > 0 || unresolved > 0) {
+        emit({
+          file: out,
+          start: offset(value.getStart(file)),
+          end: offset(value.end),
+          types: found,
+          unresolved,
+        });
+      }
+    }
     if (
       (ts.isMethodDeclaration(node) || ts.isConstructorDeclaration(node)) &&
       ts.canHaveDecorators(node)
