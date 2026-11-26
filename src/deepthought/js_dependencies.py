@@ -13,7 +13,8 @@ usual configuration (``.npmrc``, ``npm_config_registry``), so a mirror works.
 ``npm ci`` first fetches every pinned tarball from the configured registry
 (``--replace-registry-host=always``; the lockfile's integrity hashes still
 check each one), then, if that fails, from the hosts the lockfile names.
-A workspace that already has ``node_modules`` is indexed as it is.
+A workspace that already has ``node_modules`` is indexed as it is; in a
+copy, a directory that already has ``node_modules`` links to it.
 """
 
 import hashlib
@@ -228,6 +229,26 @@ def prepare(root, scratch, *, environ=None, timeout=600):
         ignore=lambda _directory, names: [n for n in names if n in _COPY_SKIP],
     )
     for relative in directories:
+        installed = root / relative / "node_modules"
+        if installed.is_dir():
+            # Packages already installed in the workspace are used as they
+            # are, as a workspace with node_modules everywhere is; the copy
+            # skipped them.
+            (copy / relative / "node_modules").symlink_to(
+                installed.resolve(), target_is_directory=True
+            )
+            outcome["installs"].append(
+                {
+                    "directory": relative,
+                    "status": "installed",
+                    "manager": None,
+                    "command": None,
+                    "lockfile": None,
+                    "lockfile_sha256": None,
+                    "source": "workspace",
+                }
+            )
+            continue
         attempts = []
         for manager, arguments, lockfile in _managers(root / relative):
             install = _install(
