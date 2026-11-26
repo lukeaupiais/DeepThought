@@ -60,6 +60,9 @@ from app import aliases
 from app.aliases import ParamsDep, Plain
 def f(db: aliases.DbDep, p: ParamsDep, x: Plain, y: int, z: aliases.Deps.Db):
     pass
+from fastapi import params
+def h(x=params.Depends(get_db)):
+    pass
 """
 
 ALIASES = """\
@@ -149,6 +152,14 @@ OCCURRENCES = {
         (25, "ParamsDep", 0, PARAMS_DEP, False),
         (25, "Plain", 0, PLAIN, False),
         (25, "Db", 1, DEPS_DB, False),
+        (
+            28,
+            "Depends",
+            0,
+            "scip-python python fastapi 0.115.0 `fastapi.params`/Depends#",
+            False,
+        ),
+        (28, "get_db", 0, GET_DB, False),
     ],
     "app/aliases.py": [
         (3, "DbDep", 0, DB_DEP, True),
@@ -233,6 +244,32 @@ def edges(output):
     )
 
 
+class FactTests(unittest.TestCase):
+    def test_only_calls_that_may_be_depends_or_security_are_kept(self):
+        import ast
+
+        from deepthought.fastapi_dependencies import dependency_facts
+
+        tree = ast.parse(
+            "from fastapi import Depends as Inject, Query as Q\n"
+            "def f(a=Inject(get_db), b=Q(get_db), c=print(get_db)):\n"
+            "    pass\n"
+        )
+        calls = dependency_facts(tree)["calls"]
+        # Only the call under Depends' import name; the index decides the rest.
+        self.assertEqual(
+            calls,
+            [
+                {
+                    "callee": ["Inject", 2, 8],
+                    "written": ["get_db", 2, 15],
+                    "owner": 2,
+                    "alias": None,
+                }
+            ],
+        )
+
+
 @unittest.skipUnless(PYTHON, "Provision the python grammar")
 class DependencyTests(unittest.TestCase):
     def test_endpoints_routers_and_dependencies_use_what_they_inject(self):
@@ -277,6 +314,8 @@ class DependencyTests(unittest.TestCase):
                 ("f", "get_db", 26, 73, "Db", "Depends", *via(10)),
                 # A router's dependencies=[...] belong to the file.
                 ("file", "get_db", 5, 41, "get_db", "Depends", *rule),
+                # FastAPI's params.Depends class is accepted too.
+                ("h", "get_db", 29, 23, "get_db", "Depends", *rule),
                 # Positional-only and keyword-only parameters of an async
                 # function too.
                 ("helper", "get_db", 7, 21, "DbDep", "Depends", *via(4)),
