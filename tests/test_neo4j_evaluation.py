@@ -115,9 +115,11 @@ class Neo4jEvaluationTests(unittest.TestCase):
         )
 
     def test_real_import_readback_and_observed_query_allow_integration(self):
-        self.assertEqual(self.graph["nodes"], 18)
-        # 15 DEFINES, 2 file and 6 declaration CONTAINS edges.
-        self.assertEqual(self.graph["relationships"], 23)
+        # With 4 EdgeCoverage nodes: CALLS and IMPORTS for 2 languages.
+        self.assertEqual(self.graph["nodes"], 22)
+        # 15 DEFINES, 2 file and 6 declaration CONTAINS edges, and the
+        # REFERENCES_FUNCTION edge of `return parse` in build().
+        self.assertEqual(self.graph["relationships"], 24)
         self.assertNotIn("tool_output", self.prepared["contexts"]["treatment"])
         self.assertEqual(
             self.prepared["contexts"]["treatment"]["tool_access"]["backend"], "neo4j"
