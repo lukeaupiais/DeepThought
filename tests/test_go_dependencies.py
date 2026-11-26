@@ -263,20 +263,20 @@ class IndexedModulesTest(_ProxyTest):
     def test_a_failed_download_is_named_on_each_file(self):
         _, report, run, _ = self.index("example.com/missing")
         self.assertEqual(run["dependencies"]["status"], "failed")
-        # scip-go cannot load a package whose module is missing; the run
-        # fails, and the file says why.
-        self.assertEqual((run["status"], run["reason"]), ("failed", "indexer_failed"))
+        # scip-go 0.2.7 still indexes a package whose module is missing (its
+        # symbols are then misattributed), so the file is covered and says
+        # its dependencies were unavailable.
+        self.assertEqual((run["status"], run["reason"]), ("indexed", None))
         self.assertEqual(
             report["coverage"]["main.go"],
             {
                 "language": "go",
-                "status": "uncovered",
+                "status": "covered",
                 "indexer": "scip-go",
-                "reason": "indexer_failed",
                 "warning": "dependencies_unavailable",
             },
         )
-        self.assertEqual(indexers.failed_files(report), {"main.go": "indexer_failed"})
+        self.assertEqual(indexers.failed_files(report), {})
 
 
 if __name__ == "__main__":

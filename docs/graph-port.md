@@ -2471,7 +2471,8 @@ package count; a failed install gives each covered file
 `warning: dependencies_unavailable`.
 
 scip-go loads each package with `go/packages`, which reads a required module
-from the module cache, and it fails a whole module when one is missing. Before
+from the module cache. A missing module failed a whole module under 0.1.26; 0.2.7
+indexes it but attributes its symbols wrongly. Before
 scip-go runs, each Go module of the workspace has the go command download
 what it needs to build and test its packages (`deepthought.go_dependencies`):
 `go mod download -json` from the module's directory, into a module cache in a
