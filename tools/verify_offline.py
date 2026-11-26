@@ -96,7 +96,7 @@ def tool_directories():
     The indexers are engine dependencies, so the offline sandbox sees the
     ones installed on the host, and node and go, which they run on."""
     found = []
-    for name in ("scip-python", "scip-typescript", "scip-go", "node", "go"):
+    for name in ("scip-python", "scip-typescript", "scip-go", "jelly", "node", "go"):
         path = shutil.which(name)
         if path is not None:
             directory = str(Path(path).parent)

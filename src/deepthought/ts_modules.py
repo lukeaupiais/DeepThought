@@ -17,7 +17,8 @@ installs, so the engine needs no other install; a missing or different
 version raises ``TypeScriptUnavailable``.
 """
 
-from dataclasses import dataclass, replace
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,7 @@ from .imports import _SCRIPT_KINDS, ImportLink, ImportResolution
 TYPESCRIPT_VERSION = "6.0.3"
 TYPESCRIPT_TOOL = f"typescript@{TYPESCRIPT_VERSION}"
 TYPESCRIPT_COMPILER_MODULE = "typescript.compiler-module"
+NEST_INJECTED_CALL = "typescript.call-nest-injected-provider"
 NO_IMPORT = "compiler_no_import"
 NOT_FOUND = "compiler_module_not_found"
 EXTERNAL = "compiler_external_module"
@@ -68,6 +70,23 @@ class CompilerExport:
     # implementation's export of ``runtime_name``.
     runtime: str | None = None
     runtime_name: str | None = None
+    # The language rejects this export, or one the compiler follows for it:
+    # two exports of the name, or two ``export *`` that give it. The
+    # compiler reports an error and keeps one declaration.
+    conflict: bool = False
+
+
+@dataclass(frozen=True)
+class CompilerInjection:
+    """A NestJS class provider binding the token of a constructor parameter
+    property: ``property`` of the class declared at ``file``/``line``/
+    ``character`` holds an instance of a class at one of ``provided``."""
+
+    file: str  # workspace-relative
+    line: int  # 1-based
+    character: int  # UTF-16, 0-based, where the class's name starts
+    property: str
+    provided: tuple  # ((file, 1-based line, UTF-16 character), ...)
 
 
 # A declaration file and the implementation beside it with the same stem,
@@ -99,11 +118,19 @@ class CompilerModules:
     file, the module a call through it runs: that file, or, for a
     declaration file, the analyzed implementation beside it. ``exports``:
     ``{module: {name: ((file, line, UTF-8 column), ...)}}``, the
-    declarations each analyzed module exports under each name."""
+    declarations each analyzed module exports under each name.
+    ``injections``: ``{(class id, property): (provided class ids, ...)}``,
+    what NestJS injects into each constructor parameter property whose
+    token a class provider binds, between analyzed classes.
+    ``conflicts``: the (module, name) exports among them that the language
+    rejects (``CompilerExport.conflict``) along the way to the
+    declarations."""
 
     resolutions: tuple
     runtime: dict
     exports: dict
+    injections: dict = field(default_factory=dict)
+    conflicts: frozenset = frozenset()
 
 
 def locate_typescript(environ=None):
@@ -162,13 +189,20 @@ def compiler_imports(root, files, environ=None, timeout=1800):
 
 
 def compiler_modules(root, files, environ=None, timeout=1800):
-    """(``compiler_imports``, and every name each of ``files`` exports, with
-    its declarations: CompilerExport rows)."""
+    """(``compiler_imports``, every name each of ``files`` exports, with
+    its declarations: CompilerExport rows, and the NestJS injections the
+    compiler resolves: CompilerInjection rows)."""
     node, typescript = locate_typescript(environ)
     root = Path(root).resolve()
     completed = subprocess.run(
         [node, str(_HELPER), typescript],
-        input=json.dumps({"root": str(root), "files": sorted(files)}),
+        input=json.dumps(
+            {
+                "root": str(root),
+                "files": sorted(files),
+                "components": _components(root, files, environ),
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -176,9 +210,23 @@ def compiler_modules(root, files, environ=None, timeout=1800):
     )
     if completed.returncode:
         raise RuntimeError("TypeScript module resolution failed: " + completed.stderr)
-    imports, exports = [], []
+    imports, exports, injections = [], [], set()
     for row in map(json.loads, completed.stdout.splitlines()):
-        if "module" in row:
+        if "injected" in row:
+            # A class in several programs is written once for each.
+            injections.add(
+                CompilerInjection(
+                    row["injected"],
+                    row["line"] + 1,
+                    row["character"],
+                    row["property"],
+                    tuple(
+                        (p["file"], p["line"] + 1, p["character"])
+                        for p in row["provided"]
+                    ),
+                )
+            )
+        elif "module" in row:
             exports.append(
                 CompilerExport(
                     row["module"],
@@ -188,6 +236,7 @@ def compiler_modules(root, files, environ=None, timeout=1800):
                     row.get("character"),
                     row.get("runtime"),
                     row.get("runtime_name"),
+                    row.get("conflict", False),
                 )
             )
         else:
@@ -202,7 +251,23 @@ def compiler_modules(root, files, environ=None, timeout=1800):
                     row["options_from"],
                 )
             )
-    return imports, exports
+    return imports, exports, sorted(injections, key=repr)
+
+
+def _components(root, files, environ):
+    """{Vue component of ``files``: its script, as the compiler reads it}."""
+    from . import vue_sfc
+
+    components = sorted(f for f in files if vue_sfc.is_component(f))
+    sources = [(root / f).read_bytes() for f in components]
+    read = vue_sfc.read(sources, environ) if sources else []
+    return {
+        file: {
+            "text": vue_sfc.script_source(source, component).decode("utf-8"),
+            "jsx": component.jsx,
+        }
+        for file, source, component in zip(components, sources, read)
+    }
 
 
 def bind_imports(result, root, found):
@@ -275,7 +340,7 @@ def with_compiler_modules(result, root, environ=None):
     scripts = sorted(f for f, language in languages.items() if language in _LANGUAGES)
     if not scripts or result.compiler_modules is not None:
         return result
-    found, exported = compiler_modules(root, scripts, environ)
+    found, exported, injected = compiler_modules(root, scripts, environ)
     resolutions, targets = _bind(result, root, found)
     runtime = {}
     for import_id, target in targets.items():
@@ -293,34 +358,141 @@ def with_compiler_modules(result, root, environ=None):
         rows.setdefault((row.module, row.name), []).append(row)
 
     def declarations(module, name, seen):
-        found = set()
+        """(declarations, whether the language rejects an export on the
+        way to them)."""
+        found, conflict = set(), False
         if (module, name) in seen:
-            return found
+            return found, conflict
         seen = seen | {(module, name)}
         for row in rows.get((module, name), ()):
+            conflict = conflict or row.conflict
             if row.runtime is not None:
-                found |= declarations(row.runtime, row.runtime_name, seen)
+                more, rejected = declarations(row.runtime, row.runtime_name, seen)
+                found |= more
+                conflict = conflict or rejected
             elif row.declared in languages:
                 column = _to_utf8(
                     lines.get(row.declared, row.line), row.character, "utf-16"
                 )
                 found.add((row.declared, row.line, column))
-        return found
+        return found, conflict
 
-    exports = {}
+    exports, conflicts = {}, set()
     for module, name in rows:
         if module in languages:
-            found = declarations(module, name, frozenset())
+            found, conflict = declarations(module, name, frozenset())
             if found:
                 exports.setdefault(module, {})[name] = tuple(sorted(found))
+                if conflict:
+                    conflicts.add((module, name))
+    classes = defaultdict(list)
+    for d in result.definitions:
+        if d.kind == "Class":
+            classes[d.file].append(d)
+
+    def class_at(file, line, character):
+        # The innermost class declared around the name's position.
+        if file not in languages:
+            return None
+        column = _to_utf8(lines.get(file, line), character, "utf-16")
+        around = [
+            d
+            for d in classes.get(file, ())
+            if (d.line, d.column) <= (line, column) <= (d.end_line, d.end_column)
+        ]
+        return max(around, key=lambda d: (d.line, d.column), default=None)
+
+    injections = defaultdict(set)
+    for row in injected:
+        owner = class_at(row.file, row.line, row.character)
+        provided = {
+            found.id for at in row.provided if (found := class_at(*at)) is not None
+        }
+        if owner is not None and provided:
+            injections[(owner.id, row.property)] |= provided
     return replace(
         result,
         compiler_modules=CompilerModules(
             resolutions,
             runtime,
             exports,
+            {key: tuple(sorted(ids)) for key, ids in sorted(injections.items())},
+            frozenset(conflicts),
         ),
     )
+
+
+def injected_calls(result):
+    """{call site id: (method ids, ...)}: each ``this.p.m()`` in a class
+    whose constructor parameter property ``p`` NestJS injects
+    (``CompilerModules.injections``) runs ``m`` of each provided class:
+    the instance method that class declares, or else the one it inherits
+    through ``extends``, class by class. A provided class that neither
+    declares nor inherits ``m`` from a repository class adds nothing."""
+    compiled = result.compiler_modules
+    if compiled is None or not compiled.injections:
+        return {}
+    from .inheritance import resolve_supertypes
+
+    by_id = {d.id: d for d in result.definitions}
+    by_symbol = defaultdict(list)
+    for d in result.definitions:
+        by_symbol[(d.file, d.symbol)].append(d)
+    facts = {item.id: item for item in result.supertypes}
+    extends = {}
+    for resolution in resolve_supertypes(result):
+        item = facts[resolution.call_id]
+        if item.kind == "extends" and resolution.target_id is not None:
+            extends[item.owner_id] = resolution.target_id
+
+    def method(cls, name):
+        seen = set()
+        while cls is not None and cls.id not in seen:
+            seen.add(cls.id)
+            own = [
+                d
+                for d in by_symbol.get((cls.file, f"{cls.symbol}.{name}"), ())
+                if d.kind == "Method" and not d.static
+            ]
+            if own:
+                return own
+            cls = by_id.get(extends.get(cls.id))
+        return []
+
+    found = {}
+    for site in result.call_sites:
+        caller = by_id.get(site.caller_id)
+        if (
+            site.receiver_type != "this"
+            or len(site.receiver_steps or ()) != 1
+            or caller is None
+        ):
+            continue
+        scope = caller.symbol.split(".")
+        # The innermost class around the call: `this` is one of its
+        # instances.
+        owner = next(
+            (
+                classes[0]
+                for depth in range(len(scope), 0, -1)
+                if (
+                    classes := [
+                        d
+                        for d in by_symbol.get((site.file, ".".join(scope[:depth])), ())
+                        if d.kind == "Class"
+                    ]
+                )
+            ),
+            None,
+        )
+        provided = owner and compiled.injections.get((owner.id, site.receiver_steps[0]))
+        name = site.callee.rsplit(".", 1)[-1]
+        targets = sorted(
+            {d.id for cls in provided or () for d in method(by_id[cls], name)}
+        )
+        if targets:
+            found[site.id] = tuple(targets)
+    return found
 
 
 def _relative(root, path):
