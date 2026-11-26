@@ -193,24 +193,29 @@ class IndexersTest(unittest.TestCase):
         )
         self.assertEqual(report["coverage"]["main.go"]["reason"], "no_go_module")
 
-    def test_an_inferred_tsconfig_does_not_stay_in_the_workspace(self):
+    def test_a_workspace_without_tsconfig_is_never_written_to(self):
         (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "lib").mkdir()
+        (self.root / "lib" / "b.js").write_text("module.exports = 1;\n")
         self.fake("scip-typescript")
         report = indexers.index_workspace(
             self.root,
             self.out,
-            languages=("typescript",),
+            languages=("typescript", "javascript"),
             environ=self.environ(
                 FAKE_NAME="scip-typescript",
                 FAKE_VERSION="0.6.2",
-                FAKE_DOCUMENTS="web.ts",
+                FAKE_DOCUMENTS="",
             ),
         )
         self.assertEqual(report["runs"][0]["status"], "indexed")
-        self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
-        self.assertFalse((self.root / "tsconfig.json").exists())
+        self.assertEqual(
+            {path: entry["status"] for path, entry in report["coverage"].items()},
+            {"lib/b.js": "covered", "web.ts": "covered"},
+        )
         # The project is written outside the workspace, which may be
         # read-only, rather than inferred into it.
+        self.assertFalse((self.root / "tsconfig.json").exists())
         argv = self.args_log.read_text().split("\n")[0].split(" ")
         self.assertNotIn("--infer-tsconfig", argv)
         self.assertTrue(argv[-1].endswith("tsconfig.json"), argv)

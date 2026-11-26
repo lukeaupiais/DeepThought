@@ -16,10 +16,12 @@ import asyncio
 from collections import defaultdict, deque
 import json
 import os
+import tempfile
 from uuid import uuid4
 
 from deepthought.analysis_tools import TreeSitterTool
 from deepthought.graph_queries import GraphQueryService
+from deepthought.indexers import required_indexes
 from deepthought.storage.graph import (
     Neo4jConnectionManager,
     WriteCoordinator,
@@ -79,9 +81,15 @@ async def main():
     parser.add_argument("--max-depth", type=int, default=3)
     args = parser.parse_args()
     repo = "impact-check-" + uuid4().hex
-    output = await TreeSitterTool(args.workspace).analyze(
-        repo, languages=(args.language,), file_patterns=args.include
-    )
+    with tempfile.TemporaryDirectory() as scratch:
+        # Calls are bound from the pinned SCIP indexers, as on graph import.
+        _, indexes = required_indexes(args.workspace, scratch, (args.language,), repo)
+        output = await TreeSitterTool(args.workspace).analyze(
+            repo,
+            languages=(args.language,),
+            file_patterns=args.include,
+            scip_indexes=indexes,
+        )
     manager = Neo4jConnectionManager(
         os.environ["DEEPTHOUGHT_NEO4J_URI"],
         os.environ.get("DEEPTHOUGHT_NEO4J_USER", "neo4j"),

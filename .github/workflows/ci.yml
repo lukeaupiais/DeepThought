@@ -151,6 +151,7 @@ jobs:
         run: |
           # Offline acceptance clears the environment and keeps only the venv on PATH.
           GOBIN="$RUNNER_TEMP/deepthought-full/bin" go install golang.org/x/tools/cmd/callgraph@v0.31.0
+          (cd src/deepthought/genfiles && GOBIN="$RUNNER_TEMP/deepthought-full/bin" go install .)
           ln -s "$(go env GOROOT)/bin/go" "$RUNNER_TEMP/deepthought-full/bin/go"
       - name: Accept full installation offline
         run: python tools/verify_offline.py --privileged --python "$RUNNER_TEMP/deepthought-full/bin/python"
