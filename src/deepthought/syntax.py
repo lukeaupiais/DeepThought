@@ -5148,7 +5148,12 @@ def _receiver_chain_callee(node, content):
             return None if head is None else f"{head}[]"
         if node.type in {"parenthesized_expression", "non_null_expression"}:
             inner = [c for c in node.named_children if c.type != "comment"]
-            return chain(inner[0]) if len(inner) == 1 else None
+            head = chain(inner[0]) if len(inner) == 1 else None
+            if head is None and node.type == "parenthesized_expression":
+                # `(a ? b : c).m()`, `(x as T).m()`: a receiver no name
+                # describes. Only an index can link the call.
+                return "(…)"
+            return head
         return None
 
     if node is None or node.type not in _SCRIPT_CHAIN:
