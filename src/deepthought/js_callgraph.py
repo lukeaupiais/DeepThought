@@ -14,8 +14,9 @@ Installed packages are not analyzed (``--ignore-dependencies``): the result
 depends on the repository's own files only, whether or not node_modules is
 present, so a value that flows only through a dependency's code is not
 followed. The tool is pinned (``JELLY_VERSION``) and required where
-JavaScript or TypeScript is analyzed: a missing or wrong-version tool is an
-error.
+JavaScript or TypeScript is analyzed: when it is not installed, the engine
+installs it into its cache (``tool_provisioning``), and a tool it cannot
+have is an error.
 """
 
 from collections import defaultdict
@@ -64,36 +65,53 @@ class PointsToCall:
     callee_end_column: int
 
 
-def locate_jelly(environ=None):
-    """The ``jelly`` executable: ``$DEEPTHOUGHT_JELLY`` if set, else PATH, at
-    the pinned version (as ``jelly --version`` reports). Raises
-    ``JellyUnavailable`` otherwise."""
-    environ = os.environ if environ is None else environ
-    found = environ.get(JELLY_ENVIRONMENT_VARIABLE) or shutil.which(
-        "jelly", path=environ.get("PATH")
-    )
-    install = f"npm install -g {JELLY_PACKAGE}@{JELLY_VERSION}"
-    if not found or not Path(found).is_file():
-        raise JellyUnavailable(
-            "the Jelly call graph is required to analyze JavaScript and "
-            f"TypeScript: {install}, or set ${JELLY_ENVIRONMENT_VARIABLE}"
-        )
+def _jelly_version(binary, environ):
     try:
-        version = subprocess.run(
-            [found, "--version"],
+        return subprocess.run(
+            [str(binary), "--version"],
             capture_output=True,
             text=True,
             timeout=60,
             env={**environ},
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError) as error:
-        raise JellyUnavailable(f"{found} cannot be run: {error}") from None
+        raise JellyUnavailable(f"{binary} cannot be run: {error}") from None
+
+
+def locate_jelly(environ=None):
+    """The ``jelly`` executable: ``$DEEPTHOUGHT_JELLY`` if set, else PATH's
+    at the pinned version (as ``jelly --version`` reports), else the pinned
+    version that the engine installs into its cache. Raises
+    ``JellyUnavailable`` when none can be had."""
+    from .tool_provisioning import ToolInstallFailed, npm_package
+
+    environ = os.environ if environ is None else environ
+    configured = environ.get(JELLY_ENVIRONMENT_VARIABLE)
+    if configured:
+        found = Path(configured)
+        if not found.is_file():
+            raise JellyUnavailable(
+                f"${JELLY_ENVIRONMENT_VARIABLE} names no file: {found}"
+            )
+    else:
+        on_path = shutil.which("jelly", path=environ.get("PATH"))
+        if on_path and _jelly_version(on_path, environ) == JELLY_VERSION:
+            return Path(on_path)
+        try:
+            installed = npm_package(JELLY_PACKAGE, JELLY_VERSION, environ)
+        except ToolInstallFailed as error:
+            raise JellyUnavailable(
+                "the Jelly call graph is required to analyze JavaScript and "
+                f"TypeScript: {error}"
+            ) from None
+        found = installed / "node_modules" / ".bin" / "jelly"
+    version = _jelly_version(found, environ)
     if version != JELLY_VERSION:
         raise JellyUnavailable(
             f"{found} is Jelly {version or 'of unknown version'}, "
-            f"{JELLY_VERSION} is required: {install}"
+            f"{JELLY_VERSION} is required"
         )
-    return Path(found)
+    return found
 
 
 def analyzed_scripts(result):
