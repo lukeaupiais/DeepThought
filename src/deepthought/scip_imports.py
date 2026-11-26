@@ -67,6 +67,7 @@ def bind_python_imports(result, indexes, root, paths=None):
     paths = paths or {}
     lines = _Lines(Path(root))
     covering, shared_by_indexer, by_line = {}, {}, defaultdict(list)
+    own_modules = {}
     for index, receipt in indexes:
         tool = next(
             (f"{n}@{v}" for n, v in index.analyzer_versions if n.startswith("scip-")),
@@ -75,6 +76,13 @@ def bind_python_imports(result, indexes, root, paths=None):
         if not tool.startswith("scip-python@"):
             continue
         view = _IndexView(index, tool, receipt)
+        # The modules this index's own documents define, by module name.
+        own = defaultdict(set)
+        for definition in index.definitions:
+            found = _module(definition.native_id or "")
+            if found is not None:
+                own[found[2]].add(definition.file)
+        own_modules[view] = own
         shared = shared_by_indexer.setdefault("scip-python", defaultdict(list))
         for key, found in view.definitions.items():
             shared[key].extend(found)
@@ -108,6 +116,13 @@ def bind_python_imports(result, indexes, root, paths=None):
                     _key(item.file, reference.native_id), ()
                 )
                 files = sorted({d.file for d in declared})
+                if not files and module in own_modules[view]:
+                    # scip-python 0.6.8 names a module's package from the
+                    # installed distributions' file lists before pyright's
+                    # resolution: a wheel shipping a top-level `tests` puts
+                    # its name on the repository's own tests/__init__.py,
+                    # which pyright resolved (local roots come first).
+                    files = sorted(own_modules[view][module])
                 if files:
                     for file in files:
                         if file != item.file:

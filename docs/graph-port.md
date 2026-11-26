@@ -167,7 +167,12 @@ X` by the written remainder alone (`` `models`/__init__: ``), which is another
 project's top-level `models` or nothing. A from-import of an in-repository
 package also keeps the path rule's links to the submodules it names (`from
 flask import json`), which the index records as attributes of the package.
-Files no index covers keep the path rules throughout. Tool metadata counts
+Files no index covers keep the path rules throughout. scip-python 0.6.8 also
+names a module's package from the installed distributions' file lists rather
+than from pyright's resolution, so a wheel that ships a top-level `tests`
+package (msal-extensions does) labels the repository's own `tests` as its
+module. A module that the same index defines links to its document instead:
+pyright searched the local roots first and resolved the names to it. Tool metadata counts
 scip-python's decisions in `scip_python_imports` and the packages in
 `python_packages`.
 

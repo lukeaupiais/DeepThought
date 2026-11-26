@@ -141,5 +141,79 @@ class PythonImportTest(unittest.TestCase):
         self.assertEqual(self.output.metadata.custom_metrics["python_packages"], 1)
 
 
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-python"])
+    and importlib.util.find_spec("tree_sitter_python"),
+    "Install scip-python and the python extra",
+)
+class ShadowedPackageTest(unittest.TestCase):
+    def test_the_repositorys_package_wins_over_an_installed_one_of_its_name(self):
+        """A wheel that ships a top-level ``tests`` package (msal-extensions
+        does) must not take the repository's own ``tests`` from it."""
+        import os
+        import subprocess
+
+        from deepthought.analysis_tools.tree_sitter import TreeSitterTool
+        from deepthought.scip import ingest_scip
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root, site = Path(scratch) / "repo", Path(scratch) / "site"
+            write(
+                root,
+                {
+                    "pyproject.toml": "[project]\nname = 'r'\n",
+                    "tests/__init__.py": "def authenticated_user():\n    pass\n",
+                    "tests/handlers/__init__.py": "",
+                    "tests/handlers/test_a.py": (
+                        "from tests import authenticated_user\n"
+                    ),
+                },
+            )
+            info = "shadow-1.0.dist-info"
+            write(
+                site,
+                {
+                    "tests/__init__.py": "",
+                    f"{info}/METADATA": (
+                        "Metadata-Version: 2.1\nName: shadow\nVersion: 1.0\n"
+                    ),
+                    f"{info}/RECORD": f"tests/__init__.py,,\n{info}/METADATA,,\n",
+                },
+            )
+            output = Path(scratch) / "index.scip"
+            subprocess.run(
+                [
+                    indexers.locate(indexers.INDEXERS["scip-python"]),
+                    "index",
+                    "--cwd",
+                    str(root),
+                    "--output",
+                    str(output),
+                    "--project-name",
+                    "r",
+                    "--project-version",
+                    "0",
+                    "--quiet",
+                ],
+                cwd=root,
+                env={**os.environ, "PYTHONPATH": f"{root}{os.pathsep}{site}"},
+                check=True,
+                capture_output=True,
+            )
+            index = ingest_scip(output, repository_id="repo")
+            result = asyncio.run(
+                TreeSitterTool(root).analyze(
+                    "repo", languages={"python"}, scip_indexes=[(index, "r")]
+                )
+            )
+        (edge,) = [r for r in result.relationships if r.type == "IMPORTS"]
+        self.assertEqual(
+            edge.target_match["qualified_name"], "repo::tests/__init__.py::file"
+        )
+        self.assertFalse(
+            [r for r in result.relationships if r.type == "IMPORTS_PACKAGE"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
