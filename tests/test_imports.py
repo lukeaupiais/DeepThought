@@ -261,6 +261,38 @@ class TypeScriptImportTests(unittest.TestCase):
             ("unresolved", (), "beyond_repository_root"),
         )
 
+    def test_es_and_commonjs_typescript_modules(self):
+        # .mts and .cts are TypeScript; .mjs and .cjs specifiers name them.
+        result = analyze(
+            {
+                "src/main.mts": (
+                    "import { a } from './a.mjs';\n"
+                    "import { c } from './c.cjs';\n"
+                    "import { d } from './d.mts';\n"
+                    "export function run() { return a + c + d; }\n"
+                ),
+                "src/a.mts": "export const a = 1;\n",
+                "src/c.cts": "export const c = 2;\n",
+                "src/d.mts": "export const d = 3;\n",
+            },
+            "typescript",
+        )
+        self.assertIn(
+            ("src/main.mts", "run"),
+            {(d.file, d.symbol) for d in result.definitions},
+        )
+        links = resolved(result)
+        for specifier, target in (
+            ("./a.mjs", "src/a.mts"),
+            ("./c.cjs", "src/c.cts"),
+            ("./d.mts", "src/d.mts"),
+        ):
+            with self.subTest(specifier=specifier):
+                self.assertEqual(
+                    links[("src/main.mts", specifier)],
+                    ("linked", ((target, TYPESCRIPT_RELATIVE_MODULE),), None),
+                )
+
     def test_default_aliased_and_re_exported_names_keep_their_bindings(self):
         result = analyze(
             {
