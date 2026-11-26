@@ -54,7 +54,11 @@ scored against a yardstick its own rules cannot move.
   oracle says the name leads: `callable` (an in-repository function, method or
   type, at each defining line; a constructor also accepts its class), `value`
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
-  parameter, loop variable or local function, at its binding line) or
+  parameter, loop variable or local function, at its binding line),
+  `alias` (an in-repository symbol reached through a Python local bound once
+  to a plain name, `f = obj.m` or `g = f`, or through a classmethod's or
+  `__new__`'s `cls`; followed through the index's own reference at the end
+  of the right-hand side, or the method's owner class) or
   `external` (a library or builtin). `# indexed` rows list the files the
   oracle indexed. scip-python gives every later declaration of an
   `@overload` group (the implementation too), and a redefinition of a name
@@ -112,7 +116,7 @@ Every engine call resolution is judged at its source position:
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of
-expected calls with a confirmed link; `value` and `local` links count toward
+expected calls with a confirmed link; `value`, `local` and `alias` links count toward
 precision only, so confirmed can exceed expected.
 
 ```sh
