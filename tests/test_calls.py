@@ -2478,7 +2478,7 @@ class CallEdgePositionTests(unittest.TestCase):
         )
         # A chain over several lines: each call at its own `.helper`, not at
         # the `(self` where the chain starts.
-        self.assertEqual(linked[0], (6, 13))
+        self.assertEqual(linked[:2], [(6, 13), (7, 13)])
         unlinked = [
             (n.properties["line"], n.properties["column"], n.properties["end_line"])
             for n in output.nodes
@@ -2493,6 +2493,7 @@ class CallEdgePositionTests(unittest.TestCase):
                 for r in output.relationships
                 if r.type == "HAS_UNRESOLVED_CALL"
             ),
-            # The second `.helper()` reads the first one's result.
-            [7, 8, 11],
+            # The second `.helper()` is linked too: pyright types the first
+            # one's result as C.
+            [8, 11],
         )
