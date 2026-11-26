@@ -729,6 +729,28 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                         " nothing.",
                     ],
                 )
+                # A parameter the query never uses is not looked for, and an
+                # unknown label or relationship type is named.
+                raw = await service.query_cypher(
+                    "MATCH (s:Nope)-[:CALLS]->(t:Symbol) RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(len(raw["why_empty"]), 1)
+                self.assertTrue(
+                    raw["why_empty"][0].startswith("The graph has no label 'Nope' ("),
+                    raw["why_empty"],
+                )
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol) WHERE s.language = 'cobol' RETURN s",
+                    {"file": "src/a.py"},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertNotIn("why_empty", raw)
                 # A UNION whose parts return different columns names the fix.
                 with self.assertRaisesRegex(ValueError, "same aliases"):
                     await service.query_cypher(

@@ -223,9 +223,15 @@ _NAMELIKE = re.compile(r"^(?=.{3})[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$")
 
 
 def _query_strings(query, parameters):
-    """The strings a query looks for: its quoted literals and its string
-    parameters (list members included), in order, without repeats."""
+    """The strings a query looks for: its quoted literals and the string
+    parameters it uses (list members included), in order, without repeats.
+    A parameter the query never names is not looked for."""
     found = [a or b for a, b in _QUOTED.findall(query)]
+    try:
+        code = _cypher_code(query)
+    except ValueError:
+        code = query
+    used = set(re.findall(r"\$\s*(" + _IDENT + r")", code))
 
     def visit(value):
         if isinstance(value, str):
@@ -234,8 +240,9 @@ def _query_strings(query, parameters):
             for item in value:
                 visit(item)
 
-    for value in (parameters or {}).values():
-        visit(value)
+    for key, value in (parameters or {}).items():
+        if key in used:
+            visit(value)
     return list(dict.fromkeys(v for v in found if v and len(v) <= 300))
 
 
@@ -2850,6 +2857,16 @@ class GraphQueryService:
         the graph, the last sentence says its other conditions matched
         nothing."""
         strings = _query_strings(query, parameters)
+        try:
+            code = _cypher_code(query)
+        except ValueError:
+            code = ""
+        labels = set(
+            re.findall(r"\(\s*(?:" + _IDENT + r")?\s*:\s*(" + _IDENT + ")", code)
+        )
+        types = set(
+            re.findall(r"\[\s*(?:" + _IDENT + r")?\s*:\s*(" + _IDENT + ")", code)
+        )
         paths = [v for v in strings if _is_path(v)][:8]
         # Code names, dotted ones (Scanner.PopValue) included. A plain
         # lowercase word may be a property value ('python', 'linked'), so it
@@ -2859,7 +2876,7 @@ class GraphQueryService:
             for v in strings
             if _NAMELIKE.match(v) and v not in paths and re.search(r"[a-z]", v)
         ][:8]
-        if not paths and not names:
+        if not paths and not names and not labels and not types:
             return []
         reasons, missing = [], 0
         async with self.driver.session(
@@ -2868,6 +2885,25 @@ class GraphQueryService:
             tx = await session.begin_transaction(timeout=timeout)
             try:
                 scope = dict(repo_url=repo_url, snapshot_id=snapshot_id)
+                for wanted, procedure, kind in (
+                    (labels, "db.labels() YIELD label AS name", "label"),
+                    (
+                        types,
+                        "db.relationshipTypes() YIELD relationshipType AS name",
+                        "relationship type",
+                    ),
+                ):
+                    if not wanted:
+                        continue
+                    result = await tx.run("CALL " + procedure + " RETURN name")
+                    known = {r["name"] async for r in result}
+                    for name in sorted(wanted - known):
+                        missing += 1
+                        reasons.append(
+                            f"The graph has no {kind} '{name}' ({kind}s: "
+                            + ", ".join(sorted(known)[:40])
+                            + ")."
+                        )
                 if paths:
                     result = await tx.run(
                         "UNWIND $paths AS p OPTIONAL MATCH (f:File {repo_url:$repo_url,"
