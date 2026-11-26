@@ -276,6 +276,36 @@ GO_PAYLOAD_RULES = {
     ),
 }
 
+# The same types, read in a function of the module the handler passes its
+# request context to.
+GO_HELPER_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.go-request-body-type-in-helper",
+            "resolved",
+            "A Go route handler passes its request context (gin's *Context, "
+            "echo's Context, fiber's *Ctx or Ctx) to a function of the module "
+            "that decodes the request body into a value of this type, as "
+            "service-contracts.go-request-body-type reads it; the Go type "
+            "checker gives the call, the callee and the parameter receiving "
+            "the context, followed up to "
+            "four calls deep (via lists the functions).",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.go-response-body-type-in-helper",
+            "resolved",
+            "A Go route handler passes its request context to a function of "
+            "the module that encodes the response from a value of this type, "
+            "as service-contracts.go-response-body-type reads it; the Go type "
+            "checker gives the call, the callee and the parameter receiving "
+            "the context, followed up to "
+            "four calls deep (via lists the functions).",
+        )
+    ),
+}
+
 PYTHON_PAYLOAD_RULES = {
     "request": register_rule(
         EvidenceRule(
@@ -1164,6 +1194,7 @@ NON_SITE_RULES = frozenset(
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in GO_HELPER_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
     | {rule.rule_id for rules in SENT_PAYLOAD_RULES.values() for rule in rules.values()}
     | {_GO_KAFKA_VALUE_RULE.rule_id}
@@ -1950,7 +1981,7 @@ def _go_messaging_facts(root, sources):
     if not routers:
         routing = []
     if not files and not handlers and not routing:
-        return {}, {}, {}, ([], [])
+        return {}, {}, {}, ([], []), {}
     facts = go_facts.collect(
         root,
         sorted({*files, *handlers, *routing}),
@@ -1979,7 +2010,10 @@ def _go_messaging_facts(root, sources):
         for file in routers
         if file in facts.uncovered
     )
-    return found, go_facts.gopath_report(facts), handler_calls, routes
+    passes = defaultdict(list)
+    for item in facts.passes:
+        passes[item.file].append(item)
+    return found, go_facts.gopath_report(facts), handler_calls, routes, passes
 
 
 def _declaration_node(tree, definition):
@@ -2071,6 +2105,23 @@ def _go_grpc_carriers(root, sources, grpc, definitions):
             carried = sorted(t for t in signature.types if t in messages[key])
             carriers.append((found[0], key, carried))
     return messages, carriers
+
+
+_GO_HELPER_DEPTH = 4
+
+
+def _go_parameter_refs(function, file):
+    """The gofacts references ("o", file, line, column) of a Go function's,
+    method's or func literal's parameters."""
+    found = set()
+    parameters = function.child_by_field_name("parameters")
+    for item in [] if parameters is None else parameters.named_children:
+        if item.type == "parameter_declaration":
+            for name in item.children_by_field_name("name"):
+                found.add(
+                    ("o", file, name.start_point.row + 1, name.start_point.column)
+                )
+    return found
 
 
 def _go_func_literal(tree, line, column):
@@ -2491,6 +2542,7 @@ class ServiceContractTool(AnalysisTool):
             go_gopath,
             go_handler_calls,
             (go_found_routes, go_route_unread),
+            go_passes,
         ) = _go_messaging_facts(root, sources)
         # Go handler declarations by (file, line) of their name.
         go_declarations = defaultdict(list)
@@ -3080,7 +3132,9 @@ class ServiceContractTool(AnalysisTool):
         carried_edges = set()
         payload_unresolved = 0
 
-        def carry(labels, name, file, line, direction, definition_id, rule, key=None):
+        def carry(
+            labels, name, file, line, direction, definition_id, rule, key=None, via=()
+        ):
             nonlocal carried
             if (name, definition_id, direction, key) in carried_edges:
                 return
@@ -3097,6 +3151,7 @@ class ServiceContractTool(AnalysisTool):
                     {
                         "direction": direction,
                         **({"body_key": key} if key else {}),
+                        **({"via": list(via)} if via else {}),
                         "file_path": file,
                         "line": line,
                         **_evidence(rule),
@@ -3137,6 +3192,55 @@ class ServiceContractTool(AnalysisTool):
                         )
 
         trees = {c.file: (tree, content) for c, content, tree in sources}
+
+        def go_helpers(file, function, parameters, depth=0, seen=None):
+            """[(function node, content, calls, via)] of the module's
+            functions a Go handler passes its request context to: the
+            type checker's "pass" facts of calls in ``function`` (of
+            ``file``) whose argument is one of ``parameters`` (references of
+            its parameters that hold the context), followed up to
+            _GO_HELPER_DEPTH calls deep; via names the functions
+            ("file::symbol"), outermost first."""
+            seen = set() if seen is None else seen
+            if depth >= _GO_HELPER_DEPTH:
+                return []
+            start = (function.start_point.row + 1, function.start_point.column)
+            end = (function.end_point.row + 1, function.end_point.column)
+            found = []
+            for item in go_passes.get(file, ()):
+                if not start <= (item.line, item.column) < end:
+                    continue
+                received = {
+                    parameter
+                    for argument, parameter in item.arguments
+                    if argument in parameters and parameter is not None
+                }
+                callee = item.callee
+                if not received or callee is None:
+                    continue
+                ids = go_declarations.get(callee[1:3], [])
+                if len(ids) != 1 or ids[0] in seen:
+                    continue
+                seen.add(ids[0])
+                helper = definitions.get(ids[0])
+                calls = go_handler_calls.get(callee[1])
+                tree, content = trees.get(callee[1], (None, None))
+                if helper is None or tree is None:
+                    continue
+                node = _declaration_node(tree, helper)
+                if node is None:
+                    continue
+                inside = [
+                    c for c in calls or () if helper.line <= c.line <= helper.end_line
+                ]
+                name = f"{helper.file}::{helper.symbol}"
+                found.append((node, content, inside, (name,)))
+                for deeper, text, deeper_calls, via in go_helpers(
+                    callee[1], node, received, depth + 1, seen
+                ):
+                    found.append((deeper, text, deeper_calls, (name, *via)))
+            return found
+
         for route in routes:
             handler = (
                 None if route.handler_id is None else definitions.get(route.handler_id)
@@ -3166,26 +3270,34 @@ class ServiceContractTool(AnalysisTool):
                 start = (function.start_point.row + 1, function.start_point.column)
                 end = (function.end_point.row + 1, function.end_point.column)
                 inside = [c for c in calls if start <= (c.line, c.column) < end]
-            for direction, sent, where in handler_payloads(function, content, inside):
-                if sent is None:
-                    payload_unresolved += 1  # an interface value
-                    continue
-                type_name = sent[1]
-                if where is None:
-                    continue  # a type of a library, outside the module tree
-                found = declaration(where[0], type_name, where[1])
-                if found is None:
-                    payload_unresolved += 1
-                    continue
-                carry(
-                    ["HttpRoute", "Contract"],
-                    f"{repo_url}::{route.file}::http-route::{route.id}",
-                    route.file,
-                    route.line,
-                    direction,
-                    found,
-                    GO_PAYLOAD_RULES[direction],
-                )
+            bodies = [(function, content, inside, ())]
+            bodies += go_helpers(file, function, _go_parameter_refs(function, file))
+            for body, body_content, body_calls, via in bodies:
+                for direction, sent, where in handler_payloads(
+                    body, body_content, body_calls
+                ):
+                    if sent is None:
+                        payload_unresolved += 1  # an interface value
+                        continue
+                    type_name = sent[1]
+                    if where is None:
+                        continue  # a type of a library, outside the module tree
+                    found = declaration(where[0], type_name, where[1])
+                    if found is None:
+                        payload_unresolved += 1
+                        continue
+                    carry(
+                        ["HttpRoute", "Contract"],
+                        f"{repo_url}::{route.file}::http-route::{route.id}",
+                        route.file,
+                        route.line,
+                        direction,
+                        found,
+                        (GO_HELPER_PAYLOAD_RULES if via else GO_PAYLOAD_RULES)[
+                            direction
+                        ],
+                        via=list(via),
+                    )
 
         python_routes = [r for r in routes if r.payloads and r.framework == "fastapi"]
         if python_routes:
