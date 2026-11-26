@@ -168,6 +168,8 @@ class TreeSitterEvidenceTests(unittest.TestCase):
                 ("DEFINES", "tree-sitter.file-defines-declaration"): symbols,
                 ("IMPORTS", "tree-sitter.python-absolute-module-path"): 3,
                 ("CALLS", "scip.call-occurrence"): 3,
+                # `value: Widget` and `-> Widget` name the class.
+                ("USES_TYPE", "scip.use-type"): 2,
                 # `missing_function()` is bound by nothing.
                 ("HAS_UNRESOLVED_CALL", "tree-sitter.call-site-unlinked"): 1,
             },

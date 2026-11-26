@@ -21,6 +21,7 @@ from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
 from ..scip_calls import bind_calls
+from .. import scip_uses
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -59,6 +60,36 @@ NESTS_RULE = register_rule(
         "resolved",
         "The parse tree places the inner declaration within the outer one; the "
         "outer is the innermost declaration whose span encloses it.",
+    )
+)
+
+USE_RULES = {
+    kind: register_rule(EvidenceRule(scip_uses.RULES[kind], "resolved", text))
+    for kind, text in {
+        scip_uses.USES_TYPE: "A SCIP index covering the file records a "
+        "reference, not at a call's name or in an import, to a symbol whose "
+        "definition is the name of this parsed class, struct, interface, type "
+        "alias or enum; the source is the innermost parsed declaration around "
+        "the reference, or its file. The first site and the number of sites "
+        "are kept.",
+        scip_uses.REFERENCES_FUNCTION: "As scip.use-type, for a parsed "
+        "function or method the reference names without calling it there: "
+        "passed as a value, registered as a handler, stored in a table.",
+        scip_uses.READS_FIELD: "As scip.use-type, for a field the index "
+        "defines on a parsed type (a term T#name.), where the syntax around "
+        "the reference does not assign to it.",
+        scip_uses.WRITES_FIELD: "As scip.use-field-read, where the reference "
+        "is the target of an assignment, augmented assignment, ++ or --, "
+        "del, or the key of a Go composite literal element (T{Field: v}).",
+    }.items()
+}
+FIELD_RULE = register_rule(
+    EvidenceRule(
+        scip_uses.FIELD_RULE,
+        "resolved",
+        "A SCIP index covering the file defines a term on a type (T#name.) at a "
+        "position inside this parsed class, struct, interface or enum, the "
+        "innermost such declaration around it.",
     )
 )
 
@@ -933,6 +964,7 @@ class TreeSitterTool(AnalysisTool):
             for d in result.definitions
         }
         kinds = {d.id: d.kind for d in result.definitions}
+        symbols = {d.id: d.symbol for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
         call_counts, resolver_counts = {}, {}
         binding = bind_calls(result, scip_indexes, self.repo_path)
@@ -1028,6 +1060,77 @@ class TreeSitterTool(AnalysisTool):
                         "column": site.column,
                         **_produced(producer),
                         **_evidence(CALL_RULES[resolution.rule_id]),
+                    },
+                )
+            )
+        use_counts = {}
+        uses, fields = (
+            scip_uses.bind_uses(result, scip_indexes, self.repo_path)
+            if scip_indexes
+            else ((), ())
+        )
+        field_names = {}
+        for field in fields:
+            owner = qualified[field.owner_id]
+            symbol = f"{symbols[field.owner_id]}.{field.name}"
+            name = f"{repo_url}::{field.file}::{symbol}::{field.id}"
+            field_names[field.id] = name
+            nodes.append(
+                NodeData(
+                    ["Field", "Symbol"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "definition_id": field.id,
+                        "file_path": field.file,
+                        "name": symbol,
+                        "display_name": symbol,
+                        "kind": "Field",
+                        "start_line": field.line,
+                        "end_line": field.line,
+                        "column": field.column,
+                        "end_column": field.column + len(field.name.encode()),
+                        "coordinate_encoding": "utf-8",
+                        "native_id": field.native_id,
+                        **_produced(field.producer),
+                    },
+                )
+            )
+            # A type contains its fields, as it contains its methods.
+            relationships.append(
+                RelationshipData(
+                    "CONTAINS",
+                    [kinds[field.owner_id], "Symbol"],
+                    {"qualified_name": owner, "repo_url": repo_url},
+                    ["Field", "Symbol"],
+                    {"qualified_name": name, "repo_url": repo_url},
+                    {"line": field.line, **_evidence(FIELD_RULE)},
+                )
+            )
+        for use in uses:
+            use_counts[use.kind] = use_counts.get(use.kind, 0) + 1
+            if use.source_id is None:
+                source = (["File"], files[use.file])
+            else:
+                source = ([kinds[use.source_id], "Symbol"], qualified[use.source_id])
+            if use.target_id in field_names:
+                target = (["Field", "Symbol"], field_names[use.target_id])
+            else:
+                target = ([kinds[use.target_id], "Symbol"], qualified[use.target_id])
+            relationships.append(
+                RelationshipData(
+                    use.kind,
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    target[0],
+                    {"qualified_name": target[1], "repo_url": repo_url},
+                    {
+                        "file_path": use.file,
+                        "line": use.line,
+                        "column": use.column,
+                        "sites": use.sites,
+                        **_produced(use.producer),
+                        **_evidence(USE_RULES[use.kind]),
                     },
                 )
             )
@@ -1165,6 +1268,8 @@ class TreeSitterTool(AnalysisTool):
                     for resolver, counts in sorted(resolver_counts.items())
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "scip_uses": dict(sorted(use_counts.items())),
+                "scip_fields": len(fields),
                 "go_implementations": len(implementations),
                 "source_context": {
                     "declarations": len(sources),
