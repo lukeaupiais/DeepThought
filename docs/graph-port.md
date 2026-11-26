@@ -3375,7 +3375,12 @@ which only client requests are read:
   `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
   imported from `flask` or `fastapi` and bound once in its scope, joined with a
   Blueprint's `url_prefix` or an APIRouter's `prefix` (Flask's `route` without
-  `methods` is GET); Express `get`/`post`/.../`all` calls on an app or Router
+  `methods` is GET). A decorator whose receiver is not bound in its file
+  (`from app.api import bp`, then `@bp.route(...)`) is read when the
+  scip-python index resolves the name to one such router another module
+  binds; the route takes that router's full prefix, mounts included (rules
+  `flask-route-imported-router`, `fastapi-route-imported-router`). Without
+  an index those decorators are not read. Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
