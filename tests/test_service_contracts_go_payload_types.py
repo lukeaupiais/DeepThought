@@ -334,7 +334,10 @@ class GoPayloadTypeTests(unittest.TestCase):
                 (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
             ),
             [
+                # The types orderRequest and orderResponse embed.
+                ("/orders", "CreateOrder", "request", "go-field-type"),
                 ("/orders", "CreateOrder", "request", "go-request-body-type"),
+                ("/orders", "Order", "response", "go-field-type"),
                 ("/orders", "Order", "response", "go-response-body-type"),
                 ("/orders", "orderRequest", "request", "go-request-body-type"),
                 ("/orders", "orderResponse", "response", "go-response-body-type"),
