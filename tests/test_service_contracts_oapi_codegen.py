@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
+from go_stubs import go_stub_files, stub_directory
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.service_contracts.oapi_codegen import (
     camel_case,
@@ -127,6 +128,12 @@ go 1.24
 
 require github.com/oapi-codegen/oapi-codegen/v2 v2.4.1
 """
+# The server's router, from a local stub module: its routes are read with
+# the type checker, which needs the imported package.
+SERVER_GO_MOD = GO_MOD + (
+    "\nrequire github.com/go-chi/chi/v5 v5.0.0\n"
+    f"\nreplace github.com/go-chi/chi/v5 => ./{stub_directory('github.com/go-chi/chi/v5')}\n"
+)
 
 
 def _write(root, files):
@@ -302,7 +309,8 @@ class ToolTests(unittest.TestCase):
         _write(
             cls.directory.name,
             {
-                "go.mod": GO_MOD,
+                **go_stub_files(),
+                "go.mod": SERVER_GO_MOD,
                 "api/tasks.yaml": SPEC,
                 "client/generate.go": (
                     f"package client\n\n//go:generate go run {PROGRAM} -generate "
