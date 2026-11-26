@@ -40,6 +40,8 @@ from ..service_contracts.deployed import (
 )
 from ..service_contracts.folding import compiler_values
 from ..service_contracts.go_payloads import handler_payloads
+from ..service_contracts import python_payloads
+from ..scip_calls import ScipReferences
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -221,6 +223,29 @@ GO_PAYLOAD_RULES = {
             "handler's http.ResponseWriter; the Go type checker gives the "
             "argument's named type (through pointers and slices) and its "
             "declaration.",
+        )
+    ),
+}
+
+PYTHON_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-body-type",
+            "resolved",
+            "A FastAPI path operation reads its request body as this type: "
+            "the annotation of a handler parameter marked Body, Form or File "
+            "of fastapi, or unmarked, not in the path and naming a pydantic, "
+            "SQLModel or dataclass model; a scip-python index resolves each "
+            "name, marker and base.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-response-type",
+            "resolved",
+            "A FastAPI path operation writes its response as this type: its "
+            "decorator's response_model, else the handler's return "
+            "annotation; a scip-python index resolves each name.",
         )
     ),
 }
@@ -1108,6 +1133,7 @@ NON_SITE_RULES = frozenset(
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
 )
 
 
@@ -2252,16 +2278,27 @@ class ServiceContractTool(AnalysisTool):
         )
 
     async def analyze(
-        self, repo_url, languages=None, file_patterns=None, skip_patterns=None
+        self,
+        repo_url,
+        languages=None,
+        file_patterns=None,
+        skip_patterns=None,
+        scip_indexes=(),
     ):
+        """``scip_indexes`` are pairs of an ingested SCIP index and its
+        receipt digest, as the tree-sitter tool takes them: the names in a
+        FastAPI handler's annotations resolve through them to the types its
+        route carries."""
         # The TypeScript compiler's values serve the folders of this run.
         with contextlib.ExitStack() as stack:
             self._compiler_stack = stack
             return await self._analyze(
-                repo_url, languages, file_patterns, skip_patterns
+                repo_url, languages, file_patterns, skip_patterns, scip_indexes
             )
 
-    async def _analyze(self, repo_url, languages, file_patterns, skip_patterns):
+    async def _analyze(
+        self, repo_url, languages, file_patterns, skip_patterns, scip_indexes=()
+    ):
         started = time.monotonic()
         selected = tuple(
             sorted(
@@ -3088,8 +3125,37 @@ class ServiceContractTool(AnalysisTool):
                     GO_PAYLOAD_RULES[direction],
                 )
 
+        python_routes = [r for r in routes if r.payloads and r.framework == "fastapi"]
+        if python_routes:
+            references = ScipReferences(result, scip_indexes, root)
+            python_trees = {
+                c.file: (content, tree)
+                for c, content, tree in sources
+                if c.language == "python"
+            }
+            for route in python_routes:
+                found, unresolved = python_payloads.route_payloads(
+                    references,
+                    python_trees,
+                    route.file,
+                    route.payloads,
+                    set(re.findall(r"\{(\w+)(?::\w+)?\}", route.path)),
+                )
+                payload_unresolved += unresolved
+                for direction, definition, key in found:
+                    carry(
+                        ["HttpRoute", "Contract"],
+                        f"{repo_url}::{route.file}::http-route::{route.id}",
+                        route.file,
+                        route.line,
+                        direction,
+                        definition.id,
+                        PYTHON_PAYLOAD_RULES[direction],
+                        key,
+                    )
+
         for route in routes:
-            if route.payloads:
+            if route.payloads and route.framework != "fastapi":
                 carries(
                     route.file,
                     route.payloads,
