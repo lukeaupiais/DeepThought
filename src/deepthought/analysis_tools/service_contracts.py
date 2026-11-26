@@ -40,6 +40,7 @@ from ..service_contracts.deployed import (
 )
 from ..service_contracts.folding import compiler_values
 from ..service_contracts.go_payloads import handler_payloads
+from ..service_contracts import go_routes as go_routes_module
 from ..service_contracts import python_payloads
 from ..scip_calls import ScipReferences
 from ..service_contracts.gateways import (
@@ -108,7 +109,6 @@ from ..service_contracts.web import (
     axios_imports,
     express_routers,
     extract_web,
-    go_router_calls,
     nest_settings,
     python_routers,
 )
@@ -441,11 +441,17 @@ ROUTE_RULES = {
             "service-contracts.gin-route",
             "pattern_matched",
             "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Handle or Match "
-            "call on a Gin router (from gin.Default or gin.New, a parameter or "
-            "struct field typed *gin.Engine, or a Group of one) in a file "
-            "importing github.com/gin-gonic/gin declares this path; Group "
-            "prefixes are joined, and a group passed in adds an unknown base "
-            "assumed to add no segments.",
+            "call on a Gin Engine, RouterGroup, IRouter or IRoutes declares "
+            "this path, the handler last; Group joins its prefix and Use "
+            "keeps it. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "echo": register_rule(
@@ -453,11 +459,16 @@ ROUTE_RULES = {
             "service-contracts.echo-route",
             "pattern_matched",
             "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Add or Match call "
-            "on an Echo router (from echo.New, a parameter or struct field "
-            "typed *echo.Echo, or a Group of one) in a file importing "
-            "github.com/labstack/echo declares this path; Group prefixes are "
-            "joined, and a group passed in adds an unknown base assumed to "
-            "add no segments.",
+            "on an Echo or echo Group declares this path, the handler first; "
+            "Group joins its prefix. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "chi": register_rule(
@@ -465,13 +476,37 @@ ROUTE_RULES = {
             "service-contracts.chi-route",
             "pattern_matched",
             "A Get/Post/Put/Patch/Delete/Head/Options/Connect/Trace, Method, "
-            "MethodFunc, Handle or HandleFunc call on a chi router (from "
-            "chi.NewRouter or chi.NewMux, a parameter or struct field typed "
-            "*chi.Mux, a With of one, or the chi.Router parameter of a "
-            "function literal passed to Route or Group) in a file importing "
-            "github.com/go-chi/chi declares this path; Route prefixes are "
-            "joined, and a chi.Router passed in adds an unknown base assumed "
-            "to add no segments.",
+            "MethodFunc, Handle or HandleFunc call on a chi Mux or Router "
+            "declares this path; Route joins its prefix (for the router it "
+            "returns and its func literal's), With and Group keep it. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
+        )
+    ),
+    "fiber": register_rule(
+        EvidenceRule(
+            "service-contracts.fiber-route",
+            "pattern_matched",
+            "A Get/Head/Post/Put/Delete/Connect/Options/Trace/Patch, All or "
+            "Add call on a Fiber App, Group or Router (v2: the handler last; "
+            "v3: the handler first), or a verb of the Register a v3 "
+            "Route(path) returns, declares this path; Group and v3 Route join "
+            "their prefix, and v2 Route joins it for its func literal's "
+            "router. "
+            "The Go type checker types the receiver as a router of the library, "
+            "so the router is known by its type, not its name. Its prefix "
+            "follows the router through the variable or struct field it is "
+            "assigned to, the call it is, a parameter of the module's own "
+            "function that callers pass it to, or a func literal's parameter; "
+            "a root router adds no prefix, and one no assignment or caller "
+            "gives adds an unknown base. The handler is the module function "
+            "or method the handler argument names or calls.",
         )
     ),
     "grpc-http-annotation": register_rule(
@@ -1992,9 +2027,12 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
 
 def _go_messaging_facts(root, sources):
     """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
-    calls}) from the Go type checker: the first for the Go sources that
-    import a broker client, the last for those whose HTTP handlers may
-    carry payloads (``_GO_HTTP_PAYLOAD_IMPORTS``); reason is
+    calls}, (GoRoutes, unread), GoStructs) from the Go type checker: the
+    first for the Go sources that import a broker client, the third for
+    those whose HTTP handlers may carry payloads
+    (``_GO_HTTP_PAYLOAD_IMPORTS``), the fourth the routes of gin, Echo, chi
+    and Fiber routers (``go_routes``), the last the module's struct types;
+    reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
@@ -2009,11 +2047,29 @@ def _go_messaging_facts(root, sources):
         and c.file.endswith(".go")
         and any(marker in content for marker in _GO_HTTP_PAYLOAD_IMPORTS)
     ]
-    if not files and not handlers:
-        return {}, {}, {}, ()
+    # Routes: every Go file when one imports a router package, since a
+    # router travels through the module's own functions and fields.
+    routing = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go" and c.file.endswith(".go")
+    ]
+    routers = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and any(
+            f'"{package}"'.encode() in content
+            for package in go_routes_module.ROUTER_PACKAGES
+        )
+    ]
+    if not routers:
+        routing = []
+    if not files and not handlers and not routing:
+        return {}, {}, {}, ([], []), ()
     facts = go_facts.collect(
         root,
-        sorted({*files, *handlers}),
+        sorted({*files, *handlers, *routing}),
         list(_go_modules(root, sources).values()),
     )
     calls, literals = defaultdict(list), defaultdict(list)
@@ -2031,7 +2087,15 @@ def _go_messaging_facts(root, sources):
             reason = None
         found[file] = (calls[file], literals[file], reason)
     handler_calls = {file: calls[file] for file in handlers}
-    return found, go_facts.gopath_report(facts), handler_calls, facts.structs
+    routes = go_routes_module.GoRouters(facts).routes() if routing else ([], [])
+    # A file importing a router package that the type checker could not
+    # read: its routes, if any, are not known.
+    routes[1].extend(
+        (file, 1, f"not_type_checked:{facts.uncovered[file]}")
+        for file in routers
+        if file in facts.uncovered
+    )
+    return found, go_facts.gopath_report(facts), handler_calls, routes, facts.structs
 
 
 _FIELD_DEPTH = 6
@@ -2270,50 +2334,6 @@ def _go_grpc_carriers(root, sources, grpc, definitions):
             carried = sorted(t for t in signature.types if t in messages[key])
             carriers.append((found[0], key, carried))
     return messages, carriers
-
-
-def _go_router_mounts(root, sources):
-    """{package directory: {(function, parameter index): prefixes}}: the Gin
-    and Echo routers each function's router parameters receive from calls
-    in the repository, followed through up to four levels of such calls."""
-    modules = _go_modules(root, sources)
-    files = [
-        (c.file, content, tree)
-        for c, content, tree in sources
-        if c.language == "go"
-        and (b"gin-gonic/gin" in content or b"labstack/echo" in content)
-    ]
-
-    def directory(file, callee):
-        package, name = callee
-        if not package:
-            return PurePosixPath(file).parent.as_posix(), name
-        for module, folder in modules.items():
-            if package == module or package.startswith(module + "/"):
-                rest = package[len(module) :].lstrip("/")
-                joined = PurePosixPath(folder or ".") / rest if rest else folder
-                return PurePosixPath(joined or ".").as_posix(), name
-        return None
-
-    mounts = {}
-    for _ in range(4):
-        found = {}
-        for file, content, tree in files:
-            own = mounts.get(PurePosixPath(file).parent.as_posix())
-            for callee, index, prefixes in go_router_calls(tree, content, own):
-                target = directory(file, callee)
-                if target is None:
-                    continue
-                key = (target[1], index)
-                found.setdefault(target[0], {}).setdefault(key, set()).update(prefixes)
-        found = {
-            d: {k: tuple(sorted(v)) for k, v in keys.items()}
-            for d, keys in found.items()
-        }
-        if found == mounts:
-            break
-        mounts = found
-    return mounts
 
 
 def _php_wrapper_calls(sources):
@@ -2709,13 +2729,37 @@ class ServiceContractTool(AnalysisTool):
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
-        go_mounts = _go_router_mounts(root, sources)
         (
             go_messaging,
             go_gopath,
             go_handler_calls,
+            (go_found_routes, go_route_unread),
             go_structs,
         ) = _go_messaging_facts(root, sources)
+        # Go handler declarations by (file, line) of their name.
+        go_declarations = defaultdict(list)
+        for definition in result.definitions:
+            if definition.file.endswith(".go") and definition.kind in (
+                "Function",
+                "Method",
+            ):
+                go_declarations[(definition.file, definition.line)].append(
+                    definition.id
+                )
+        go_routes = defaultdict(dict)
+        for route in go_found_routes:
+            handler = None
+            if route.handler is not None:
+                ids = go_declarations.get(route.handler[1:3], [])
+                handler = ids[0] if len(ids) == 1 else None
+            go_routes[route.file][(route.line, route.column, route.method)] = (
+                route,
+                handler,
+            )
+        unread.extend(
+            Unread(file, line, "route", reason)
+            for file, line, reason in go_route_unread
+        )
         next_apps = next_projects(
             root,
             [
@@ -2854,9 +2898,8 @@ class ServiceContractTool(AnalysisTool):
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
-                    mounts=python_mounts.get(coverage.file)
-                    if coverage.language != "go"
-                    else go_mounts.get(coverage.file.rpartition("/")[0] or "."),
+                    mounts=python_mounts.get(coverage.file),
+                    go_routes=go_routes.get(coverage.file, {}),
                     externals=(
                         scripts.externals(coverage.file)
                         if scripts is not None
