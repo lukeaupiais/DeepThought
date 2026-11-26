@@ -108,6 +108,111 @@ def holds_function(after):
     return bool(_FUNCTION_VALUE.match(" = " + rest))
 
 
+def _code_end(text, i, stop):
+    """The index of the first character in ``stop`` at bracket depth 0 from
+    ``text[i]``, skipping strings, template literals and comments (``<`` is
+    not a bracket here: it is a comparison as often as a type argument).
+    len(text) when none."""
+    depth, quote = 0, None
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c in "'\"`":
+            quote = c
+        elif text.startswith("//", i):
+            i = text.find("\n", i)
+            if i < 0:
+                return len(text)
+            continue
+        elif text.startswith("/*", i):
+            i = text.find("*/", i)
+            if i < 0:
+                return len(text)
+            i += 2
+            continue
+        elif depth == 0 and c in stop:
+            return i
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                return i
+        i += 1
+    return len(text)
+
+
+def _type_end(text, i, arrow=False):
+    """From ``text[i]``, past a type annotation (whose ``<...>``, brackets
+    and function types' ``=>`` nest), the index of the first top-level
+    ``=`` (with ``arrow``, of a ``=>``), ``;``, ``,``, ``{`` or line end;
+    len(text) when none. A line end inside brackets does not count."""
+    while i < len(text):
+        c = text[i]
+        if c in "<([":
+            i = _skip_balanced(text, i)
+            continue
+        if text.startswith("=>", i):
+            if arrow:
+                return i
+            i += 2
+            continue
+        if c in "=;,{\n":
+            if c == "\n" and arrow:
+                i += 1  # a return type may continue on the next line
+                continue
+            return i
+        i += 1
+    return len(text)
+
+
+def initializer_lines(text):
+    """How many lines past the first the function value after a variable's
+    or class field's name runs (``text`` starts just after the name), for
+    an initializer the index gives no enclosing range: scip-typescript
+    records none for a class field holding an arrow function
+    (``fetch = async (...) => { ... }``). None when it is not found."""
+    # The value's `=` must come before the declaration ends (a `;`, `,` or
+    # line end outside brackets): an interface member or a field without an
+    # initializer has none. Types nest `<...>` (no comparisons there).
+    i = _type_end(text, 0)
+    if i >= len(text) or text[i] != "=" or text[i + 1 : i + 2] == ">":
+        return None
+    i += 1
+    head = re.match(r"\s*(?:async\b\s*)?", text[i:])
+    i += head.end()
+    if re.match(r"function\b", text[i:]):
+        end = _code_end(text, _code_end(text, i, "{") + 1, "}")
+        return text.count("\n", 0, min(end, len(text)))
+    if text[i : i + 1] == "<":
+        i = _skip_balanced(text, i)
+        i += len(text[i:]) - len(text[i:].lstrip())
+    if text[i : i + 1] == "(":
+        i = _code_end(text, i + 1, ")") + 1
+    elif match := re.match(r"[A-Za-z_$][\w$]*", text[i:]):
+        i += match.end()
+    else:
+        return None
+    # An optional return type, then the arrow itself: `(() => x)()` and
+    # `f(...)` are not function values.
+    j = _type_end(text, i, arrow=True)
+    if text[j : j + 2] != "=>" or (
+        text[i:j].strip() and not text[i:j].strip().startswith(":")
+    ):
+        return None
+    body = j + 2 + len(text[j + 2 :]) - len(text[j + 2 :].lstrip())
+    if text[body : body + 1] == "{":
+        end = _code_end(text, body + 1, "}")
+    else:
+        end = _code_end(text, body, ";\n")
+    return text.count("\n", 0, min(end, len(text)))
+
+
 _SCRIPTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # Names the engine writes differently: TypeScript constructors.
 _RENAMED = {"<constructor>": "constructor"}
@@ -167,6 +272,7 @@ def callables(index, source=None, spans=None):
             descriptors = symbol.split(" ", 4)[-1]
             line = occurrence.range[0] + 1
             match = _NAME.search(descriptors)
+            value = None
             if not match:
                 # A variable holding a function (`const f = () => ...`).
                 match = _TERM.search(descriptors)
@@ -188,6 +294,9 @@ def callables(index, source=None, spans=None):
                 )
                 if not holds_function(after):
                     continue
+                value = "\n".join(
+                    [after.split("\n", 1)[0], *texts[file][line : line + 400]]
+                )
             if not occurrence.symbol_roles & 1:
                 overloads.append((document.relative_path, line, occurrence, symbol))
                 continue
@@ -197,6 +306,8 @@ def callables(index, source=None, spans=None):
                 last = (span[2] if len(span) == 4 else span[0]) + 1
             elif spans and (document.relative_path, line) in spans:
                 first, last = spans[(document.relative_path, line)]
+            elif value is not None and (more := initializer_lines(value)) is not None:
+                first, last = line, line + more
             else:
                 continue
             name = _RENAMED.get(match.group(1), match.group(1))
@@ -265,6 +376,27 @@ def call_graph(nodes, calls, aliases=None, name_line_inside=False, regions=()):
             if kind in {"callable", "value"} and target in nodes and target != source:
                 incoming[target].add(source)
     return incoming
+
+
+def enclosing_regions(regions):
+    """{region: {the region around it}} over (file, owner line, first, last)
+    regions, keyed as call_graph keys them.
+
+    A callback inside another (an act(() => ...) in an it(...), an it(...)
+    in a describe(...)) is passed to a call the oracle does not see run, so
+    whether the enclosing one runs it is not ruled on: derive adds these
+    edges to the widened graph only, and a dependent reached only through
+    one is unjudged."""
+    edges = defaultdict(set)
+    for file, owner, first, last in regions:
+        around = [
+            (b - a, line)
+            for f, line, a, b in regions
+            if f == file and a <= first and last <= b and (a, b) != (first, last)
+        ]
+        if around and min(around)[1] != owner:
+            edges[(file, owner)].add((file, min(around)[1]))
+    return dict(edges)
 
 
 def reach(incoming, seed, max_depth):
@@ -365,6 +497,7 @@ def derive(
     possible_calls=(),
     initializers=None,
     dispatch=None,
+    nested_regions=False,
 ):
     from ground_truth import read_truth
 
@@ -402,9 +535,12 @@ def derive(
                 possible.setdefault(site, set()).add((*impl, "callable"))
     widened = (
         call_graph(nodes, possible, aliases, language != "python", regions)
-        if possible_calls or dispatch
+        if possible_calls or dispatch or nested_regions
         else incoming
     )
+    if nested_regions:
+        for region, parents in enclosing_regions(regions).items():
+            widened.setdefault(region, set()).update(parents)
     rows, unjudged = [], []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
         reached = reach(incoming, seed, max_depth)
@@ -707,7 +843,8 @@ def main(argv=None):
         "--initializers",
         type=Path,
         help="code outside callables that runs as part of a class "
-        "(JavaMethodSpans.java --initializers): its calls belong to the class",
+        "(JavaMethodSpans.java --initializers): its calls belong to the class; "
+        "or anonymous callbacks (ts_callback_regions.cjs), callers of their own",
     )
     derive_cmd.add_argument(
         "--dispatch",
@@ -717,6 +854,17 @@ def main(argv=None):
         "of an interface method are listed as unjudged",
     )
     args = parser.parse_args(argv)
+    # scip-typescript gives a function inside another a local symbol, so
+    # the truth lists every node to tell those apart from unlisted ones.
+    scripts = args.language in {"typescript", "javascript"}
+    initializers = read_initializers(args.initializers) if args.initializers else None
+    if scripts and initializers:
+        # Anonymous callbacks (tools/ts_callback_regions.cjs) in a file the
+        # call truth covers: elsewhere no call of theirs is known.
+        from ground_truth import read_truth
+
+        indexed = read_truth(args.calls)[1]
+        initializers = {k: v for k, v in initializers.items() if k[0] in indexed}
     rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
         args.calls,
@@ -728,12 +876,17 @@ def main(argv=None):
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
         args.possible_calls,
-        read_initializers(args.initializers) if args.initializers else None,
+        initializers,
         read_dispatch(args.dispatch) if args.dispatch else None,
+        scripts,
     )
-    # scip-typescript gives a function inside another a local symbol, so
-    # the truth lists every node to tell those apart from unlisted ones.
-    scripts = args.language in {"typescript", "javascript"}
+    if scripts and initializers:
+        # The callbacks are callers the truth can name, so an engine
+        # declaration there (a test case) is judged.
+        nodes = {
+            **{(f, ln): (name, a, b) for (f, ln, a, b), name in initializers.items()},
+            **nodes,
+        }
     write(rows, sys.stdout, aliases, nodes if scripts else None, unjudged)
     return 0
 

@@ -11,6 +11,7 @@ import math
 import re
 import time
 from hashlib import sha256
+from pathlib import Path
 
 from .components import PACKAGE_KINDS
 from .source_roles import ROLE_PATTERNS, exclusion_pattern
@@ -22,11 +23,25 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
-    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
+    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
+    "|REQUESTS|CONSUMES|READS"
+    "|REFERENCES_TABLE|CARRIES"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+# What each dependent must do about a change (``action``), from the change's
+# kind: a declaration's ``signature`` (its parameters or results) or
+# ``behaviour`` (its body only), or a ``contract`` (its messages).
+_IMPACT_ACTIONS = {
+    None: "",
+    "signature": "CASE nearest WHEN 1 THEN 'must_change' ELSE 'retest' END AS action, ",
+    "behaviour": "'retest' AS action, ",
+    "contract": "CASE WHEN carried = 1 THEN 'must_change' "
+    "WHEN root.message_types IS NOT NULL THEN 'retest' "
+    "ELSE 'unknown' END AS action, ",
+}
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
@@ -37,6 +52,72 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+# At most this many distinct files are checked per answer, and listed.
+_FRESHNESS_PATHS = 500
+_FRESHNESS_LISTED = 20
+_PATH_KEYS = frozenset({"file_path", "path", "file"})
+# A workspace file whose real path is outside the workspace (a symlink out
+# of it) is not read: it is left out of the check.
+_OUTSIDE = object()
+
+
+def _path_key(key):
+    """file_path, path or file, also as a raw query's unaliased column
+    (``f.path``, ``s.file_path``)."""
+    return isinstance(key, str) and key.rsplit(".", 1)[-1] in _PATH_KEYS
+
+
+def _named_paths(value):
+    """Relative file paths an answer names under file_path, path or file
+    keys, at any depth."""
+    found = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if _path_key(key) and isinstance(item, str):
+                if item and not item.startswith("/") and ".." not in item.split("/"):
+                    found.add(item)
+            else:
+                found |= _named_paths(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= _named_paths(item)
+    return found
+
+
+def _cypher_code(query):
+    """Return query with string literals, quoted names and comments blanked.
+
+    Each blanked character becomes a space, so keyword checks see only the
+    query's own code. An unterminated literal or comment is refused."""
+    out = []
+    i, n = 0, len(query)
+    while i < n:
+        c = query[i]
+        if c in "'\"`":
+            j = i + 1
+            while j < n and query[j] != c:
+                j += 2 if query[j] == "\\" and c != "`" else 1
+            if j >= n:
+                raise ValueError("Unterminated quoted text in Cypher query")
+            out.append(" " * (j + 1 - i))
+            i = j + 1
+        elif query.startswith("//", i):
+            j = query.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif query.startswith("/*", i):
+            j = query.find("*/", i + 2)
+            if j < 0:
+                raise ValueError("Unterminated comment in Cypher query")
+            out.append(" " * (j + 2 - i))
+            i = j + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _text(value, name):
@@ -134,6 +215,39 @@ def _value(value):
     raise ValueError("Unsupported non-JSON query value: " + type(value).__name__)
 
 
+# Raw rows a text reply is rendered from; its own budget is on the text.
+_RAW_TEXT_BYTES = 4_000_000
+
+
+def _check_cypher(query, parameters, allow_database_scope):
+    """Reject anything but one parameterized read query (defense in depth)."""
+    _text(query, "query")
+    if allow_database_scope is not True:
+        raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
+    if not isinstance(parameters, dict) or any(
+        not isinstance(k, str) for k in parameters
+    ):
+        raise ValueError("Cypher parameters must be a string-keyed dictionary")
+    _json(parameters)
+    if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
+        raise ValueError("Scope and fetch_limit parameters are reserved")
+    if len(query.encode()) > 16384:
+        raise ValueError("Cypher text exceeds 16384 bytes")
+    # Keywords are looked for in the query's code only: a quoted name such as
+    # "use", "Start" or "delete.go" is data, not a clause.
+    code = _cypher_code(query)
+    if not re.match(r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I):
+        raise ValueError("Only a single read query is accepted")
+    if re.search(
+        r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
+        code,
+        re.I,
+    ):
+        raise ValueError(
+            "Procedures, updates, administration and multiple statements are disabled"
+        )
+
+
 class GraphQueryService:
     """Single query implementation shared by programmatic and agent callers.
 
@@ -144,10 +258,15 @@ class GraphQueryService:
     additionally enforce read-only access; routing mode alone is not security.
     """
 
-    def __init__(self, driver, database="neo4j", *, observer=None):
+    def __init__(self, driver, database="neo4j", *, observer=None, workspace=None):
         self.driver = driver
         self.database = _text(database, "database")
         self.observer = observer
+        # The working copy the snapshot was taken from, if the caller names
+        # one: each answer then says which of the files it names have
+        # changed there since (``freshness``).
+        self.workspace = None if workspace is None else Path(workspace)
+        self._digests = {}
 
     @staticmethod
     async def _marker(tx, repo_url, snapshot_id):
@@ -175,11 +294,17 @@ class GraphQueryService:
         repository_scope=False,
         required_capability=None,
         metric=None,
+        observe=True,
+        raw_output_bytes=None,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
             _text(snapshot_id, "snapshot_id")
         _bounds(limit, max_output_bytes, timeout)
+        if raw_output_bytes is not None:
+            # Text results are budgeted after rendering; the raw rows they are
+            # rendered from may be larger than any JSON reply.
+            max_output_bytes = raw_output_bytes
         started = time.monotonic()
         parameters = dict(parameters)
         parameters.update(
@@ -254,11 +379,24 @@ class GraphQueryService:
                         response["returned"] -= 1
                         response["truncated"] = True
                         break
+                if self.workspace is not None and not repository_scope:
+                    response["freshness"] = await self._freshness(
+                        tx, repo_url, snapshot_id, response["items"]
+                    )
+                    # The note may push the answer over budget: drop whole
+                    # items, as the loop above does.
+                    while (
+                        response["items"]
+                        and len(_json(response).encode()) + 1 > max_output_bytes
+                    ):
+                        response["items"].pop()
+                        response["returned"] -= 1
+                        response["truncated"] = True
                 if len(_json(response).encode()) > max_output_bytes:
                     raise ValueError("Query metadata exceeds the output byte budget")
                 # Optional evidence hook shared by CLI, MCP and embedded callers.
                 # Emit only after a real Neo4j read; no raw query or parameters.
-                if self.observer is not None:
+                if self.observer is not None and observe:
                     encoded = _json(response).encode()
                     event = {
                         "backend": "neo4j",
@@ -280,6 +418,73 @@ class GraphQueryService:
                 if event is not None:
                     event["wall_seconds"] = time.monotonic() - started
                     self.observer(event)
+
+    def _workspace_digest(self, path):
+        """sha256 of a workspace file's bytes, as the analysis records it in
+        File.file_sha256; None when it is gone, ``_OUTSIDE`` when its real
+        path leaves the workspace. Cached by size and mtime, so an edit that
+        keeps both (``cp -p``, an archive restore) reads as unchanged."""
+        target = self.workspace / path
+        try:
+            stat = target.stat()
+            real = target.resolve(strict=True)
+        except OSError:
+            return None
+        if not real.is_relative_to(self.workspace.resolve()):
+            return _OUTSIDE
+        key = (path, stat.st_size, stat.st_mtime_ns)
+        if key not in self._digests:
+            try:
+                self._digests[key] = sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                return None
+        return self._digests[key]
+
+    async def _freshness(self, tx, repo_url, snapshot_id, items):
+        """Whether the files an answer names still hold the bytes the
+        snapshot analyzed, in the workspace this service was given.
+
+        ``status`` is ``current`` (every named file is unchanged),
+        ``changed`` (``changed_files`` were edited since and ``missing_files``
+        are gone: their lines may have moved) or ``unverified`` (no
+        workspace was given, or the answer names no analyzed file)."""
+        paths = sorted(_named_paths(items))
+        if self.workspace is None or not paths:
+            return {"status": "unverified"}
+        result = await tx.run(
+            "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE f.path IN $paths AND f.file_sha256 IS NOT NULL "
+            "RETURN f.path AS path, f.file_sha256 AS digest",
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+            paths=paths[:_FRESHNESS_PATHS],
+        )
+        recorded = {record["path"]: record["digest"] async for record in result}
+        if not recorded:
+            return {"status": "unverified"}
+        changed, missing, checked = [], [], 0
+        for path, digest in sorted(recorded.items()):
+            current = self._workspace_digest(path)
+            if current is _OUTSIDE:
+                continue
+            checked += 1
+            if current is None:
+                missing.append(path)
+            elif current != digest:
+                changed.append(path)
+        if not checked:
+            return {"status": "unverified"}
+        freshness = {
+            "status": "changed" if changed or missing else "current",
+            "files_checked": checked,
+        }
+        if changed:
+            freshness["changed_files"] = changed[:_FRESHNESS_LISTED]
+        if missing:
+            freshness["missing_files"] = missing[:_FRESHNESS_LISTED]
+        if len(changed) > _FRESHNESS_LISTED or len(missing) > _FRESHNESS_LISTED:
+            freshness["files_listed_truncated"] = True
+        return freshness
 
     async def list_snapshots(
         self,
@@ -868,6 +1073,7 @@ class GraphQueryService:
         timeout=5,
         offset=0,
         exclude_roles=None,
+        change="signature",
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -875,11 +1081,16 @@ class GraphQueryService:
         Dependents are reached backwards over CALLS, INHERITS_FROM,
         IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
         a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
-        HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
+        interface's callers), USES_FIXTURE (a test to its pytest fixtures),
+        USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
+        CONSUMES, READS, REFERENCES_TABLE (a table with a foreign key to a
+        changed table) and CARRIES (a route or message destination whose
+        request, response or message is a changed type, so its clients must
+        change with it) edges, and forwards over HANDLES, PUBLISHES and
+        WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
-        readers of that table) depend on the route. At most ``max_depth`` hops. Each dependent is listed
+        readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
 
@@ -888,7 +1099,14 @@ class GraphQueryService:
         change, so it needs re-testing), and lists its ``source_roles``
         (``test``, ``example``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
+
+        Each dependent also has an ``action`` for the kind of ``change``:
+        ``signature`` (default; the declaration's parameters or results:
+        ``must_change`` at one hop, ``retest`` deeper) or ``behaviour`` (its
+        body only: every dependent is ``retest``).
         """
+        if change not in ("signature", "behaviour"):
+            raise ValueError("change must be signature or behaviour")
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -906,6 +1124,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action=change,
         )
 
     async def search_contracts(
@@ -972,10 +1191,20 @@ class GraphQueryService:
         (or files) that HANDLE the route, PUBLISH to the destination, WRITE,
         map (MAPS_TO) or DECLARE the table, listed under ``providers``.
         Dependents are then found as ``get_impact`` finds them: the callers
-        that REQUEST the route, the consumers and readers, and their callers
-        in turn, also across services. ``offset``, ``exclude_roles`` and the
+        that REQUEST the route, the consumers and readers, the tables whose
+        foreign keys reference the table, and their callers in turn, also
+        across services. ``offset``, ``exclude_roles`` and the
         output are as for ``get_impact``; ``max_output_bytes`` is at least
         2048.
+
+        Each dependent has an ``action`` for a change of the contract's
+        messages: ``must_change`` when it uses the contract itself (one hop:
+        a client, or a provider's caller) or reaches it only through
+        declarations whose parameter or result types carry the contract's
+        messages (CARRIES_MESSAGE edges, from the Go type checker for gRPC
+        methods); otherwise ``retest`` when those types are known for the
+        contract (its ``message_types``), and ``unknown`` when they are not.
+        A caller of a wrapper that hides the messages only re-tests.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -1022,6 +1251,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action="contract",
         )
         response["providers"] = providers
         response["providers_truncated"] = found["truncated"] or len(providers) < len(
@@ -1116,6 +1346,7 @@ class GraphQueryService:
         offset=0,
         reverse=None,
         exclude_roles=None,
+        action=None,
     ):
         _text(subject, "subject")
         exclude = exclusion_pattern(exclude_roles)
@@ -1136,7 +1367,7 @@ class GraphQueryService:
             )
         statement = (
             (
-                seeds + "WITH [root] + parts AS changed "
+                seeds + "WITH root, [root] + parts AS changed "
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
@@ -1144,15 +1375,20 @@ class GraphQueryService:
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
-                "WITH dependent, target, path, "
+                "WITH root, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
-                "WITH dependent, target, path, CASE "
+                "WITH root, dependent, target, path, CASE "
                 "WHEN 'name_matched' IN kinds THEN 2 "
-                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
+                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness, "
+                # A path through declarations that each carry the changed
+                # contract's messages (CARRIES_MESSAGE) hands the dependent
+                # those messages: it builds or reads them.
+                "all(n IN nodes(path)[1..] WHERE n = root OR "
+                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) }) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest "
+                "WITH root, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
                 ".file_path,.start_line,"
                 "labels:labels(dependent)} AS element, "
@@ -1160,6 +1396,7 @@ class GraphQueryService:
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
+                "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
                 "=~ role.pattern | role.name] AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
@@ -1170,6 +1407,7 @@ class GraphQueryService:
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
             )
+            .replace("ACTION", _IMPACT_ACTIONS[action])
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1211,7 +1449,7 @@ class GraphQueryService:
                 else ""
             )
             + " edges; each path's evidence is its weakest edge. Direct (one "
-            "hop): may need edits; transitive: re-test. Absence does "
+            "hop): may need edits; transitive: re-test. " + "Absence does "
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
         )
@@ -2169,30 +2407,7 @@ class GraphQueryService:
         The conservative lexical restrictions are defense in depth; the server's
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
-        _text(query, "query")
-        if allow_database_scope is not True:
-            raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
-        if not isinstance(parameters, dict) or any(
-            not isinstance(k, str) for k in parameters
-        ):
-            raise ValueError("Cypher parameters must be a string-keyed dictionary")
-        _json(parameters)
-        if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
-            raise ValueError("Scope and fetch_limit parameters are reserved")
-        if len(query.encode()) > 16384:
-            raise ValueError("Cypher text exceeds 16384 bytes")
-        if not re.match(
-            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", query, re.I
-        ):
-            raise ValueError("Only a single read query is accepted")
-        if re.search(
-            r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
-            query,
-            re.I,
-        ):
-            raise ValueError(
-                "Procedures, updates, administration and multiple statements are disabled"
-            )
+        _check_cypher(query, parameters, allow_database_scope)
         return await self._read(
             query,
             parameters,
@@ -2203,3 +2418,101 @@ class GraphQueryService:
             timeout=timeout,
             database_scope=True,
         )
+
+    async def query_cypher_text(
+        self,
+        query,
+        parameters,
+        repo_url,
+        *,
+        snapshot_id,
+        allow_database_scope=False,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """``query_cypher`` written as short sentences (see ``result_text``).
+
+        The same rows are read; links whose end items the query did not return
+        have those items looked up, and the snapshot's EdgeCoverage records
+        give the closing coverage line. Neither lookup is journaled as a query.
+        The byte budget applies to the text: whole lines past it are cut and
+        the reply says so.
+        """
+        from .result_text import render
+
+        _check_cypher(query, parameters, allow_database_scope)
+        response = await self._read(
+            query,
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            database_scope=True,
+            raw_output_bytes=_RAW_TEXT_BYTES,
+        )
+        known, wanted = set(), set()
+
+        def visit(value):
+            if isinstance(value, dict):
+                if "labels" in value and "element_id" in value:
+                    known.add(value["element_id"])
+                if {"type", "source", "target"} <= set(value):
+                    wanted.update((value["source"], value["target"]))
+                for v in value.values():
+                    visit(v)
+            elif isinstance(value, list):
+                for v in value:
+                    visit(v)
+
+        visit(response["items"])
+        missing = sorted(wanted - known)
+        nodes = {}
+        for offset in range(0, len(missing), 100):
+            page = await self._read(
+                "MATCH (n) WHERE elementId(n) IN $ids RETURN n",
+                {"ids": missing[offset : offset + 100]},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+            )
+            nodes.update((r["n"]["element_id"], r["n"]) for r in page["items"])
+        coverage = []
+        for page_number in range(10):
+            page = await self._read(
+                "MATCH (e:EdgeCoverage) RETURN e.family AS family, e.protocol AS protocol,"
+                " e.language AS language, e.status AS status, e.reason AS reason"
+                " ORDER BY family, protocol, language SKIP $skip LIMIT $fetch_limit",
+                {"skip": page_number * 100},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+            )
+            coverage.extend(page["items"])
+            if not page["truncated"]:
+                break
+        text = render(
+            response, nodes=nodes, coverage=coverage, query=query, limit=limit
+        )
+        if len(text.encode()) > max_output_bytes:
+            lines = text.split("\n")
+            kept, size = [], 0
+            note = "... {} more lines cut at the {}-byte budget: narrow the query."
+            for line in lines:
+                size += len(line.encode()) + 1
+                if size + len(note.encode()) + 16 > max_output_bytes:
+                    break
+                kept.append(line)
+            kept.append(note.format(len(lines) - len(kept), max_output_bytes))
+            text = "\n".join(kept)
+        return text

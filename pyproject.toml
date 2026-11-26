@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "licenses/*"]
 # SCIP indexes are the primary source of symbol facts, so reading them is not optional.
-dependencies = ["protobuf==7.35.1"]
+dependencies = ["pglast==8.9", "protobuf==7.35.1", "sqlglot==30.35.0"]
 
 [project.optional-dependencies]
 neo4j = ["neo4j==5.28.8"]

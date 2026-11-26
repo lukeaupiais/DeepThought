@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -86,7 +87,12 @@ INDEXERS = {
         ),
         IndexerSpec(
             "scip-go",
-            "0.1.26",
+            # 0.1.26 knew the standard library from a list built into it: the
+            # uuid package Go 1.27 added (imported by database/sql/driver)
+            # was taken for a module's package without a module, and the run
+            # stopped. 0.2.x reads it from the go command. 0.2.8 and later
+            # write only typed_range, which this reader does not decode yet.
+            "0.2.7",
             ("go",),
             "DEEPTHOUGHT_SCIP_GO",
             # go/token columns are byte offsets.
@@ -202,10 +208,9 @@ def _arguments(spec, root, output, project_name):
     if spec.name == "scip-typescript":
         argv = ["index", "--cwd", str(root), "--output", str(output)]
         argv.append("--no-progress-bar")
-        package = root / "package.json"
         if (root / "pnpm-workspace.yaml").is_file():
             argv.append("--pnpm-workspaces")
-        elif package.is_file() and "workspaces" in _json(package):
+        elif _yarn_workspaces(root):
             argv.append("--yarn-workspaces")
         elif not (root / "tsconfig.json").is_file():
             # JavaScript and projects without a root tsconfig.
@@ -231,6 +236,7 @@ def _arguments(spec, root, output, project_name):
         ], root
     if spec.name == "scip-go":
         return [
+            "index",
             "--output",
             str(output),
             "--module-version",
@@ -241,8 +247,40 @@ def _arguments(spec, root, output, project_name):
 
 
 def python_source_roots(root):
-    """Workspace-relative import roots: the workspace, and ``src`` if present."""
-    return ["."] + (["src"] if (Path(root) / "src").is_dir() else [])
+    """Workspace-relative import roots: the workspace, then the ``src``
+    directory of the workspace and of each Python project below it (a
+    directory with a ``pyproject.toml``, ``setup.cfg`` or requirements file),
+    where a src layout keeps its packages.
+
+    A project's own directory is not added: pyright already resolves a flat
+    layout's imports from the importing file's directory, and two services'
+    ``app`` packages on one path would bind to whichever came first."""
+    from .python_dependencies import project_directories
+
+    root = Path(root)
+    sources = []
+    for project in [".", *project_directories(root)]:
+        source = "src" if project == "." else f"{project}/src"
+        if source not in sources and (root / source).is_dir():
+            sources.append(source)
+    # Two src directories with a top-level module of the same name would put
+    # one module name on two files; neither is added, so neither is guessed.
+    names = {s: _top_level_modules(root / s) for s in sources}
+    clashing = {s for s in sources for t in sources if s != t and names[s] & names[t]}
+    return ["."] + [s for s in sources if s not in clashing]
+
+
+def _top_level_modules(directory):
+    """Top-level modules and regular packages; a namespace package (no
+    ``__init__``) is left out, since its portions merge across the path."""
+    found = set()
+    for entry in directory.iterdir():
+        if entry.is_dir() and not entry.name.startswith("."):
+            if (entry / "__init__.py").is_file() or (entry / "__init__.pyi").is_file():
+                found.add(entry.name)
+        elif entry.suffix in {".py", ".pyi"}:
+            found.add(entry.stem)
+    return found
 
 
 def _environment(spec, root, environ, platform=None, dependencies=None):
@@ -261,12 +299,21 @@ def _environment(spec, root, environ, platform=None, dependencies=None):
         env.update(_go_environment(platform or GO_PLATFORM))
         if dependencies is not None:
             env.update(_go_cache_environment(dependencies))
+    if spec.name == "scip-typescript":
+        env.update(PNPM_ENVIRONMENT)
     return env
 
 
 def _go_cache_environment(prepared):
     """The go command reads modules only from the downloaded cache."""
     return {"GOMODCACHE": prepared["modcache"], "GOPROXY": "off"}
+
+
+# scip-typescript --pnpm-workspaces runs `pnpm ls`. pnpm 9.7 and later switch
+# to the release a package.json's packageManager names, downloading it first;
+# hono pins pnpm@12.6.0, the download failed, and every file was
+# indexer_failed. The pnpm on PATH lists the workspaces instead.
+PNPM_ENVIRONMENT = {"npm_config_manage_package_manager_versions": "false"}
 
 
 # The platform a Go module is compiled for unless a file builds only elsewhere;
@@ -300,6 +347,37 @@ def _go_command(arguments, cwd, environ, platform=GO_PLATFORM):
     except (OSError, subprocess.TimeoutExpired):
         return None
     return result.stdout if result.returncode == 0 else None
+
+
+def go_broken_packages(root, module, directories, environ=None):
+    """The module-relative package directories, of those named, that the go
+    command cannot load (an error in the package or its dependencies); None
+    when the go command is missing or fails."""
+    base = Path(root) if module in (None, ".") else Path(root) / module
+    listed = _go_command(
+        [
+            "list",
+            "-e",
+            "-f",
+            "{{.Dir}}\t{{if or .Error .DepsErrors .Incomplete}}broken{{end}}",
+            *["./" + d for d in directories],
+        ],
+        base,
+        environ,
+    )
+    if listed is None:
+        return None
+    broken = set()
+    for line in listed.splitlines():
+        directory, _, state = line.partition("\t")
+        if state.strip() == "broken":
+            try:
+                broken.add(
+                    Path(directory).resolve().relative_to(base.resolve()).as_posix()
+                )
+            except ValueError:
+                continue
+    return broken
 
 
 def go_platforms(environ=None):
@@ -362,7 +440,10 @@ _GO_IGNORED = {"vendor", "testdata", "node_modules"}
 
 def go_modules(workspace):
     """Workspace-relative directories holding a go.mod (``.`` for the root),
-    outside vendor, testdata and hidden directories."""
+    outside vendor and hidden directories. Directories named testdata or
+    whose name starts with ``_`` are searched too: the go command's ./...
+    skips them, but a go.mod there is a module of its own (sqlc keeps its
+    922 generated end-to-end packages in internal/endtoend/testdata)."""
     root = Path(workspace).resolve(strict=True)
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -370,13 +451,25 @@ def go_modules(workspace):
             name
             for name in names
             if name not in _SKIP_DIRECTORIES
-            and name not in _GO_IGNORED
-            and not name.startswith((".", "_"))
+            and name not in _GO_IGNORED - {"testdata"}
+            # A go.mod below a directory the go command ignores (_examples,
+            # testdata) is still a module of its own.
+            and not name.startswith(".")
             and not (Path(directory) / name).is_symlink()
         )
         if "go.mod" in filenames:
             found.append(Path(directory).relative_to(root).as_posix())
     return sorted(found)
+
+
+def _yarn_workspaces(root):
+    """Whether scip-typescript can list the root's workspaces with
+    ``--yarn-workspaces``: Yarn lists them only for a private root package,
+    and refuses otherwise ("Workspaces can only be enabled in private
+    projects"), as an npm workspace root often is. Those are indexed one
+    tsconfig project at a time instead."""
+    package = _json(Path(root) / "package.json")
+    return "workspaces" in package and package.get("private") is True
 
 
 def typescript_projects(workspace):
@@ -385,10 +478,7 @@ def typescript_projects(workspace):
     directory, so its compiler options (baseUrl, paths) apply. Empty when the
     root indexes pnpm or yarn workspaces itself."""
     root = Path(workspace).resolve(strict=True)
-    package = root / "package.json"
-    if (root / "pnpm-workspace.yaml").is_file() or (
-        package.is_file() and "workspaces" in _json(package)
-    ):
+    if (root / "pnpm-workspace.yaml").is_file() or _yarn_workspaces(root):
         return []
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -538,6 +628,17 @@ def run_indexer(
         )
         cwd = base
         project = None
+        if files is not None and spec.name == "scip-go":
+            # The packages of the chosen files, named one by one: the go
+            # command's ./... skips directories whose name starts with _.
+            prefix = "" if module in (None, ".") else module + "/"
+            argv += sorted(
+                {
+                    "./" + (Path(f[len(prefix) :]).parent.as_posix())
+                    for f in files
+                    if f.startswith(prefix)
+                }
+            )
         if files is not None and spec.name == "scip-typescript":
             project = _uncovered_project(root, files)
             config = Path(scratch) / "tsconfig.json"
@@ -556,6 +657,29 @@ def run_indexer(
             )
             argv = [a for a in argv[:5] if a != "--infer-tsconfig"]
             argv += ["--no-progress-bar", str(config)]
+        elif "--infer-tsconfig" in argv:
+            # A workspace without a tsconfig.json (JavaScript): the project is
+            # written here, not inferred: --infer-tsconfig writes a
+            # tsconfig.json into the workspace, which may be read-only, and
+            # scip-typescript infers {} instead of allowJs once node_modules
+            # holds TypeScript declarations, and then indexes no file at all.
+            project = _javascript_project(root)
+            config = Path(scratch) / "tsconfig.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        **project,
+                        "include": [str(base / i) for i in project["include"]],
+                        "exclude": [str(base / x) for x in project["exclude"]],
+                        **(
+                            {"extends": str(indexed_root / project["extends"])}
+                            if "extends" in project
+                            else {}
+                        ),
+                    }
+                )
+            )
+            argv = [a for a in argv if a != "--infer-tsconfig"] + [str(config)]
         dependencies = None
         if spec.name == "scip-go":
             prepared = _prepared_go_modules(
@@ -569,31 +693,45 @@ def run_indexer(
             dependencies = install(root, scratch, environ=environ, timeout=timeout)
             run.dependencies = {
                 k: dependencies[k]
-                for k in ("status", "python", "requirements", "packages", "failed")
+                for k in (
+                    "status",
+                    "python",
+                    "projects",
+                    "lockfiles",
+                    "requirements",
+                    "packages",
+                    "failed",
+                    "without_dependencies",
+                )
             }
-        # --infer-tsconfig writes a tsconfig.json into the workspace; the run
-        # must leave the workspace as it found it.
-        inferred = (
-            indexed_root / "tsconfig.json" if "--infer-tsconfig" in argv else None
-        )
-        try:
-            result = subprocess.run(
-                [str(executable), *argv],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                env=_environment(spec, root, environ, platform, dependencies),
+        while True:
+            try:
+                result = subprocess.run(
+                    [str(executable), *argv],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    env=_environment(spec, root, environ, platform, dependencies),
+                )
+            except subprocess.TimeoutExpired:
+                run.reason = "indexer_timeout"
+                run.wall_seconds = time.monotonic() - started
+                return run
+            log = (result.stdout + result.stderr)[-4000:]
+            if spec.name != "scip-typescript" or indexed_root == root:
+                break
+            missing = _missing_generated_configs(
+                result.stdout + result.stderr, indexed_root
             )
-        except subprocess.TimeoutExpired:
-            run.reason = "indexer_timeout"
-            run.wall_seconds = time.monotonic() - started
-            return run
-        finally:
-            if inferred is not None:
-                inferred.unlink(missing_ok=True)
-        log = (result.stdout + result.stderr)[-4000:]
+            if not missing:
+                break
+            _write_placeholder_configs(indexed_root, missing)
+        if spec.name == "scip-typescript" and indexed_root != root:
+            placeholders = _placeholder_configs(indexed_root)
+            if placeholders:
+                run.dependencies["placeholder_configs"] = placeholders
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
             run.wall_seconds = time.monotonic() - started
@@ -739,17 +877,90 @@ def _prepared_go_modules(root, directory, environ, timeout):
     return prepared
 
 
+# The compiler's report of a configuration file it could not read, such as
+# the target of an ``extends``.
+_UNREADABLE_CONFIG = re.compile(r"error TS5083: Cannot read file '([^']+)'")
+
+
+def _missing_generated_configs(log, indexed_root):
+    """Workspace-relative paths of configuration files the compiler could not
+    read, inside the workspace copy, outside node_modules, and absent.
+
+    A SvelteKit project's tsconfig.json extends .svelte-kit/tsconfig.json,
+    which only ``svelte-kit sync`` writes, and sync runs the repository's own
+    svelte.config.js, which the engine never runs (install scripts are off
+    for the same reason). The compiler names each such file, so an empty
+    configuration stands in for it and the project's files index without the
+    options it would add (SvelteKit's $lib alias stays unresolved)."""
+    copy = Path(indexed_root).resolve()
+    found = set()
+    for match in _UNREADABLE_CONFIG.finditer(log):
+        path = Path(match.group(1)).resolve()
+        if not path.is_relative_to(copy) or path.exists():
+            continue
+        relative = path.relative_to(copy)
+        if "node_modules" in relative.parts or path.suffix != ".json":
+            continue
+        found.add(relative.as_posix())
+    return sorted(found)
+
+
+def _placeholder_record(indexed_root):
+    return Path(indexed_root).parent / "placeholder-configs.json"
+
+
+def _placeholder_configs(indexed_root):
+    """The empty configurations written into this workspace copy so far."""
+    record = _placeholder_record(indexed_root)
+    return json.loads(record.read_text()) if record.is_file() else []
+
+
+def _write_placeholder_configs(indexed_root, missing):
+    for relative in missing:
+        path = Path(indexed_root) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n")
+    written = sorted(set(_placeholder_configs(indexed_root)) | set(missing))
+    _placeholder_record(indexed_root).write_text(json.dumps(written))
+
+
+def _root_config(root):
+    """The workspace's own compiler configuration: its tsconfig.json, else
+    the jsconfig.json a JavaScript project keeps its options in (preact maps
+    ``preact`` to its own sources through the ``paths`` there)."""
+    for name in ("tsconfig.json", "jsconfig.json"):
+        if (Path(root) / name).is_file():
+            return name
+    return None
+
+
+def _javascript_project(root):
+    """The project of a workspace without a tsconfig.json, with paths
+    relative to it: every JavaScript and TypeScript file outside
+    node_modules, with the options of its jsconfig.json if there is one."""
+    project = {
+        "compilerOptions": {"allowJs": True, "noEmit": True},
+        "include": ["**/*"],
+        "exclude": ["**/node_modules"],
+    }
+    config = _root_config(root)
+    if config is not None:
+        project["extends"] = config
+    return project
+
+
 def _uncovered_project(root, files):
     """The project a scip-typescript pass over ``files`` indexes, with paths
     relative to the workspace: those files, allowing JavaScript and imports
-    by .ts names, with the compiler options of the root tsconfig.json if there
-    is one."""
+    by .ts names, with the compiler options of the root tsconfig.json, or
+    else its jsconfig.json, if there is one."""
     # Files outside every tsconfig are often Deno or Bun scripts, which import
     # modules by their .ts names; the compiler accepts that only when told.
     options = {"allowJs": True, "allowImportingTsExtensions": True, "noEmit": True}
     project = {"compilerOptions": options, "files": sorted(files)}
-    if (root / "tsconfig.json").is_file():
-        project["extends"] = "tsconfig.json"
+    config = _root_config(root)
+    if config is not None:
+        project["extends"] = config
     return project
 
 
@@ -758,8 +969,11 @@ def canonical_bytes(index):
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
-    identities are reproducible.
+    identities are reproducible. The indexer's own arguments are dropped:
+    scip-go 0.2 records its scratch output path there, and the receipt keeps
+    the arguments with paths left out.
     """
+    del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
         occurrences = sorted(
@@ -883,6 +1097,16 @@ def _index_workspace(
 ):
     runs = []
     modules = go_modules(root) if "go" in present else []
+    # A module that holds no Go source file of its own (a testdata fixture
+    # with only a go.mod) has nothing to index.
+    modules = [
+        m
+        for m in modules
+        if any(
+            language == "go" and go_module_of(path, modules) == m
+            for path, language in sources.items()
+        )
+    ]
     projects = (
         typescript_projects(root) if present & {"typescript", "javascript"} else []
     )
@@ -968,6 +1192,62 @@ def _index_workspace(
             runs.append(second)
             for path in second.documents:
                 passes[path] = (second, {"pass": "outside_tsconfig"})
+    # Packages in directories the go command's ./... skips (_examples/hello,
+    # testdata) still compile when named; grpc-go imports its testdata
+    # package from dozens of tests: a scip-go pass of their own names each one
+    # the go command loads without errors (scip-go fails a whole run on one
+    # that does not), so a broken example costs only its own files.
+    ignored_pass = {}
+    for module, run in sorted(go_runs.items()):
+        if run.status != "indexed":
+            continue
+        prefix = "" if module == "." else module + "/"
+        candidates = sorted(
+            path
+            for path, language in sources.items()
+            if language == "go"
+            and go_module_of(path, list(go_runs)) == module
+            and path not in run.documents
+            and any(
+                part.startswith("_") or part == "testdata"
+                for part in Path(path[len(prefix) :]).parent.parts
+            )
+        )
+        if not candidates:
+            continue
+        broken = go_broken_packages(
+            root,
+            module,
+            sorted({Path(p[len(prefix) :]).parent.as_posix() for p in candidates}),
+            environ,
+        )
+        if broken is None:
+            continue
+        chosen = []
+        for path in candidates:
+            if Path(path[len(prefix) :]).parent.as_posix() in broken:
+                ignored_pass[path] = "does_not_load"
+            else:
+                chosen.append(path)
+        if not chosen:
+            continue
+        name = "scip-go" + ("" if module == "." else "-" + module.replace("/", "__"))
+        extra = run_indexer(
+            INDEXERS["scip-go"],
+            root,
+            directory / f"{name}-ignored-directories.scip",
+            project_name=project_name,
+            timeout=timeout,
+            environ=environ,
+            files=chosen,
+            module=module,
+        )
+        runs.append(extra)
+        for path in chosen:
+            if extra.status != "indexed":
+                ignored_pass[path] = extra.reason
+        for path in extra.documents:
+            passes[path] = (extra, {"pass": "ignored_directory"})
     # Go files that build only on another platform (command_windows.go) get a
     # scip-go pass for the first platform, in the go command's own list, that
     # compiles them.
@@ -990,6 +1270,7 @@ def _index_workspace(
             if language == "go"
             and go_module_of(path, list(go_runs)) == module
             and path not in run.documents
+            and path not in passes
         }
         _, ignored = go_package_files(root, module, GO_PLATFORM, environ)
         constrained |= missing & ignored
@@ -1072,6 +1353,11 @@ def _index_workspace(
                     if second is not None
                     and second.status != "indexed"
                     and language in second.languages
+                    else {}
+                ),
+                **(
+                    {"ignored_directory_pass": ignored_pass[path]}
+                    if path in ignored_pass
                     else {}
                 ),
             }
