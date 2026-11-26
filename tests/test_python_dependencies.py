@@ -60,9 +60,15 @@ class DeclaredTest(unittest.TestCase):
                 '[project.optional-dependencies]\ndb = ["psycopg"]\n'
             )
             found = declared(root)
-        expected = ["attrs", "flask==3.0.0", "orjson", "pytest>=8 ; python_version>'3'"]
-        if importlib.util.find_spec("tomllib"):
-            expected += ["psycopg", "sqlalchemy[asyncio]>=2"]
+        # pyproject.toml is read on every Python (tomli on 3.10).
+        expected = [
+            "attrs",
+            "flask==3.0.0",
+            "orjson",
+            "pytest>=8 ; python_version>'3'",
+            "psycopg",
+            "sqlalchemy[asyncio]>=2",
+        ]
         self.assertEqual(found, sorted(expected))
 
 
