@@ -39,10 +39,12 @@ the tooling found no module for it, for example a dependency that is not
 installed.
 """
 
+import json
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .imports import PYTHON_FROM_IMPORT_SUBMODULE, ImportLink, ImportResolution
 from .scip_calls import _IndexView, _key, _Lines, _to_utf8
@@ -151,6 +153,72 @@ def _indexer(index):
     return None, None
 
 
+class _GoModules:
+    """What the go command says of each module of the workspace: the version
+    go.mod requires each module at (``go mod edit -json``, replace directives
+    applied), and the files each package compiles on the engine's platform
+    (``go list``). scip-go names a module's version in its own form
+    (``v9.31.0`` for ``v9.31.0+incompatible``, ``6ff867650f40`` for a
+    pseudo-version), and defines a package in every file it indexed,
+    including files built only for another platform."""
+
+    def __init__(self, root):
+        from .indexers import go_modules
+
+        self.root = Path(root)
+        self.modules = go_modules(self.root)
+        self.cache = {}
+
+    def module(self, file):
+        from .indexers import go_module_of
+
+        found = go_module_of(file, self.modules)
+        if found is None:
+            return {}, {}
+        if found not in self.cache:
+            self.cache[found] = self._read(found)
+        return self.cache[found]
+
+    def _read(self, module):
+        from .indexers import _go_command
+
+        directory = self.root if module == "." else self.root / module
+        environ = {**os.environ, "GOPROXY": "off", "GOWORK": "off"}
+        versions = {}
+        edit = _go_command(["mod", "edit", "-json"], directory, environ)
+        if edit:
+            document = json.loads(edit)
+            for required in document.get("Require") or ():
+                versions[required["Path"]] = required["Version"]
+            for replace in document.get("Replace") or ():
+                if replace.get("New", {}).get("Version"):
+                    versions[replace["Old"]["Path"]] = replace["New"]["Version"]
+        files = {}
+        listed = _go_command(
+            ["list", "-e", "-json=Dir,GoFiles,CgoFiles", "./..."], directory, environ
+        )
+        decoder, at = json.JSONDecoder(), 0
+        while listed and at < len(listed):
+            while at < len(listed) and listed[at].isspace():
+                at += 1
+            if at >= len(listed):
+                break
+            package, at = decoder.raw_decode(listed, at)
+            try:
+                relative = (
+                    Path(package["Dir"]).resolve().relative_to(self.root.resolve())
+                )
+            except (KeyError, ValueError):
+                continue
+            prefix = "" if str(relative) == "." else relative.as_posix() + "/"
+            files[prefix.rstrip("/") or "."] = {
+                prefix + name
+                for name in (package.get("GoFiles") or [])
+                + (package.get("CgoFiles") or [])
+            }
+        return versions, files
+
+
 def bind_imports(result, indexes, root, paths=None):
     """``{import id: (ImportResolution, packages)}`` for the imports in files
     ``indexes`` (pairs of an ingested index and its receipt digest) cover;
@@ -160,6 +228,11 @@ def bind_imports(result, indexes, root, paths=None):
     in-repository package keeps."""
     paths = paths or {}
     lines = _Lines(Path(root))
+    go = (
+        _GoModules(root)
+        if any(_indexer(index)[0] == "scip-go" for index, _ in indexes)
+        else None
+    )
     covering, shared_by_indexer, by_line = {}, {}, defaultdict(list)
     own_modules, indexer_of = {}, {}
     for index, receipt in indexes:
@@ -224,8 +297,16 @@ def bind_imports(result, indexes, root, paths=None):
                     files = own_modules[view][module]
                 if indexer == "scip-go":
                     # A package's own test files are not part of what an
-                    # import of it loads.
+                    # import of it loads, nor files built for another
+                    # platform where the go command lists the package.
                     files = {f for f in files if not f.endswith("_test.go")}
+                    if files:
+                        directory = str(PurePosixPath(min(files)).parent)
+                        compiled = go.module(min(files))[1].get(directory)
+                        if compiled and files & compiled:
+                            files &= compiled
+                    else:
+                        version = go.module(item.file)[0].get(package, version)
                 if files:
                     for file in sorted(files):
                         if file != item.file:

@@ -163,7 +163,11 @@ File's `external_imports`, not `unresolved_imports`.
   `python-stdlib 3.13` or `pydantic 2.12.5`.
 - Go: the go command's package loading through go.mod, replace directives and
   the module cache. The link reaches each non-test file whose package clause
-  defines the package. Packages read `github.com/go-chi/chi/v5 v5.2.1`; the
+  defines the package and that `go list` compiles on the engine's platform
+  (linux/amd64; a `//go:build windows` file is not linked). Packages read
+  `github.com/go-chi/chi/v5 v5.2.1`, at the version the importing module's
+  go.mod requires (`go mod edit -json`, replace directives applied): scip-go's
+  own form drops `+incompatible` and cuts a pseudo-version to its commit. The
   standard library is the Go repository's `github.com/golang/go/src` module at
   the go.mod's Go version (`go1.24`).
 - TypeScript and JavaScript: the TypeScript compiler's module resolution

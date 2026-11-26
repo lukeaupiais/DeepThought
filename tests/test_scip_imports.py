@@ -352,6 +352,11 @@ class GoImportTest(unittest.TestCase):
                     "go.mod": "module example.com/w\n\ngo 1.21\n",
                     "inner/inner.go": "package inner\n\nfunc F() int { return 1 }\n",
                     "inner/g.go": "package inner\n\nfunc G() int { return 2 }\n",
+                    # Built only on Windows: not what the import loads here.
+                    "inner/w.go": (
+                        "//go:build windows\n\npackage inner\n\n"
+                        "func W() int { return 3 }\n"
+                    ),
                     "inner/g_test.go": (
                         'package inner\n\nimport "testing"\n\n'
                         "func TestG(t *testing.T) {}\n"
@@ -395,6 +400,38 @@ class GoImportTest(unittest.TestCase):
             modules,
             {"fmt": ["fmt"], "strings": ["strings"], "testing": ["testing"]},
         )
+
+    def test_versions_are_the_ones_go_mod_requires(self):
+        from deepthought.scip_imports import _GoModules
+
+        with tempfile.TemporaryDirectory() as scratch:
+            write(
+                scratch,
+                {
+                    "go.mod": (
+                        "module example.com/w\n\ngo 1.21\n\nrequire (\n"
+                        "\tgithub.com/go-playground/validator v9.31.0+incompatible\n"
+                        "\tgithub.com/heptiolabs/healthcheck "
+                        "v0.0.0-20180807145615-6ff867650f40\n"
+                        "\texample.com/old v1.0.0\n)\n\n"
+                        "replace example.com/old => example.com/new v1.2.0\n"
+                    ),
+                    "main.go": "package main\n\nfunc main() {}\n",
+                },
+            )
+            versions, files = _GoModules(scratch).module("main.go")
+        # scip-go writes v9.31.0 and 6ff867650f40 for these.
+        self.assertEqual(
+            versions,
+            {
+                "github.com/go-playground/validator": "v9.31.0+incompatible",
+                "github.com/heptiolabs/healthcheck": (
+                    "v0.0.0-20180807145615-6ff867650f40"
+                ),
+                "example.com/old": "v1.2.0",
+            },
+        )
+        self.assertEqual(files, {".": {"main.go"}})
 
 
 if __name__ == "__main__":
