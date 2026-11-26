@@ -25,7 +25,8 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
     "|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE|CARRIES|READS_COLUMN"
+    "|REFERENCES_TABLE|CARRIES|READS_COLUMN|USES_TYPE|REFERENCES_FUNCTION"
+    "|READS_FIELD|WRITES_FIELD"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
 # What provides a contract: handles a route, publishes to a destination,
@@ -423,6 +424,7 @@ class GraphQueryService:
         bare=False,
         observe=True,
         raw_output_bytes=None,
+        freshness=True,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -514,7 +516,7 @@ class GraphQueryService:
                         response["returned"] -= 1
                         response["truncated"] = True
                         break
-                if self.workspace is not None and not repository_scope:
+                if self.workspace is not None and not repository_scope and freshness:
                     response["freshness"] = await self._freshness(
                         tx, repo_url, snapshot_id, response["items"]
                     )
@@ -1261,10 +1263,12 @@ class GraphQueryService:
         interface's callers), USES_FIXTURE (a test to its pytest fixtures),
         USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
         CONSUMES, READS, REFERENCES_TABLE (a table with a foreign key to a
-        changed table) and CARRIES (a route or message destination whose
+        changed table), CARRIES (a route or message destination whose
         request, response or message is a changed type, so its clients must
-        change with it) edges, and forwards over HANDLES, PUBLISHES and
-        WRITES: a handler's route (a publisher's
+        change with it), and the SCIP uses USES_TYPE, REFERENCES_FUNCTION,
+        READS_FIELD and WRITES_FIELD (a type contains its fields, so a
+        changed type reaches their readers and writers) edges, and forwards
+        over HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
         readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
@@ -2756,6 +2760,8 @@ class GraphQueryService:
         The same rows are read; links whose end items the query did not return
         have those items looked up, and the snapshot's EdgeCoverage records
         give the closing coverage line. Neither lookup is journaled as a query.
+        With a workspace, freshness covers the files of the rows and of the
+        looked-up link ends, since the sentences name both.
         The byte budget applies to the text: whole lines past it are cut and
         the reply says so.
         """
@@ -2772,6 +2778,7 @@ class GraphQueryService:
             timeout=timeout,
             database_scope=True,
             raw_output_bytes=_RAW_TEXT_BYTES,
+            freshness=False,
         )
         known, wanted = set(), set()
 
@@ -2801,6 +2808,7 @@ class GraphQueryService:
                 database_scope=True,
                 observe=False,
                 raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
             )
             nodes.update((r["n"]["element_id"], r["n"]) for r in page["items"])
         coverage = []
@@ -2818,10 +2826,27 @@ class GraphQueryService:
                 database_scope=True,
                 observe=False,
                 raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
             )
             coverage.extend(page["items"])
             if not page["truncated"]:
                 break
+        if self.workspace is not None:
+            # The files the sentences name: the rows' own and those of the
+            # link ends looked up above.
+            async with self.driver.session(
+                database=self.database, default_access_mode="READ"
+            ) as session:
+                tx = await session.begin_transaction(timeout=timeout)
+                try:
+                    response["freshness"] = await self._freshness(
+                        tx,
+                        repo_url,
+                        snapshot_id,
+                        [response["items"], list(nodes.values())],
+                    )
+                finally:
+                    await tx.rollback()
         text = render(
             response, nodes=nodes, coverage=coverage, query=query, limit=limit
         )
