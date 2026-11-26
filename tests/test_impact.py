@@ -417,7 +417,8 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         files = await self.service.get_file_impact(
             "base.py", repo, snapshot_id=snapshot
         )
-        self.assertEqual(self.rows(files), [("app.py", 1, "name_matched", ["IMPORTS"])])
+        # scip-python resolves app.py's absolute import of base.
+        self.assertEqual(self.rows(files), [("app.py", 1, "resolved", ["IMPORTS"])])
 
     async def test_answers_say_which_named_files_changed_since(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
@@ -507,9 +508,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_strongest_path_wins_over_shortest(self):
         # c.py imports pkg.a directly by absolute name (name_matched) and
-        # through b.py by relative imports (resolved).
+        # through b.py by relative imports (resolved). Without an index, the
+        # absolute import keeps its path rule, which only matches the name.
+        class PathRulesOnly(TreeSitterTool):
+            async def analyze(self, repo_url, **kwargs):
+                return await super().analyze(repo_url, scip_indexes=(), **kwargs)
+
         repo, snapshot, _ = await self.write(
-            TreeSitterTool,
+            PathRulesOnly,
             {
                 "pkg/__init__.py": "",
                 "pkg/a.py": "X = 1\n",

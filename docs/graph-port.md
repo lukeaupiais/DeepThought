@@ -143,6 +143,39 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
+### Python imports from scip-python
+
+In a file a scip-python index covers, an absolute import is resolved as the
+interpreter would resolve it: each Python project (a directory with a
+`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
+directory with its `src`, so the FastAPI template's `backend/app` imports as
+`app`, and pyright searches those roots, the project's installed dependencies
+and the standard library. scip-python records the module at each
+name the statement writes, including the submodules `from a import b` names.
+
+| Rule | Evidence | Meaning |
+| --- | --- | --- |
+| `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+
+Externally resolved specifiers are listed in the File's `external_imports`, not
+`unresolved_imports`. A covered absolute import with no module occurrence
+stays unresolved (`scip_no_occurrence`): pyright found no module, for example
+a dependency that is not installed. Two cases keep the path rules. Relative
+imports do, because scip-python 0.6.8 names the module of `from .models import
+X` by the written remainder alone (`` `models`/__init__: ``), which is another
+project's top-level `models` or nothing. A from-import of an in-repository
+package also keeps the path rule's links to the submodules it names (`from
+flask import json`), which the index records as attributes of the package.
+Files no index covers keep the path rules throughout. scip-python 0.6.8 also
+names a module's package from the installed distributions' file lists rather
+than from pyright's resolution, so a wheel that ships a top-level `tests`
+package (msal-extensions does) labels the repository's own `tests` as its
+module. A module that the same index defines links to its document instead:
+pyright searched the local roots first and resolved the names to it. Tool metadata counts
+scip-python's decisions in `scip_python_imports` and the packages in
+`python_packages`.
+
 ## Calls
 
 Tree-sitter extraction records each call whose callee is a plain or dotted name
@@ -2361,8 +2394,24 @@ bind to its src-layout package. Two of those `src` directories with a
 top-level module or regular package of the same name are both left off, so
 one module name never names two files; namespace packages (no `__init__`)
 merge across them as Python merges them. A project's own directory is not
-added, since pyright already resolves a flat layout from the importing
-file's directory. On haystack-core-integrations (47d359e; `chroma`,
+on the workspace's path; a nested Python project (a `pyproject.toml` or
+`setup.cfg` below the root) whose files import one of its own top-level
+modules by absolute name, as Python's `ast` reads the imports, gets a
+scip-python run of its own instead: from the workspace root with
+`--target-only <project>`, its own directory and `src` first on
+`PYTHONPATH`, then the workspace's roots, and its declared packages
+installed. A service imports its own modules by bare name (`from schemas
+import ...` in src/OrderService) and two services' `schemas` cannot share one
+path; running from the root keeps workspace symbols, since scip-python names
+a file outside `--cwd` with a local symbol. A requirement on a distribution
+the workspace itself builds (flask's examples require `flask`) is not
+installed, so its source is read, and that project's own dependencies are
+installed in its place; the receipt lists it under `provided`. Cross-file
+references (non-local symbols defined in another document): flask
+(49943b5) 3,017 to 3,135, joe0106/fastapi-microservices-orchestrator
+0 to 71, AntonVagabond/OnlineStore 297 to 985, full-stack-fastapi-template
+1,038 to 1,183; its SQLModel table gate stays 64/66. A fixture project that
+never imports itself (poetry's 100 test fixtures) gets no run. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
 from 5,403 to 6,473. scip-go gets
@@ -2413,6 +2462,14 @@ with a reason:
 | `no_go_module` | No `go.mod` in the file's directory or any directory above it |
 | `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+A known scip-python 0.6.8 fault makes one repository time out: its bundled
+pyright builds unions in quadratic time, so a module holding a very large
+tuple literal never finishes (netbox's `extras/data/un_locode.py`, about
+111,000 entries; current pyright reads it in about two seconds). 0.6.8 is the
+latest release, and the engine does not work around it: the run stops at
+`--timeout` and every Python file of that run is `indexer_timeout`, named per
+file.
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
 (outside `vendor` and hidden directories; a `go.mod` below a directory whose
