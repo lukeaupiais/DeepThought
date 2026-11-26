@@ -3880,6 +3880,30 @@ class GoToolchainTests(unittest.TestCase):
             older = "module m\n\ngo 1.22\n"
             self.assertEqual(module_toolchain("go", info, older), "go")
 
+    def test_installed_go_experiment_build_and_unreadable_version(self):
+        from deepthought.go_facts import (
+            GoVersionUnreadable,
+            installed_version,
+            module_toolchain,
+        )
+
+        self.assertEqual(installed_version("go1.27.4-X:nodwarf5"), (1, 27, 4))
+        self.assertEqual(installed_version("go1.27.4 X:nodwarf5"), (1, 27, 4))
+        self.assertEqual(installed_version("go1.26"), (1, 26, 0))
+        info = {
+            "GOVERSION": "go1.27.4-X:nodwarf5",
+            "GOMODCACHE": "/nonexistent",
+            "GOOS": "linux",
+            "GOARCH": "amd64",
+        }
+        self.assertEqual(module_toolchain("go", info, "module m\n\ngo 1.26\n"), "go")
+        for name in ("devel go1.28-abc123", "", None):
+            with self.assertRaisesRegex(GoVersionUnreadable, "GOVERSION"):
+                installed_version(name)
+        info["GOVERSION"] = "devel go1.28-abc123"
+        with self.assertRaises(GoVersionUnreadable):
+            module_toolchain("go", info, "module m\n\ngo 1.26\n")
+
 
 SHARED_COMPOSE_DATABASE = {
     "docker-compose.yml": """\
