@@ -23,6 +23,7 @@ from deepthought.service_contracts.resolve import (
     HTTP_PATH,
     resolve_requests,
 )
+from typescript_ready import needs_typescript
 
 YAML = importlib.util.find_spec("yaml")
 READY = (
@@ -420,6 +421,7 @@ class GatewayResolutionTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars or pyyaml are not installed")
+@needs_typescript
 class GatewayToolTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

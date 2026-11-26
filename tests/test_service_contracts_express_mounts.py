@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
+from typescript_ready import needs_typescript
 
 READY = (
     importlib.util.find_spec("tree_sitter")
@@ -90,6 +91,7 @@ export default router;
 
 
 @unittest.skipUnless(READY, "tree-sitter JavaScript/TypeScript is not installed")
+@needs_typescript
 class ExpressMountTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
