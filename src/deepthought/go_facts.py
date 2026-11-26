@@ -98,6 +98,8 @@ class GoCall:
     # (file, line) of the declaration of each argument's named type, when it
     # is in the module tree (None otherwise).
     declarations: tuple[tuple[str, int] | None, ...] = ()
+    # Whether each argument's static type is an interface.
+    interfaces: tuple[bool, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -628,6 +630,7 @@ def _read(text, directory, members, facts):
                         else None
                         for a in arguments
                     ),
+                    tuple(bool(a.get("interface")) for a in arguments),
                 )
             )
         elif kind == "signature":
