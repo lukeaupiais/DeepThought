@@ -62,9 +62,7 @@ FILES = {
         }
     ),
     "src/helper.ts": (
-        "export function formatName(name: string): string {\n"
-        "  return name.trim();\n"
-        "}\n"
+        "export function formatName(name: string): string {\n  return name.trim();\n}\n"
     ),
     "src/components/Greeting.vue": GREETING,
     # A component written in TSX, and one whose script is another file.
@@ -167,7 +165,9 @@ class ComponentTests(unittest.TestCase):
                 if d.file == "src/components/Badge.vue"
             ],
         )
-        calls = {(c.callee, c.line, c.column) for c in result.call_sites if c.file == vue}
+        calls = {
+            (c.callee, c.line, c.column) for c in result.call_sites if c.file == vue
+        }
         self.assertTrue(
             {("formatName", 15, 9), ("greet", 17, 29), ("computed", 17, 14)} <= calls
         )
