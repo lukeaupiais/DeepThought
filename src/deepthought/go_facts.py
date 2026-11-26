@@ -100,6 +100,48 @@ class GoCall:
     declarations: tuple[tuple[str, int] | None, ...] = ()
     # Whether each argument's static type is an interface.
     interfaces: tuple[bool, ...] = ()
+    # References (see GoRef) of the receiver expression and of what the
+    # result is assigned to; of each argument, the variable, field or call it
+    # is, the module's function it names or calls, and a func literal's first
+    # parameter.
+    operand: tuple | None = None
+    assigned: tuple | None = None
+    reference: tuple | None = None
+    refs: tuple = ()
+    functions: tuple = ()
+    literal_parameters: tuple = ()
+
+
+# A reference gofacts gives: ("o", file, line, column) of a variable or field
+# declaration, ("c", file, line, column) of a call, ("f", file, line, column)
+# of a function or method declaration; columns 0-based. One object gives the
+# same reference in every file of its module.
+
+
+@dataclass(frozen=True)
+class GoPass:
+    """A call of the module's own function passing values of library types:
+    (argument reference, callee parameter reference) pairs."""
+
+    file: str
+    line: int
+    column: int
+    callee: tuple
+    arguments: tuple
+
+
+@dataclass(frozen=True)
+class GoNew:
+    """A call of a library's constructor: a package function whose first
+    result is a type of its own package (gin.Default())."""
+
+    file: str
+    line: int
+    column: int
+    type: tuple[str, str]
+    function: str
+    assigned: tuple | None
+    reference: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +206,11 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    passes: list[GoPass] = field(default_factory=list)
+    # (assigned reference, assigned-from reference) of library-typed values
+    # assigned from a variable, field or parameter.
+    aliases: list[tuple] = field(default_factory=list)
+    constructors: list[GoNew] = field(default_factory=list)
     structs: list[GoStruct] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
@@ -275,6 +322,10 @@ def _environment(go, goroot=None, modfile=None):
     module files read only, the toolchain on hand. A binary built with
     -trimpath knows no GOROOT, so the run is told the toolchain's."""
     environment = dict(os.environ)
+    # A GOROOT inherited from the caller belongs to another toolchain (a
+    # module asking for a newer Go runs the cached one): each go command
+    # finds its own unless the toolchain's is given.
+    environment.pop("GOROOT", None)
     if goroot:
         environment["GOROOT"] = goroot
     environment.update(
@@ -309,6 +360,7 @@ def download(go, directory, modfile, timeout=900):
     the Go release it asks for) into the module cache. "downloaded", or
     "download_failed: <first line of the error>"."""
     environment = dict(os.environ)
+    environment.pop("GOROOT", None)
     environment.update(
         GOFLAGS=f"-mod=mod -modfile={modfile}",
         GOTOOLCHAIN="auto",
@@ -400,9 +452,11 @@ def _type(value):
     return (value["package"], value["name"]) if value else None
 
 
-def collect(root, files, module_directories, *, timeout=600):
+def collect(root, files, module_directories, *, timeout=1800):
     """GoFacts of the Go ``files`` (relative paths) of ``root``, one gofacts
-    run per module directory (relative, "" for the root)."""
+    run per module directory (relative, "" for the root). ``timeout`` bounds
+    each run: type-checking every package of a large module from source
+    (guacsec/guac, 1.2k packages) takes about ten minutes."""
     facts = GoFacts()
     files = sorted(files)
     modules = sorted(module_directories, key=lambda d: (-len(d), d))
@@ -584,6 +638,13 @@ def _read(text, directory, members, facts):
     def relative(path):
         return posixpath.join(directory, path) if directory and path else path
 
+    def ref(value):
+        if not value:
+            return None
+        kind, rest = value.split(":", 1)
+        path, line, column = rest.rsplit(":", 2)
+        return (kind, relative(path), int(line), int(column) - 1)
+
     errors = {}
     seen = set()
     for line in text.splitlines():
@@ -628,6 +689,54 @@ def _read(text, directory, members, facts):
                         for a in arguments
                     ),
                     tuple(bool(a.get("interface")) for a in arguments),
+                    ref(item.get("operand")),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
+                    tuple(ref(a.get("ref")) for a in arguments),
+                    tuple(ref(a.get("function")) for a in arguments),
+                    tuple(ref(a.get("literal")) for a in arguments),
+                )
+            )
+        elif kind == "pass":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "pass")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.passes.append(
+                GoPass(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    ref(item["callee"]),
+                    tuple(
+                        (ref(a.get("ref")), ref(a.get("parameter")))
+                        for a in item.get("arguments") or ()
+                    ),
+                )
+            )
+        elif kind == "alias":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "alias")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.aliases.append((ref(item["assigned"]), ref(item["operand"])))
+        elif kind == "new":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "new")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.constructors.append(
+                GoNew(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    item.get("method", ""),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
                 )
             )
         elif kind == "signature":
