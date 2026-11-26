@@ -28,6 +28,11 @@ SCHEMA_QUERIES = (
         "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
     (
+        # "What is declared at file:line" is a common first question.
+        "CREATE INDEX deepthought_symbol_location IF NOT EXISTS "
+        "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.file_path)"
+    ),
+    (
         "CREATE INDEX deepthought_unresolved_call_name IF NOT EXISTS "
         "FOR (n:UnresolvedCall) ON (n.repo_url,n.snapshot_id,n.name)"
     ),

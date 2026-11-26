@@ -239,6 +239,23 @@ def _query_strings(query, parameters):
     return list(dict.fromkeys(v for v in found if v and len(v) <= 300))
 
 
+async def _hinted(read):
+    """``read``, with a fix named for Cypher errors agents commonly make."""
+    try:
+        return await read
+    except Exception as error:
+        message = str(getattr(error, "message", "") or error)
+        if "UNION must have the same" in message or (
+            "UNION" in message and "column names" in message
+        ):
+            raise ValueError(
+                message + " Fix: give each UNION part the same columns, with the same"
+                " aliases in the same order (RETURN a.name AS name, ... in every"
+                " part)."
+            ) from error
+        raise
+
+
 _PLAN_REFUSED = ("ProcedureCall", "LoadCSV", "SystemProcedureCall")
 
 
@@ -2930,16 +2947,18 @@ class GraphQueryService:
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
         _check_cypher(query, parameters, allow_database_scope)
-        response = await self._read(
-            query,
-            parameters,
-            repo_url,
-            snapshot_id,
-            limit=limit,
-            max_output_bytes=max_output_bytes,
-            timeout=timeout,
-            database_scope=True,
-            bare=True,
+        response = await _hinted(
+            self._read(
+                query,
+                parameters,
+                repo_url,
+                snapshot_id,
+                limit=limit,
+                max_output_bytes=max_output_bytes,
+                timeout=timeout,
+                database_scope=True,
+                bare=True,
+            )
         )
         if "items" in response and not response["items"]:
             reasons = await self._why_empty(
@@ -2974,17 +2993,19 @@ class GraphQueryService:
         from .result_text import render
 
         _check_cypher(query, parameters, allow_database_scope)
-        response = await self._read(
-            query,
-            parameters,
-            repo_url,
-            snapshot_id,
-            limit=limit,
-            max_output_bytes=max_output_bytes,
-            timeout=timeout,
-            database_scope=True,
-            raw_output_bytes=_RAW_TEXT_BYTES,
-            freshness=False,
+        response = await _hinted(
+            self._read(
+                query,
+                parameters,
+                repo_url,
+                snapshot_id,
+                limit=limit,
+                max_output_bytes=max_output_bytes,
+                timeout=timeout,
+                database_scope=True,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
+            )
         )
         known, wanted = set(), set()
 

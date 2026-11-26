@@ -709,6 +709,15 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     text.splitlines()[:2], ["No results.", raw["why_empty"][0]]
                 )
+                # A UNION whose parts return different columns names the fix.
+                with self.assertRaisesRegex(ValueError, "same aliases"):
+                    await service.query_cypher(
+                        "RETURN 1 AS a UNION RETURN 2 AS b",
+                        {},
+                        repo,
+                        snapshot_id=snapshot,
+                        allow_database_scope=True,
+                    )
                 with self.assertRaises(ValueError):
                     await service.query_cypher_text(
                         "MATCH (n) DETACH DELETE n",
