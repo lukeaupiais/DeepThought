@@ -14,7 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from .components import PACKAGE_KINDS
-from .source_roles import ROLE_PATTERNS, exclusion_pattern
+from .source_roles import GENERATED_ROLE, ROLE_PATTERNS, exclusion_pattern
 
 # A query that is one identifier also finds members named by it.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
@@ -28,6 +28,31 @@ _IMPACT_BACKWARD = (
     "|REFERENCES_TABLE|CARRIES"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+# A contract's messages, for ``contract`` actions: the declarations named
+# like protoc's request and response types that the signature of each
+# client's stub method names (SIGNATURE_USES, from SCIP), found through the
+# call at the line each REQUESTS edge records. They are ``known`` when the
+# Go type checker gave the contract its ``message_types``, or when every
+# client's stub names one and every provider's signature names one.
+_CONTRACT_MESSAGES = (
+    "CALL { WITH root "
+    "WITH root, [x IN [root.request_message, root.response_message] "
+    "WHERE x IS NOT NULL | last(split(x, '.'))] AS names "
+    "OPTIONAL MATCH (client)-[r:REQUESTS]->(root) "
+    "WHERE client.repo_url=$repo_url AND client.snapshot_id=$snapshot_id "
+    "OPTIONAL MATCH (client)-[c:CALLS]->(:Symbol)-[:SIGNATURE_USES]->(m:Symbol) "
+    "WHERE r IS NOT NULL AND c.line = r.line "
+    "AND c.name = last(split(r.request, '.')) "
+    "AND last(split(m.name, '.')) IN names "
+    "WITH r, collect(DISTINCT m) AS found "
+    "RETURN collect(CASE WHEN r IS NULL THEN null ELSE found END) AS clients } "
+    "WITH root, parts, clients, "
+    "reduce(acc = [], found IN clients | acc + found) AS messages "
+    "WITH root, parts, messages, root.message_types IS NOT NULL OR ("
+    "size(messages) > 0 AND all(found IN clients WHERE size(found) > 0) "
+    "AND all(p IN parts WHERE any(m IN messages WHERE (p)-[:SIGNATURE_USES]->(m)))"
+    ") AS known "
+)
 # What each dependent must do about a change (``action``), from the change's
 # kind: a declaration's ``signature`` (its parameters or results) or
 # ``behaviour`` (its body only), or a ``contract`` (its messages).
@@ -36,7 +61,7 @@ _IMPACT_ACTIONS = {
     "signature": "CASE nearest WHEN 1 THEN 'must_change' ELSE 'retest' END AS action, ",
     "behaviour": "'retest' AS action, ",
     "contract": "CASE WHEN carried = 1 THEN 'must_change' "
-    "WHEN root.message_types IS NOT NULL THEN 'retest' "
+    "WHEN known THEN 'retest' "
     "ELSE 'unknown' END AS action, ",
 }
 # The labels a Contract node carries beside ``Contract``.
@@ -52,6 +77,15 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+# Whether a generator wrote the dependent's file: its File node carries
+# generated_by (see generated_files).
+_GENERATED_FILE = (
+    "EXISTS { MATCH (generated:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+    "WHERE generated.path = coalesce(dependent.file_path, dependent.path) "
+    "AND generated.generated_by IS NOT NULL }"
+)
 
 
 # A declaration given by place rather than name: "path/to/file.py:42".
@@ -1219,7 +1253,8 @@ class GraphQueryService:
         Each dependent is ``direct`` (depth 1: it uses the change itself, so
         it may need an edit) or ``transitive`` (deeper: its behaviour may
         change, so it needs re-testing), and lists its ``source_roles``
-        (``test``, ``example``; see ``source_roles``). ``exclude_roles``
+        (``test``, ``example``, and ``generated`` from the file's
+        ``generated_by``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
 
         Each dependent also has an ``action`` for the kind of ``change``:
@@ -1284,7 +1319,11 @@ class GraphQueryService:
             "RETURN c.qualified_name AS qualified_name, "
             "[label IN labels(c) WHERE label IN $kinds][0] AS kind, "
             "coalesce(c.display_name, c.name) AS name, c.file_path AS file_path, "
-            "providers, clients "
+            "providers, clients, "
+            # gRPC: protoc's message types, and the Go types (see impact).
+            "c.request_message AS request_message, "
+            "c.response_message AS response_message, "
+            "c.message_types AS message_types "
             "ORDER BY kind, name, qualified_name LIMIT $fetch_limit",
             {"query": query, "kind": kind, "kinds": list(CONTRACT_KINDS)},
             repo_url,
@@ -1484,7 +1523,21 @@ class GraphQueryService:
         action=None,
     ):
         _text(subject, "subject")
-        exclude = exclusion_pattern(exclude_roles)
+        # "generated" is read from the dependent's File (generated_by, by
+        # Linguist's rules), not from its path like the other roles.
+        exclude_generated = isinstance(
+            exclude_roles, (list, tuple, set, frozenset)
+        ) and (GENERATED_ROLE in exclude_roles)
+        path_roles = (
+            [r for r in exclude_roles if r != GENERATED_ROLE]
+            if exclude_generated
+            else exclude_roles
+        )
+        exclude = (
+            None
+            if exclude_generated and not path_roles
+            else exclusion_pattern(path_roles)
+        )
         if type(offset) is not int or not 0 <= offset <= 100_000:
             raise ValueError("offset must be an integer from 0 to 100000")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
@@ -1502,27 +1555,35 @@ class GraphQueryService:
             )
         statement = (
             (
-                seeds + "WITH root, [root] + parts AS changed "
+                seeds
+                + (
+                    _CONTRACT_MESSAGES
+                    if action == "contract"
+                    else "WITH root, parts, [] AS messages, false AS known "
+                )
+                + "WITH root, messages, known, [root] + parts AS changed "
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
                 "AND ($exclude IS NULL OR NOT "
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
+                "AND NOT ($exclude_generated AND GENERATED) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
-                "WITH root, dependent, target, path, "
+                "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
-                "WITH root, dependent, target, path, CASE "
+                "WITH root, messages, known, dependent, target, path, CASE "
                 "WHEN 'name_matched' IN kinds THEN 2 "
                 "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness, "
                 # A path through declarations that each carry the changed
                 # contract's messages (CARRIES_MESSAGE) hands the dependent
                 # those messages: it builds or reads them.
                 "all(n IN nodes(path)[1..] WHERE n = root OR "
-                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) }) AS carried "
+                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) } OR "
+                "any(m IN messages WHERE (n)-[:SIGNATURE_USES]->(m))) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH root, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "WITH root, known, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
                 "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried, "
                 # The lines of every edge the dependent starts toward the
                 # change, on any path.
@@ -1537,7 +1598,8 @@ class GraphQueryService:
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
                 "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
-                "=~ role.pattern | role.name] AS source_roles, "
+                "=~ role.pattern | role.name] + "
+                "CASE WHEN GENERATED THEN ['generated'] ELSE [] END AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
@@ -1549,6 +1611,7 @@ class GraphQueryService:
                 "SKIP $offset LIMIT $fetch_limit"
             )
             .replace("ACTION", _IMPACT_ACTIONS[action])
+            .replace("GENERATED", _GENERATED_FILE)
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1560,6 +1623,7 @@ class GraphQueryService:
                 "offset": offset,
                 "evidence": evidence,
                 "exclude": exclude,
+                "exclude_generated": exclude_generated,
                 "roles": _ROLES,
                 "reverse": (reverse or "").split("|") if reverse else [],
             },

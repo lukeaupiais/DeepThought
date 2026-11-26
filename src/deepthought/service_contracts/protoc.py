@@ -250,6 +250,8 @@ def _methods(descriptor, path):
                     _STREAMING[
                         bool(method.client_streaming), bool(method.server_streaming)
                     ],
+                    method.input_type.lstrip("."),
+                    method.output_type.lstrip("."),
                 )
             )
             if extension is not None and method.options.HasExtension(extension):
