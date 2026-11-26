@@ -95,6 +95,9 @@ class GoCall:
     messages: tuple[tuple[str, str], ...] = ()
     name_line: int | None = None
     name_column: int | None = None
+    # (file, line) of the declaration of each argument's named type, when it
+    # is in the module tree (None otherwise).
+    declarations: tuple[tuple[str, int] | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -594,6 +597,12 @@ def _read(text, directory, members, facts):
                     tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
                     item.get("name_line"),
                     item["name_column"] - 1 if item.get("name_column") else None,
+                    tuple(
+                        (relative(a["type"]["file"]), a["type"]["line"])
+                        if (a.get("type") or {}).get("file")
+                        else None
+                        for a in arguments
+                    ),
                 )
             )
         elif kind == "signature":

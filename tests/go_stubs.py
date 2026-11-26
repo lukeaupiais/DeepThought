@@ -121,6 +121,23 @@ func (c *Consumer) Subscribe(topic string, cb RebalanceCb) error { return nil }
 """,
     },
 }
+STUBS["github.com/gin-gonic/gin"] = {
+    "gin.go": """package gin
+
+type H map[string]any
+type Context struct{}
+
+func (c *Context) ShouldBindJSON(obj any) error { return nil }
+func (c *Context) JSON(code int, obj any)        {}
+
+type HandlerFunc func(*Context)
+type Engine struct{}
+
+func Default() *Engine                                    { return &Engine{} }
+func (e *Engine) POST(path string, handlers ...HandlerFunc) {}
+func (e *Engine) Run(addr ...string) error                 { return nil }
+""",
+}
 STUBS["github.com/rabbitmq/amqp091-go"] = {
     "channel.go": STUBS["github.com/streadway/amqp"]["channel.go"].replace(
         "package amqp\n", "package amqp091\n", 1
