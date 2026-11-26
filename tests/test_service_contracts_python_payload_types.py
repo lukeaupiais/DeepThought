@@ -140,7 +140,9 @@ class FastApiPayloadTypeTests(unittest.TestCase):
                 r.properties["rule_id"],
             )
             for r in output.relationships
-            if r.type == "CARRIES"
+            # The types the fields and bases hold (Order derives from
+            # OrderIn) are tested in test_service_contracts_payload_field_types.
+            if r.type == "CARRIES" and "via" not in r.properties
         )
         return found, output.metadata.custom_metrics["payload_types_unresolved"]
 

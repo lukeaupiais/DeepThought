@@ -29,7 +29,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
 | libs/analysis/.../parsers/utils/base/core.py `create_containment_relationships` (parent `CONTAINS` child by `parent_qname`) | deepthought.analysis_tools.tree_sitter + GraphQueryService.get_members/get_owner | Declaration -> CONTAINS -> nested declaration from parse-tree spans under a registered `resolved` rule (see below) |
-| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
+| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.scip_bases + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM from the SCIP reference at each base (`resolved`), else by the call name-binding rules (`name_matched`); `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
@@ -143,38 +143,65 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
-### Python imports from scip-python
+### Imports from the SCIP indexers
 
-In a file a scip-python index covers, an absolute import is resolved as the
-interpreter would resolve it: each Python project (a directory with a
-`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
-directory with its `src`, so the FastAPI template's `backend/app` imports as
-`app`, and pyright searches those roots, the project's installed dependencies
-and the standard library. scip-python records the module at each
-name the statement writes, including the submodules `from a import b` names.
+In a file a SCIP index covers, an import is resolved as the language's own
+tooling resolves it, and the indexer records that module at the name the
+statement writes. A module the index defines links the importing file to the
+files defining it (IMPORTS); any other module is external and becomes an
+IMPORTS_PACKAGE edge to an ExternalPackage node named with its package and
+version as the index states them (`ecosystem` python, go or npm). The edge
+lists the modules imported. Externally resolved specifiers are listed in the
+File's `external_imports`, not `unresolved_imports`.
+
+- Python: each Python project (a directory with a `pyproject.toml`,
+  `setup.cfg` or requirements file) is indexed from its own directory with its
+  `src`, so the FastAPI template's `backend/app` imports as `app`, and pyright
+  searches those roots, the project's installed dependencies and the standard
+  library. scip-python records the module at each name the statement writes,
+  including the submodules `from a import b` names. Packages read
+  `python-stdlib 3.13` or `pydantic 2.12.5`.
+- Go: the go command's package loading through go.mod, replace directives and
+  the module cache. The link reaches each non-test file whose package clause
+  defines the package and that `go list` compiles on the engine's platform
+  (linux/amd64; a `//go:build windows` file is not linked). Packages read
+  `github.com/go-chi/chi/v5 v5.2.1`, at the version the importing module's
+  go.mod requires (`go mod edit -json`, replace directives applied): scip-go's
+  own form drops `+incompatible` and cuts a pseudo-version to its commit. The
+  standard library is the Go repository's `github.com/golang/go/src` module at
+  the go.mod's Go version (`go1.24`).
+- TypeScript and JavaScript: the TypeScript compiler's module resolution
+  through tsconfig, package.json, node_modules and workspaces. A module is a
+  file, or an ambient module a declaration file declares (`declare module
+  "node:buffer"` in `@types/node`). Packages read `@types/node 25.9.12`.
 
 | Rule | Evidence | Meaning |
 | --- | --- | --- |
 | `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
-| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: an installed distribution or the standard library |
+| `scip.go-import-module` | resolved | IMPORTS: a package whose files the index defines, each non-test file of it |
+| `scip.go-import-package` | resolved | IMPORTS_PACKAGE: a package of another module or of the standard library |
+| `scip.typescript-import-module` | resolved | IMPORTS: the file the compiler resolves the specifier to |
+| `scip.typescript-import-package` | resolved | IMPORTS_PACKAGE: a file or ambient module of an npm package |
 
-Externally resolved specifiers are listed in the File's `external_imports`, not
-`unresolved_imports`. A covered absolute import with no module occurrence
-stays unresolved (`scip_no_occurrence`): pyright found no module, for example
-a dependency that is not installed. Two cases keep the path rules. Relative
-imports do, because scip-python 0.6.8 names the module of `from .models import
-X` by the written remainder alone (`` `models`/__init__: ``), which is another
-project's top-level `models` or nothing. A from-import of an in-repository
-package also keeps the path rule's links to the submodules it names (`from
-flask import json`), which the index records as attributes of the package.
-Files no index covers keep the path rules throughout. scip-python 0.6.8 also
-names a module's package from the installed distributions' file lists rather
-than from pyright's resolution, so a wheel that ships a top-level `tests`
-package (msal-extensions does) labels the repository's own `tests` as its
-module. A module that the same index defines links to its document instead:
-pyright searched the local roots first and resolved the names to it. Tool metadata counts
-scip-python's decisions in `scip_python_imports` and the packages in
-`python_packages`.
+A covered import with no module occurrence keeps a path rule's links if it has
+them; otherwise it stays unresolved (`scip_no_occurrence`): the tooling found
+no module, for example a dependency that is not installed, a stylesheet, or a
+package's import of itself by name when its build output is missing. Python
+relative imports keep the path rules, because scip-python 0.6.8 names the
+module of `from .models import X` by the written remainder alone (``
+`models`/__init__: ``), which is another project's top-level `models` or
+nothing. A Python from-import of an in-repository package also keeps the path
+rule's links to the submodules it names (`from flask import json`), which the
+index records as attributes of the package. scip-python 0.6.8 also names a
+module's package from the installed distributions' file lists rather than
+from pyright's resolution, so a wheel that ships a top-level `tests` package
+(msal-extensions does) labels the repository's own `tests` as its module. A
+module that the same index defines links to its document instead: pyright
+searched the local roots first and resolved the names to it. Files no index
+covers keep the path rules throughout. Tool metadata counts the indexes'
+decisions by language in `scip_imports` and the packages in
+`external_packages`.
 
 ## Calls
 
@@ -554,6 +581,20 @@ and `unknown` when it has not (no type facts for that contract yet: HTTP
 routes, GraphQL fields, message destinations, tables, and gRPC methods with
 clients or handlers outside type-checked Go).
 
+For a database column (`DbColumn`) the change is to the column itself
+(renamed, dropped or retyped). Its providers, the change set, are the
+migration files that declare it and the code whose SQL writes it
+(`WRITES_COLUMN`); the code whose SQL reads it (`READS_COLUMN`) `must_change`,
+and every caller of a reader or writer is `retest`. Paths through the
+column's table are not followed, since they say nothing about the column:
+code that reads only other columns is not affected. Code that reads or
+writes the table where the statement's columns did not all resolve (no
+`columns_resolved` on its READS or WRITES edge: SQL sqlglot does not parse,
+a name that is no column of the table, JPQL, MyBatis, ORM calls) and ORM
+classes mapped to the table are listed under `unresolved_users` (absent when
+there are none): whether they use the column is not known. Foreign keys that
+name the column are not yet followed column by column.
+
 For gRPC methods in any language an index covers, the messages also come
 from SCIP: the GrpcMethod node has protoc's `request_message` and
 `response_message`, and each client's stub call (the CALLS edge from the
@@ -912,9 +953,29 @@ classes and TypeScript/JavaScript `extends` entries are `extends`, a TypeScript
 class's `implements` entries are `implements`. Only plain or dotted names are
 recorded, without type arguments (`Generic[T]` and `Base<T>` name `Generic`
 and `Base`); keyword arguments such as `metaclass=`, splats and call
-expressions such as mixins are not. `deepthought.inheritance.resolve_supertypes`
-applies the call name-binding rules, so every INHERITS_FROM edge is
-`name_matched`:
+expressions such as mixins are not.
+
+In files a SCIP index covers (Python through scip-python, TypeScript and
+JavaScript through scip-typescript), `deepthought.scip_bases` takes the base
+from the reference the indexer records at the base's last name, as the
+compiler or type checker binds it through imports, package re-exports and
+aliases:
+
+| Rule | Links |
+|---|---|
+| `scip.python-base` | a Python base to the one repository class scip-python references there |
+| `scip.typescript-base` | an `extends` or `implements` entry to the one repository class or interface scip-typescript references there |
+
+Both are `resolved` and carry the indexer as `producer` and its receipt. A
+base the index references outside the repository (installed packages,
+TypeScript's own library) gets no edge and counts as `scip_external`, even
+when a repository class has the same name. In Python, a declaration of
+another name is taken only where an import of the file binds the written name
+to it, since scip-python follows `from m import *` re-exports to wrong
+symbols. Where the index records no reference at the base, or names a
+repository declaration these rules do not take, and in files no index covers,
+`deepthought.inheritance.resolve_supertypes` applies the call name-binding
+rules, whose INHERITS_FROM edges are `name_matched`:
 
 | Rule | Links |
 |---|---|
@@ -930,7 +991,8 @@ QUALIFIED_NAME` (MCP getBaseTypes and getSubtypes) return direct edges with an
 optional evidence filter, and `get_class_hierarchy` follows them through
 classes and interfaces. The original tool emitted the same relation for names
 its symbol resolver found; it is now limited to these rules and marked with
-its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
+its evidence. The SCIP tool's IMPLEMENTS edges add indirect supertypes and
+overridden members.
 Rust impl blocks and supertraits give `resolved` INHERITS_FROM edges of their
 own (see "Rust impls").
 
@@ -3862,6 +3924,35 @@ reference for count in `payload_types_unresolved`, and nothing is guessed.
 The `graph` command hands the indexes it ingested once to the
 `service-contracts` and `data-contracts` tools as well as `tree-sitter`.
 
+#### Field types
+
+A carried type's fields carry their own types, transitively: the route or
+destination CARRIES each type a field of a carried type holds, with the
+same `direction` and `body_key`, `via` listing the fields followed from
+the directly carried type and `via_field` the last of them. A field is
+written `Owner.field`; a base the type extends, embeds or implements is
+written `Owner(Base)`, its fields being the owner's. The edge's
+`file_path` and `line` are the field's. The chain is followed breadth
+first, so the shortest one is recorded, up to six fields deep; a type
+already carried, directly or through another chain, is not added again,
+which also ends cycles. Each field's type comes from the language's own
+tool:
+
+| Edge | Rule | Evidence | Fires on |
+|---|---|---|---|
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments, inline structs and named non-struct types (`type Labels []Label` carries `Labels` and `Label`); `json:"-,"` names a field "-", which is written; `gofacts` prints each package-level struct's fields from go/types |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.ts-field-type` | resolved | a property or constructor parameter property (not static) of a carried class, interface or object type alias, written with a type naming this declaration, read as handler types are; or a class or interface it extends or implements |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.python-field-type` | resolved | an attribute a carried class annotates in its body (not a `ClassVar`) whose annotation names this class, through the scip-python index as for handler annotations; or a class of the repository it derives from |
+
+Types declared in a library (`time.Time`, `datetime`, a type in
+`node_modules`) are not followed. A field the Go type checker types as an
+interface, a TypeScript property typed `any` or naming nothing the
+compiler resolves, and a Python annotation name with no index reference
+count in `payload_field_types_unresolved`, next to `payload_field_types`
+(the edges added). A Python annotation written as a string (a forward
+reference) is not read. A field read from a type outside the analyzed
+languages (Go, TypeScript and JavaScript, Python) is not followed.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
@@ -5949,6 +6040,13 @@ of the selected snapshot with:
 Snapshots store the evidence type and rule ID, not the rule text. The description
 comes from the rules registered by the installed version, which is why
 `rule_status` is reported. An unknown `edge_id` gives status `not_found`.
+
+Every stored node also carries the label `GraphNode`. It holds the identity
+constraint on (`repo_url`, `snapshot_id`, `qualified_name`) across all node
+kinds and the index that edge writes and whole-snapshot reads match on: Neo4j
+constraints and indexes are per label, and the label set is open. It says
+nothing about the node, so the labels that answers list (nodes returned by
+Cypher, impact dependents, edge endpoints, snapshot diffs) leave it out.
 
 ## Provision and use
 
