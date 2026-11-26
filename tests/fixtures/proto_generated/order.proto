@@ -1,0 +1,29 @@
+syntax = "proto3";
+package shop.v1;
+option go_package = "example.com/shop/pb";
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+}
+
+message Order {
+  message Line {
+    enum Kind {
+      KIND_UNSPECIFIED = 0;
+    }
+    string sku = 1;
+    Kind kind = 2;
+  }
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+  }
+  repeated Line lines = 1;
+  map<string, int32> totals = 2;
+  Status status = 3;
+  Channel channel = 4;
+}
+
+message Item {
+  message Tag { string name = 1; }
+  repeated Tag tags = 1;
+}

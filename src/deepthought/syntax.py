@@ -154,6 +154,22 @@ def _rust_kind(node, kind):
     return kind
 
 
+# JavaScript and TypeScript class fields, by the field naming them.
+_JS_FIELDS = {"field_definition": "property", "public_field_definition": "name"}
+
+
+def _js_function_value(value):
+    """Whether a declared value is a function: an arrow function, or a
+    function expression without its own name."""
+    return value is not None and (
+        value.type == "arrow_function"
+        or (
+            value.type in {"function_expression", "function", "generator_function"}
+            and value.child_by_field_name("name") is None
+        )
+    )
+
+
 def identifier(
     repository_id: str, file: str, symbol: str, kind: str, ordinal: int | str
 ) -> str:
@@ -222,23 +238,22 @@ def extract(
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
             name = node.child_by_field_name("name")
+            # An anonymous function expression (`function* () {}`); a named
+            # one keeps its own name.
             if (
-                value is not None
-                and (
-                    value.type == "arrow_function"
-                    # An anonymous function expression (`function* () {}`);
-                    # a named one keeps its own name.
-                    or (
-                        value.type
-                        in {"function_expression", "function", "generator_function"}
-                        and value.child_by_field_name("name") is None
-                    )
-                )
+                _js_function_value(value)
                 and name is not None
                 and name.type == "identifier"
             ):
                 kind = "Function"
         name_node = node.child_by_field_name("name") if kind else None
+        if node.type in _JS_FIELDS and _js_function_value(
+            node.child_by_field_name("value")
+        ):
+            # A class field holding a function (`fetch = async () => {}`)
+            # declares a method: its body's calls are the field's.
+            kind = "Method"
+            name_node = node.child_by_field_name(_JS_FIELDS[node.type])
         if node.type == "type_spec":
             kind = _GO_TYPE_KINDS.get(
                 getattr(node.child_by_field_name("type"), "type", None), "Type"
@@ -331,7 +346,7 @@ def extract(
                 arity = {"overload": True}
                 if any(c.type == "static" for c in node.children):
                     arity["static"] = True
-            elif node.type == "method_definition" and any(
+            elif node.type in {"method_definition", *_JS_FIELDS} and any(
                 c.type == "static" for c in node.children
             ):
                 arity = {"static": True}
