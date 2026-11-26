@@ -1142,6 +1142,15 @@ class ScipCallTests(unittest.TestCase):
                     "scip-typescript@1.0",
                     "sha256:ts",
                 ),
+                # The second helper(), which the index has no occurrence for,
+                # and a function value: what Jelly finds is called there.
+                (
+                    "helper",
+                    "jelly.call-points-to",
+                    "resolved",
+                    "jelly@0.13.0",
+                    None,
+                ),
                 (
                     "helper",
                     "scip.call-occurrence",
@@ -1151,6 +1160,13 @@ class ScipCallTests(unittest.TestCase):
                 ),
                 # b.ts imports helper from a.ts, which exports it only as
                 # aliasName: the compiler binds nothing.
+                (
+                    "hh",
+                    "jelly.call-points-to",
+                    "resolved",
+                    "jelly@0.13.0",
+                    None,
+                ),
                 (
                     "inner",
                     "scip.call-local-symbol",

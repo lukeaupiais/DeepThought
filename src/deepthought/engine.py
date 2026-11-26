@@ -46,7 +46,13 @@ from .syntax import (
     make_parser,
     parse_source,
     rust_macro_rules,
+    script_source,
     RustExpander,
+)
+from .vue_sfc import (
+    SUFFIX as VUE_SUFFIX,
+    VUE_COMPILER_SFC_VERSION,
+    prefetch as prefetch_components,
 )
 from ._version import __version__
 
@@ -200,6 +206,17 @@ def reusable_files(previous, repository_id):
 _SKIPPED_DIRECTORIES = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 
 
+def _components_under(root):
+    """Every Vue component under ``root`` that the walk may read."""
+    found = []
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
+        for name in names:
+            if name.endswith(VUE_SUFFIX):
+                found.append((Path(directory) / name).relative_to(root).as_posix())
+    return sorted(found)
+
+
 def _source_language(name, languages):
     """The language of ``languages`` whose source suffix ``name`` has, or
     None."""
@@ -275,6 +292,7 @@ def analyze_repository(
     packages = []
     impls = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
+    vue_read = False
     if "rust" in languages:
         try:
             versions[RUST_ITEM_MACROS] = _rust_item_macros(
@@ -468,6 +486,14 @@ def analyze_repository(
                         )
                     imports.extend(facts)
                     continue
+                if suffix == VUE_SUFFIX and not vue_read:
+                    # Vue's parser reads every component in one run.
+                    vue_read = True
+                    versions["@vue/compiler-sfc"] = VUE_COMPILER_SFC_VERSION
+                    prefetch_components(root, _components_under(root))
+                # A Vue component is read as its script blocks: the tree
+                # and every fact below read that source.
+                suffix, content = script_source(relative, content)
                 key = (language, suffix)
                 if key not in parsers:
                     parsers[key] = make_parser(language, suffix)
