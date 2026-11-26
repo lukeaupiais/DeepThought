@@ -39,6 +39,7 @@ from ..service_contracts.deployed import (
     locust_host,
 )
 from ..service_contracts.folding import compiler_values
+from ..service_contracts.go_payloads import handler_payloads
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -196,6 +197,34 @@ MESSAGE_PAYLOAD_RULES = {
         )
     ),
 }
+GO_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.go-request-body-type",
+            "resolved",
+            "A Go route handler decodes its request body into a value of this "
+            "type: gin's Context.Bind/ShouldBind/BindJSON/ShouldBindJSON, "
+            "echo's Context.Bind or fiber's Ctx.BodyParser, or encoding/json's "
+            "Decoder.Decode on json.NewDecoder(r.Body) of the handler's "
+            "*http.Request; the Go type checker gives the argument's named "
+            "type (through pointers and slices) and its declaration.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.go-response-body-type",
+            "resolved",
+            "A Go route handler encodes its response from a value of this "
+            "type: gin's Context.JSON (IndentedJSON, PureJSON, SecureJSON, "
+            "AsciiJSON), echo's Context.JSON/JSONPretty, fiber's Ctx.JSON, or "
+            "encoding/json's Encoder.Encode on json.NewEncoder(w) of the "
+            "handler's http.ResponseWriter; the Go type checker gives the "
+            "argument's named type (through pointers and slices) and its "
+            "declaration.",
+        )
+    ),
+}
+
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -1043,6 +1072,7 @@ NON_SITE_RULES = frozenset(
     {CARRIES_MESSAGE_RULE.rule_id}
     | {rule.rule_id for rule in PAYLOAD_RULES.values()}
     | {rule.rule_id for rule in MESSAGE_PAYLOAD_RULES.values()}
+    | {rule.rule_id for rule in GO_PAYLOAD_RULES.values()}
 )
 
 
@@ -1800,9 +1830,21 @@ def contract_coverage(repo_url, languages, coverage, sites, unread=None):
     return nodes
 
 
+# Imports of a Go file whose HTTP handlers may decode or encode payloads
+# (go_payloads).
+_GO_HTTP_PAYLOAD_IMPORTS = (
+    b'"encoding/json"',
+    b'"github.com/gin-gonic/gin"',
+    b'"github.com/labstack/echo',
+    b'"github.com/gofiber/fiber',
+)
+
+
 def _go_messaging_facts(root, sources):
-    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
-    type checker for the Go sources that import a broker client; reason is
+    """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
+    calls}) from the Go type checker: the first for the Go sources that
+    import a broker client, the last for those whose HTTP handlers may
+    carry payloads (``_GO_HTTP_PAYLOAD_IMPORTS``); reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
@@ -1810,9 +1852,20 @@ def _go_messaging_facts(root, sources):
         for c, content, _ in sources
         if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
     ]
-    if not files:
-        return {}, {}
-    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    handlers = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go"
+        and c.file.endswith(".go")
+        and any(marker in content for marker in _GO_HTTP_PAYLOAD_IMPORTS)
+    ]
+    if not files and not handlers:
+        return {}, {}, {}
+    facts = go_facts.collect(
+        root,
+        sorted({*files, *handlers}),
+        list(_go_modules(root, sources).values()),
+    )
     calls, literals = defaultdict(list), defaultdict(list)
     for call in facts.calls:
         calls[call.file].append(call)
@@ -1827,7 +1880,29 @@ def _go_messaging_facts(root, sources):
         else:
             reason = None
         found[file] = (calls[file], literals[file], reason)
-    return found, go_facts.gopath_report(facts)
+    handler_calls = {file: calls[file] for file in handlers}
+    return found, go_facts.gopath_report(facts), handler_calls
+
+
+def _declaration_node(tree, definition):
+    """The tree-sitter node of a declaration: the function, method or func
+    literal spanning exactly its lines and columns."""
+    start = (definition.line - 1, definition.column)
+    end = (definition.end_line - 1, definition.end_column)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.start_point > start or node.end_point < end:
+            continue
+        if (
+            tuple(node.start_point) == start
+            and tuple(node.end_point) == end
+            and node.type
+            in ("function_declaration", "method_declaration", "func_literal")
+        ):
+            return node
+        stack.extend(node.children)
+    return None
 
 
 def _go_grpc_carriers(root, sources, grpc, definitions):
@@ -2327,7 +2402,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
-        go_messaging, go_gopath = _go_messaging_facts(root, sources)
+        go_messaging, go_gopath, go_handler_calls = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2888,8 +2963,40 @@ class ServiceContractTool(AnalysisTool):
         carried_edges = set()
         payload_unresolved = 0
 
+        def carry(labels, name, file, line, direction, definition_id, rule, key=None):
+            nonlocal carried
+            if (name, definition_id, direction, key) in carried_edges:
+                return
+            carried_edges.add((name, definition_id, direction, key))
+            target_labels, target = symbol_node(definition_id)
+            carried += 1
+            relationships.append(
+                RelationshipData(
+                    "CARRIES",
+                    labels,
+                    {"qualified_name": name, "repo_url": repo_url},
+                    target_labels,
+                    {"qualified_name": target, "repo_url": repo_url},
+                    {
+                        "direction": direction,
+                        **({"body_key": key} if key else {}),
+                        "file_path": file,
+                        "line": line,
+                        **_evidence(rule),
+                    },
+                )
+            )
+
+        def declaration(file, type_name, line):
+            found = [
+                d
+                for d in declared.get((file, type_name), ())
+                if d.line <= line <= d.end_line
+            ]
+            return found[0].id if len(found) == 1 else None
+
         def carries(file, payloads, labels, name, line, rules):
-            nonlocal carried, payload_unresolved
+            nonlocal payload_unresolved
             types = {} if scripts is None else scripts.compiler.types.get(file, {})
             missing = (
                 {}
@@ -2899,34 +3006,52 @@ class ServiceContractTool(AnalysisTool):
             for direction, start, end, key in payloads:
                 payload_unresolved += missing.get((start, end), 0)
                 for type_file, type_name, type_line, _ in types.get((start, end), ()):
-                    found = [
-                        d
-                        for d in declared.get((type_file, type_name), ())
-                        if d.line <= type_line <= d.end_line
-                    ]
-                    if len(found) != 1:
-                        continue
-                    if (name, found[0].id, direction, key) in carried_edges:
-                        continue
-                    carried_edges.add((name, found[0].id, direction, key))
-                    target_labels, target = symbol_node(found[0].id)
-                    carried += 1
-                    relationships.append(
-                        RelationshipData(
-                            "CARRIES",
+                    found = declaration(type_file, type_name, type_line)
+                    if found is not None:
+                        carry(
                             labels,
-                            {"qualified_name": name, "repo_url": repo_url},
-                            target_labels,
-                            {"qualified_name": target, "repo_url": repo_url},
-                            {
-                                "direction": direction,
-                                **({"body_key": key} if key else {}),
-                                "file_path": file,
-                                "line": line,
-                                **_evidence(rules[direction]),
-                            },
+                            name,
+                            file,
+                            line,
+                            direction,
+                            found,
+                            rules[direction],
+                            key,
                         )
-                    )
+
+        trees = {c.file: (tree, content) for c, content, tree in sources}
+        for route in routes:
+            handler = (
+                None if route.handler_id is None else definitions.get(route.handler_id)
+            )
+            if handler is None:
+                continue
+            calls = go_handler_calls.get(handler.file)
+            tree, content = trees.get(handler.file, (None, None))
+            if not calls or tree is None:
+                continue
+            function = _declaration_node(tree, handler)
+            if function is None:
+                continue
+            inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
+            for direction, (_, type_name), where in handler_payloads(
+                function, content, inside
+            ):
+                if where is None:
+                    continue  # a type of a library, outside the module tree
+                found = declaration(where[0], type_name, where[1])
+                if found is None:
+                    payload_unresolved += 1
+                    continue
+                carry(
+                    ["HttpRoute", "Contract"],
+                    f"{repo_url}::{route.file}::http-route::{route.id}",
+                    route.file,
+                    route.line,
+                    direction,
+                    found,
+                    GO_PAYLOAD_RULES[direction],
+                )
 
         for route in routes:
             if route.payloads:

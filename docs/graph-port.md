@@ -3404,6 +3404,8 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser`, or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
 
@@ -3427,6 +3429,16 @@ repository has its edge. The types not linked are of
 `prisma-examples`, whose models come from the generated client outside the
 repository, and of `travel_booking_microservice`, whose DTOs come from the
 `building-blocks` workspace package, which only an install links.
+
+For Go, the type checker (`gofacts`, `go/types`) gives, for each such
+call in the handler's own body, the package and receiver declaring the
+method, so a method of another type with the same name is not read, and
+the named type of the argument through pointers, slices and arrays with its
+declaration's position, which is the tree-sitter Symbol the edge ends at.
+A decoder or encoder held in a variable counts when the handler assigns
+it once from `json.NewDecoder(r.Body)` or `json.NewEncoder(w)`. Calls in
+functions the handler calls are not followed, and a type declared in a
+library (`gin.H`, `map[string]any`) gives no edge.
 
 ### Gateways
 
