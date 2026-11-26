@@ -1183,10 +1183,10 @@ class TreeSitterTool(AnalysisTool):
             )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
-        for binding in scip_bases.bind_supertypes(
+        for base_binding in scip_bases.bind_supertypes(
             result, base_rules.resolve_supertypes(result), references
         ):
-            resolution = binding.resolution
+            resolution = base_binding.resolution
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
@@ -1210,7 +1210,7 @@ class TreeSitterTool(AnalysisTool):
                         "heritage": item.kind,
                         "line": item.line,
                         "column": item.column,
-                        **_produced(binding.producer),
+                        **_produced(base_binding.producer),
                         **_evidence(BASE_RULES[resolution.rule_id]),
                     },
                 )
