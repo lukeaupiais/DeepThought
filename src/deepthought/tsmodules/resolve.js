@@ -23,6 +23,19 @@
 // the options of the nearest config above it (``options_from``), JavaScript
 // allowed, or, with none, the options TypeScript's language service gives a
 // file outside every project.
+//
+// And, per program, what NestJS injects into each constructor parameter
+// property of a class (``injections``): the parameter's token is the
+// argument of its ``@Inject(token)`` decorator (Inject imported from
+// @nestjs/common), or else the class its type names (an interface names
+// none); a class provider
+// ``{provide: token, useClass: C}`` written anywhere in the program binds
+// the token to C. Tokens and classes are the symbols the checker resolves
+// the names to (imports and re-exports followed), never their spelling:
+//   {"injected", "line", "character", "property", "provided":
+//    [{"file", "line", "character"}, ...]}
+// where ``injected`` is the class's file and line/character (0-based,
+// UTF-16) where its name starts, and each provided class likewise.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -222,6 +235,123 @@ function exportsOf(checker, source) {
   }
 }
 
+const NEST = "@nestjs/common";
+
+function resolvedSymbol(checker, node) {
+  let symbol = checker.getSymbolAtLocation(node);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+    symbol = checker.getAliasedSymbol(symbol);
+  }
+  return symbol && !(symbol.flags & ts.SymbolFlags.Alias) ? symbol : null;
+}
+
+function importedFrom(checker, node, module, name) {
+  // Whether ``node`` names the export ``name`` of ``module`` through an
+  // import of the file: the import is read, so the package need not be
+  // installed.
+  const symbol = checker.getSymbolAtLocation(node);
+  const declaration = symbol && (symbol.declarations || [])[0];
+  if (!declaration || !ts.isImportSpecifier(declaration)) return false;
+  const imported = (declaration.propertyName || declaration.name).text;
+  const statement = declaration.parent.parent.parent;
+  return (
+    imported === name &&
+    ts.isImportDeclaration(statement) &&
+    ts.isStringLiteral(statement.moduleSpecifier) &&
+    statement.moduleSpecifier.text === module
+  );
+}
+
+function property(literal, name) {
+  return literal.properties.find(
+    (p) =>
+      ts.isPropertyAssignment(p) &&
+      (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+      p.name.text === name,
+  );
+}
+
+function at(node) {
+  const source = node.getSourceFile();
+  const start = source.getLineAndCharacterOfPosition(node.getStart(source));
+  return { file: relativeTo(source.fileName), line: start.line, character: start.character };
+}
+
+function injectionsOf(checker, sources) {
+  // Class providers by token, then each injected parameter property whose
+  // token one binds.
+  const providers = new Map();
+  const injected = [];
+  const visit = (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const provide = property(node, "provide");
+      const useClass = property(node, "useClass");
+      if (provide && useClass) {
+        const token = resolvedSymbol(checker, provide.initializer);
+        const provided = resolvedSymbol(checker, useClass.initializer);
+        const declaration =
+          provided && (provided.declarations || []).find(ts.isClassDeclaration);
+        if (token && declaration && declaration.name) {
+          if (!providers.has(token)) providers.set(token, new Map());
+          const row = at(declaration.name);
+          providers.get(token).set(JSON.stringify(row), row);
+        }
+      }
+    }
+    if (
+      ts.isConstructorDeclaration(node) &&
+      ts.isClassDeclaration(node.parent) &&
+      node.parent.name
+    ) {
+      for (const parameter of node.parameters) {
+        if (
+          !ts.isParameterPropertyDeclaration(parameter, node) ||
+          !ts.isIdentifier(parameter.name)
+        ) {
+          continue;
+        }
+        let token = null;
+        for (const decorator of ts.getDecorators(parameter) || []) {
+          const call = decorator.expression;
+          if (
+            ts.isCallExpression(call) &&
+            call.arguments.length === 1 &&
+            importedFrom(checker, call.expression, NEST, "Inject")
+          ) {
+            token = call.arguments[0];
+          }
+        }
+        let symbol = token && resolvedSymbol(checker, token);
+        if (!token && parameter.type && ts.isTypeReferenceNode(parameter.type)) {
+          // Without @Inject the token is the class the type names (the
+          // design:paramtypes metadata); an interface names none.
+          symbol = resolvedSymbol(checker, parameter.type.typeName);
+          if (symbol && !(symbol.flags & ts.SymbolFlags.Class)) symbol = null;
+        }
+        if (symbol) injected.push([node.parent.name, parameter.name.text, symbol]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  for (const source of sources) visit(source);
+  for (const [name, propertyName, token] of injected) {
+    const provided = providers.get(token);
+    if (!provided) continue;
+    const row = at(name);
+    out.push(
+      JSON.stringify({
+        injected: row.file,
+        line: row.line,
+        character: row.character,
+        property: propertyName,
+        provided: [...provided.values()].sort((a, b) =>
+          JSON.stringify(a) < JSON.stringify(b) ? -1 : 1,
+        ),
+      }),
+    );
+  }
+}
+
 const INFERRED = {
   target: ts.ScriptTarget.Latest,
   jsx: ts.JsxEmit.Preserve,
@@ -263,6 +393,14 @@ for (const key of [...groups.keys()].sort()) {
     host: hostFor(options),
   });
   const checker = program.getTypeChecker();
+  injectionsOf(
+    checker,
+    files
+      .slice()
+      .sort()
+      .map((file) => program.getSourceFile(file))
+      .filter(Boolean),
+  );
   for (const file of files.slice().sort()) {
     const source = program.getSourceFile(file);
     if (!source) continue;

@@ -1194,6 +1194,35 @@ indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
 
+### NestJS injection
+
+A call `this.p.m()` in a class whose constructor parameter property `p`
+NestJS injects reaches whatever class the module's providers bind to `p`'s
+token. Before this, such a call linked only to the interface or abstract
+method it names, so "who calls" the method the application actually runs
+came back empty. The TypeScript compiler (`tsmodules/resolve.js`, in the same
+programs as module resolution) reads:
+
+- the token of each parameter property: the argument of its
+  `@Inject(token)` (`Inject` imported from `@nestjs/common`; the import is
+  read, so the package need not be installed), or else the class its type
+  names (an interface names none, as in Nest's `design:paramtypes`);
+- each class provider `{provide: token, useClass: C}` written anywhere in
+  the program, including in arrays spread into a module's `providers`.
+
+Tokens and classes are the symbols the checker resolves the names to
+(imports, re-exports and a `const`/`interface` pair of one name followed),
+never their spelling. Each such call then gets a CALLS edge
+`typescript.call-nest-injected-provider` (`resolved`, `dispatch:
+nest-injection`, `producer: typescript@<version>`) to `m` declared by each
+provided class, or inherited through `extends`. This edge sits beside the
+call's own link. A token bound in two modules to two classes links to both.
+`useValue`, `useFactory` and `useExisting` providers, parameters that are
+not properties, and properties assigned in the constructor body are not
+read. The tool metadata counts `nest_injected_calls` (`sites`, `edges`).
+On immich's server, 254 injected properties are bound and 603 call sites
+gain an edge, each to one class.
+
 ### Vue single-file components
 
 A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
