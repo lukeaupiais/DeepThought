@@ -680,7 +680,15 @@ def score(
     for (file, line), name in known.items():
         named[(file, name)].append(line)
 
+    from deepthought.syntax import TEST_KINDS
+
     def name_of(d):
+        if d.kind in TEST_KINDS and (d.file, d.line) in known:
+            # A test case's name is its call as written (`it("a.b")`,
+            # `it.each(rows)("x")`), dots and modifier arguments included;
+            # the oracle keys the callback by the call's line, as the
+            # engine's declaration starts there.
+            return known[(d.file, d.line)]
         # TypeScript private methods: the index names `#m` as `m`.
         return re.split(r"::|\.", d.symbol)[-1].lstrip("#")
 
