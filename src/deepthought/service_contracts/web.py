@@ -121,7 +121,16 @@ class _Context:
         found = self.by_name.get(name, [])
         return found[0].id if len(found) == 1 else None
 
-    def route(self, node, methods, path, framework, handler_id, base_unknown=False):
+    def route(
+        self,
+        node,
+        methods,
+        path,
+        framework,
+        handler_id,
+        base_unknown=False,
+        payloads=(),
+    ):
         line = node.start_point.row + 1
         if PLACEHOLDER in path:
             self.unread.append(Unread(self.file, line, "route", "path_not_literal"))
@@ -141,6 +150,7 @@ class _Context:
                 # Every unknown base read here is text written before the
                 # path (``_unknown_base``).
                 base_written=base_unknown,
+                payloads=tuple(payloads),
             )
         )
 
@@ -1794,6 +1804,42 @@ def _nest_router_routes(folder, node, content, parent):
     return found
 
 
+def _type_span(node):
+    """(start, end) bytes of the type a type_annotation holds."""
+    if node is None or node.type != "type_annotation" or not node.named_children:
+        return None
+    written = node.named_children[0]
+    return written.start_byte, written.end_byte
+
+
+def _nest_payloads(method, modules, content):
+    """(direction, start, end, key) of the types a Nest handler writes for
+    its request body (the parameter decorated ``@Body()`` of @nestjs/common;
+    ``key`` is the body property ``@Body('key')`` names, else None) and its
+    response (the method's return type)."""
+    found = []
+    parameters = method.child_by_field_name("parameters")
+    for parameter in [] if parameters is None else parameters.named_children:
+        for decorator in parameter.named_children:
+            if decorator.type != "decorator":
+                continue
+            name, arguments = _nest_decorator(decorator, modules, content)
+            if name != "Body":
+                continue
+            span = _type_span(parameter.child_by_field_name("type"))
+            if span is None:
+                break
+            key = None
+            if arguments and arguments[0].type == "string":
+                key = text(arguments[0], content)[1:-1]
+            found.append(("request", *span, key))
+            break
+    span = _type_span(method.child_by_field_name("return_type"))
+    if span is not None:
+        found.append(("response", *span, None))
+    return tuple(found)
+
+
 def extract_nest(context, modules, nest):
     """Routes of NestJS controllers: a class decorated ``@Controller(path)``
     whose methods carry ``@Get(path)`` and the like, all from
@@ -1860,6 +1906,7 @@ def extract_nest(context, modules, nest):
             handler = context.definition_of(member) or context.named_function(
                 f"{class_name}.{method_name}"
             )
+            payloads = _nest_payloads(member, modules, content)
             versions = class_versions
             for item in decorators:
                 name, args = _nest_decorator(item, modules, content)
@@ -1914,6 +1961,7 @@ def extract_nest(context, modules, nest):
                                     full,
                                     "nestjs",
                                     handler,
+                                    payloads=payloads,
                                 )
 
 
