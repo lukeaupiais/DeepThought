@@ -15,7 +15,7 @@ TSC = shutil.which("tsc")
 FILES = {
     "tsconfig.json": (
         '{"compilerOptions": {"strict": true, "noEmit": true, "target": "es2022",'
-        ' "module": "nodenext"}, "include": ["src"]}'
+        ' "module": "nodenext", "allowJs": true, "checkJs": true}, "include": ["src"]}'
     ),
     "package.json": '{"type": "module"}',
     "src/delay.ts": "export default function delay(ms: number): number {\n\treturn ms;\n}\n",
@@ -34,6 +34,9 @@ FILES = {
         "\n"
         "export const x = double(2) + wait(1);\n"
     ),
+    # JavaScript checked with checkJs: tsc reports its errors at .js paths.
+    "src/half.js": "export function half(n) {\n\treturn n / 2;\n}\n",
+    "src/use.js": "import {half} from './half.js';\n\nexport const y = half(4);\n",
     "src/over.ts": (
         "export class Req {\n"
         "\tget(key: string): string\n"
@@ -100,6 +103,13 @@ class RenameAndCheckTests(unittest.TestCase):
         self.assertEqual(
             [r[3:] for r in rows],
             [("src/shape.ts", 5, "implements"), ("src/shape.ts", 11, "reference")],
+        )
+
+    def test_uses_in_javascript_are_followed(self):
+        rows = self.rows("src/half.js", 1, "half")
+        self.assertEqual(
+            [r[3:] for r in rows],
+            [("src/use.js", 1, "reference"), ("src/use.js", 3, "reference")],
         )
 
     def test_an_overload_is_renamed_with_its_siblings(self):
