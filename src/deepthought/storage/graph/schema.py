@@ -57,7 +57,6 @@ RELATIONSHIP_SENTENCES = {
     "DISPATCHES_TO": "can dispatch to",
     "HAS_UNRESOLVED_CALL": "makes",
     "IMPORTS": "imports",
-    "IMPORTS_PACKAGE": "imports the external package",
     "INHERITS_FROM": "inherits from",
     "IMPLEMENTS": "implements",
     "REFERENCES": "refers to",
@@ -90,6 +89,4 @@ RELATIONSHIP_SENTENCES = {
     "CARRIES_MESSAGE": "is a message type of",
     "CARRIES": "carries the payload type",
     "HAS_COLUMN": "has the column",
-    "USES_FIXTURE": "uses the pytest fixture",
-    "USES_DEPENDENCY": "uses the FastAPI dependency",
 }
