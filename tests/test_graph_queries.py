@@ -1,10 +1,13 @@
 """Real Neo4j acceptance of the ported graph-query service (explicit opt-in)."""
 
 import asyncio
+from hashlib import sha256
 import importlib.util
 import json
 import os
 import unittest
+from pathlib import Path
+import tempfile
 from uuid import uuid4
 
 from deepthought.analysis_tools.contracts import (
@@ -574,6 +577,32 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                     text,
                     "1 result: every one this query matched.\n"
                     "- Child.run (src/a.py:5) calls helper (src/a.py:12) at line 6",
+                )
+                # With a workspace, freshness also covers the files of link
+                # ends the text names but the query did not return.
+                async with driver.session(database=database) as session:
+                    result = await session.run(
+                        "MATCH (f:File {repo_url:$repo}) SET f.file_sha256=$digest",
+                        repo=repo,
+                        digest=sha256(b"def helper(): pass\n").hexdigest(),
+                    )
+                    await result.consume()
+                with tempfile.TemporaryDirectory() as root:
+                    (Path(root) / "src").mkdir()
+                    (Path(root) / "src/a.py").write_text("def helper(): return 1\n")
+                    text = await GraphQueryService(
+                        driver, database, workspace=root
+                    ).query_cypher_text(
+                        "MATCH ()-[r:CALLS]->() RETURN r",
+                        {},
+                        repo,
+                        snapshot_id=snapshot,
+                        allow_database_scope=True,
+                    )
+                self.assertEqual(
+                    text.splitlines()[1],
+                    "Changed since the graph was built: edited src/a.py. Lines in"
+                    " these files may have moved: read them in source.",
                 )
                 text = await service.query_cypher_text(
                     "MATCH p=(f:File)-[:DEFINES]->(n:Symbol) RETURN p ORDER BY n.start_line",

@@ -423,6 +423,7 @@ class GraphQueryService:
         bare=False,
         observe=True,
         raw_output_bytes=None,
+        freshness=True,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -514,7 +515,7 @@ class GraphQueryService:
                         response["returned"] -= 1
                         response["truncated"] = True
                         break
-                if self.workspace is not None and not repository_scope:
+                if self.workspace is not None and not repository_scope and freshness:
                     response["freshness"] = await self._freshness(
                         tx, repo_url, snapshot_id, response["items"]
                     )
@@ -2754,6 +2755,8 @@ class GraphQueryService:
         The same rows are read; links whose end items the query did not return
         have those items looked up, and the snapshot's EdgeCoverage records
         give the closing coverage line. Neither lookup is journaled as a query.
+        With a workspace, freshness covers the files of the rows and of the
+        looked-up link ends, since the sentences name both.
         The byte budget applies to the text: whole lines past it are cut and
         the reply says so.
         """
@@ -2770,6 +2773,7 @@ class GraphQueryService:
             timeout=timeout,
             database_scope=True,
             raw_output_bytes=_RAW_TEXT_BYTES,
+            freshness=False,
         )
         known, wanted = set(), set()
 
@@ -2799,6 +2803,7 @@ class GraphQueryService:
                 database_scope=True,
                 observe=False,
                 raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
             )
             nodes.update((r["n"]["element_id"], r["n"]) for r in page["items"])
         coverage = []
@@ -2816,10 +2821,27 @@ class GraphQueryService:
                 database_scope=True,
                 observe=False,
                 raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
             )
             coverage.extend(page["items"])
             if not page["truncated"]:
                 break
+        if self.workspace is not None:
+            # The files the sentences name: the rows' own and those of the
+            # link ends looked up above.
+            async with self.driver.session(
+                database=self.database, default_access_mode="READ"
+            ) as session:
+                tx = await session.begin_transaction(timeout=timeout)
+                try:
+                    response["freshness"] = await self._freshness(
+                        tx,
+                        repo_url,
+                        snapshot_id,
+                        [response["items"], list(nodes.values())],
+                    )
+                finally:
+                    await tx.rollback()
         text = render(
             response, nodes=nodes, coverage=coverage, query=query, limit=limit
         )
