@@ -3410,6 +3410,14 @@ class PrismaModel:
     # Foreign keys this model holds: (referenced table, columns, referenced
     # columns, onDelete), column names as @map gives them.
     foreign_keys: tuple = ()
+    # (field, column) of each scalar field the engine's DMMF lists (it
+    # leaves out Unsupported and @ignore fields), column as @map gives it.
+    columns: tuple = ()
+    # (field, related model, fields of this model holding its foreign key)
+    # of each relation field.
+    links: tuple = ()
+    # (name, fields) of compound unique and primary keys.
+    compounds: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -3428,6 +3436,9 @@ class ModelUse:
     # column).
     callee_line: int = 0
     callee_column: int = 0
+    # Prisma: the client method, and its call expression.
+    method: str = ""
+    call: object = _field(default=None, compare=False, repr=False)
 
 
 def prisma_accessor(model):
@@ -4103,9 +4114,588 @@ def extract_prisma_client(tree, content, file, definitions, accessors):
                 method in PRISMA_WRITES,
                 node.start_point.row + 1,
                 node.start_point.column,
+                method=method,
+                call=node,
             )
         )
     return found
+
+
+# The query argument keys Prisma Client takes, by what their values are.
+_PRISMA_FILTERS = {"where", "having", "cursor"}
+_PRISMA_WRITES = {"data", "create", "update"}
+_PRISMA_FIELD_LISTS = {"distinct", "by"}
+_PRISMA_AGGREGATES = {"_count", "_avg", "_sum", "_min", "_max"}
+_PRISMA_IGNORED = {"take", "skip", "skipDuplicates", "relationLoadStrategy"}
+_PRISMA_LOGICAL = {"AND", "OR", "NOT"}
+_PRISMA_RELATION_FILTERS = {"some", "every", "none", "is", "isNot"}
+# Methods whose result is not rows of the model: a count, or an aggregate.
+_PRISMA_NO_ROWS = {
+    "count",
+    "aggregate",
+    "groupBy",
+    "createMany",
+    "updateMany",
+    "deleteMany",
+}
+
+
+@dataclass
+class PrismaColumns:
+    """The fields a Prisma Client call names: ``uses`` are (model, field,
+    writes, line, column); ``complete`` is False where an argument is not an
+    object literal, or names a key that is neither Prisma Client's nor a
+    field; ``rows`` is True when the call returns rows of the model whose
+    fields are not all named (no ``select``, or an ``include``)."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+def prisma_columns(call, content, method, model, models):
+    """The ``PrismaColumns`` of a Prisma Client call on ``model`` (a
+    ``PrismaModel``); ``models`` gives a related model by name. Prisma
+    Client types every argument by the model's fields (its WhereInput,
+    Select, CreateInput, ...), which scip-typescript records as local
+    object-literal keys, not as references; the keys are read against the
+    model's fields in Prisma's own DMMF."""
+    found = PrismaColumns()
+    arguments = _call_parts(call, content)[2]
+    if not arguments:
+        found.rows = method not in _PRISMA_NO_ROWS
+        return found
+    _prisma_arguments(arguments[0], content, model, models, found, True, method)
+    return found
+
+
+def _prisma_object(node):
+    while node is not None and node.type in (
+        "parenthesized_expression",
+        "as_expression",
+        "satisfies_expression",
+    ):
+        node = node.named_children[0] if node.named_children else None
+    return node
+
+
+def _prisma_alternatives(node):
+    """The values an argument may be: both branches of a conditional, none
+    for undefined or null, else the node itself."""
+    node = _prisma_object(node)
+    if node is None or node.type in ("undefined", "null"):
+        return []
+    if node.type == "identifier" and node.text == b"undefined":
+        return []
+    if node.type == "ternary_expression":
+        return _prisma_alternatives(
+            node.child_by_field_name("consequence")
+        ) + _prisma_alternatives(node.child_by_field_name("alternative"))
+    return [node]
+
+
+def _prisma_pairs(node, content, found):
+    """(key, line, column, value node) of the properties of an object
+    literal (of each, for a conditional), spread object literals included;
+    marks ``found`` incomplete for anything else."""
+    pairs = []
+    for node in _prisma_alternatives(node):
+        if node.type != "object":
+            found.complete = False
+            continue
+        for item in node.named_children:
+            if item.type == "comment":
+                continue
+            if item.type == "spread_element":
+                spread = item.named_children[0] if item.named_children else None
+                pairs.extend(_prisma_pairs(spread, content, found))
+                continue
+            key = item.child_by_field_name("key") if item.type == "pair" else None
+            if item.type == "shorthand_property_identifier":
+                key = item
+            if key is None or key.type not in (
+                "property_identifier",
+                "shorthand_property_identifier",
+                "string",
+            ):
+                found.complete = False
+                continue
+            name = (
+                _script_string(key, content)
+                if key.type == "string"
+                else _text(key, content)
+            )
+            if name is None:
+                found.complete = False
+                continue
+            # A shorthand property's value is the variable it names, which
+            # is not an object literal read here.
+            value = item.child_by_field_name("value") if item.type == "pair" else item
+            pairs.append((name, key.start_point.row + 1, key.start_point.column, value))
+    return pairs
+
+
+def _prisma_returned(function):
+    """The values an arrow or function expression returns: its expression
+    body, or its block's return statements (not nested functions')."""
+    body = function.child_by_field_name("body")
+    if body is None:
+        return []
+    if body.type != "statement_block":
+        return [body]
+    found, stack = [], list(body.named_children)
+    while stack:
+        node = stack.pop()
+        if node.type in _FUNCTION_NODES:
+            continue
+        if node.type == "return_statement":
+            found.extend(node.named_children[:1])
+            continue
+        stack.extend(node.named_children)
+    return found
+
+
+_FUNCTION_NODES = {
+    "arrow_function",
+    "function_expression",
+    "function_declaration",
+    "method_definition",
+}
+
+
+def _prisma_items(node, found):
+    """The elements of an array literal, the objects a ``.map`` callback
+    returns, or the node itself (each, for a conditional)."""
+    items = []
+    for node in _prisma_alternatives(node):
+        if node.type == "array":
+            for element in node.named_children:
+                if element.type == "comment":
+                    continue
+                if element.type == "spread_element":
+                    found.complete = False
+                    continue
+                items.append(element)
+            continue
+        if node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            callback = (
+                arguments.named_children[0]
+                if arguments is not None and arguments.named_children
+                else None
+            )
+            if (
+                function is not None
+                and function.type == "member_expression"
+                and (function.child_by_field_name("property").text or b"")
+                in (b"map", b"flatMap")
+                and callback is not None
+                and callback.type in ("arrow_function", "function_expression")
+            ):
+                items.extend(_prisma_returned(callback))
+                continue
+        items.append(node)
+    return items
+
+
+def prisma_typed_inputs(tree):
+    """(line, column, name, value node, binding) of each object a Prisma
+    Client input type is written for outside a call: ``const where:
+    Prisma.UserWhereInput = {...}``, what a function declared to return one
+    returns, ``{...} satisfies Prisma.UserWhereInput`` and
+    ``Prisma.validator<Prisma.UserWhereInput>()({...})``. Line and column
+    are the type name's (``UserWhereInput``), for the index to resolve;
+    binding is (line, column) of a declared variable's name, else None."""
+    found = []
+
+    def named(node):
+        if node is None:
+            return []
+        if node.type == "nested_type_identifier":
+            name = node.named_children[-1]
+            return [name] if name.type == "type_identifier" else []
+        if node.type in (
+            "type_annotation",
+            "union_type",
+            "type_arguments",
+            "array_type",
+        ):
+            return [n for c in node.named_children for n in named(c)]
+        return []
+
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        pairs = []
+        binding = None
+        if node.type == "variable_declarator":
+            pairs = [
+                (name, node.child_by_field_name("value"))
+                for name in named(node.child_by_field_name("type"))
+            ]
+            target = node.child_by_field_name("name")
+            if target is not None and target.type == "identifier":
+                binding = (target.start_point.row + 1, target.start_point.column)
+        elif node.type in _FUNCTION_NODES:
+            # A function declared to return an input type: what it returns.
+            pairs = [
+                (name, value)
+                for name in named(node.child_by_field_name("return_type"))
+                for value in _prisma_returned(node)
+            ]
+        elif node.type == "satisfies_expression" and len(node.named_children) == 2:
+            pairs = [
+                (name, node.named_children[0]) for name in named(node.named_children[1])
+            ]
+        elif node.type == "call_expression":
+            inner = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if (
+                inner is not None
+                and inner.type == "call_expression"
+                and arguments is not None
+                and arguments.named_children
+            ):
+                function = inner.child_by_field_name("function")
+                if (
+                    function is not None
+                    and function.type == "member_expression"
+                    and function.child_by_field_name("property").text == b"validator"
+                ):
+                    pairs = [
+                        (name, arguments.named_children[0])
+                        for name in named(inner.child_by_field_name("type_arguments"))
+                    ]
+        for name, value in pairs:
+            found.append(
+                (
+                    name.start_point.row + 1,
+                    name.start_point.column,
+                    name.text.decode(),
+                    value,
+                    binding,
+                )
+            )
+    return found
+
+
+def prisma_assignments(tree, content):
+    """(variable line, column, key or None, key line, column, value node)
+    of each assignment to a variable (``where = {...}``) or to one of its
+    properties (``where.name = {...}``)."""
+    found = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type != "assignment_expression":
+            continue
+        left = node.child_by_field_name("left")
+        value = node.child_by_field_name("right")
+        if left is None or value is None:
+            continue
+        if left.type == "identifier":
+            found.append(
+                (left.start_point.row + 1, left.start_point.column, None, 0, 0, value)
+            )
+        elif left.type == "member_expression":
+            target = left.child_by_field_name("object")
+            key = left.child_by_field_name("property")
+            if (
+                target is not None
+                and target.type == "identifier"
+                and key is not None
+                and key.type == "property_identifier"
+            ):
+                found.append(
+                    (
+                        target.start_point.row + 1,
+                        target.start_point.column,
+                        _text(key, content),
+                        key.start_point.row + 1,
+                        key.start_point.column,
+                        value,
+                    )
+                )
+    return found
+
+
+# What a Prisma Client input type's object holds, by its name's suffix.
+PRISMA_INPUT_KINDS = {
+    "WhereInput": "where",
+    "WhereUniqueInput": "where",
+    "Select": "select",
+    "Include": "include",
+    "OrderByWithRelationInput": "order",
+    "CreateInput": "write",
+    "UncheckedCreateInput": "write",
+    "UpdateInput": "write",
+    "UncheckedUpdateInput": "write",
+    "CreateManyInput": "write",
+    "UpdateManyMutationInput": "write",
+    "UncheckedUpdateManyInput": "write",
+}
+
+
+def prisma_input_columns(kind, value, content, model, models, key=None):
+    """The ``PrismaColumns`` of an object written for one of Prisma
+    Client's input types (``PRISMA_INPUT_KINDS``) of ``model``; with
+    ``key`` ((name, line, column)), ``value`` is that one property's."""
+    found = PrismaColumns()
+    if key is not None:
+        pairs = [(*key, value)]
+        if kind == "where":
+            _prisma_filter(None, content, model, models, found, pairs)
+        elif kind == "write":
+            _prisma_write(None, content, model, models, found, pairs)
+        else:
+            found.complete = False
+        return found
+    for item in _prisma_items(value, found):
+        if kind == "where":
+            _prisma_filter(item, content, model, models, found)
+        elif kind == "select":
+            _prisma_select(item, content, model, models, found, True)
+        elif kind == "include":
+            _prisma_select(item, content, model, models, found, True, True)
+        elif kind == "order":
+            _prisma_order(item, content, model, models, found)
+        else:
+            _prisma_write(item, content, model, models, found)
+    return found
+
+
+def _prisma_arguments(node, content, model, models, found, root, method=""):
+    """A query argument object (the call's, or a relation's in a select or
+    include)."""
+    selected = False
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        if key in _PRISMA_FILTERS:
+            _prisma_filter(value, content, model, models, found)
+        elif key in _PRISMA_WRITES:
+            for item in _prisma_items(value, found):
+                _prisma_write(item, content, model, models, found)
+        elif key == "select":
+            selected = True
+            _prisma_select(value, content, model, models, found, root)
+        elif key == "include":
+            if root:
+                found.rows = True
+            _prisma_select(value, content, model, models, found, root, True)
+        elif key == "omit":
+            pass
+        elif key == "orderBy":
+            for item in _prisma_items(value, found):
+                _prisma_order(item, content, model, models, found)
+        elif key in _PRISMA_FIELD_LISTS:
+            for item in _prisma_items(value, found):
+                name = _script_string(item, content) if item is not None else None
+                if name is None or not _prisma_field(model, name, found):
+                    found.complete = False
+                    continue
+                found.uses.append(
+                    (
+                        model.model,
+                        name,
+                        False,
+                        item.start_point.row + 1,
+                        item.start_point.column,
+                    )
+                )
+        elif key in _PRISMA_AGGREGATES:
+            value = _prisma_object(value)
+            if value is not None and value.type == "true":
+                continue
+            for name, at_line, at_column, _ in _prisma_pairs(value, content, found):
+                if name == "_all":
+                    continue
+                if not _prisma_field(model, name, found):
+                    found.complete = False
+                    continue
+                found.uses.append((model.model, name, False, at_line, at_column))
+        elif key not in _PRISMA_IGNORED:
+            found.complete = False
+    if root and not selected and method not in _PRISMA_NO_ROWS:
+        found.rows = True
+
+
+def _prisma_field(model, name, found):
+    return any(field == name for field, _ in model.columns)
+
+
+def _prisma_link(model, name):
+    return next((link for link in model.links if link[0] == name), None)
+
+
+def _prisma_filter(node, content, model, models, found, pairs=None):
+    """A WhereInput: fields, compound keys, AND/OR/NOT and relation filters."""
+    if pairs is None:
+        pairs = _prisma_pairs(node, content, found)
+    for key, line, column, value in pairs:
+        if key in _PRISMA_LOGICAL:
+            for item in _prisma_items(value, found):
+                _prisma_filter(item, content, model, models, found)
+        elif _prisma_field(model, key, found):
+            found.uses.append((model.model, key, False, line, column))
+        elif (compound := dict(model.compounds).get(key)) is not None:
+            inner = {
+                k: (at_line, at_column)
+                for k, at_line, at_column, _ in (
+                    _prisma_pairs(value, content, PrismaColumns())
+                )
+            }
+            for name in compound:
+                at_line, at_column = inner.get(name, (line, column))
+                found.uses.append((model.model, name, False, at_line, at_column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            value = _prisma_object(value)
+            if related is None:
+                found.complete = False
+            elif value is None or value.type == "null":
+                # A to-one relation that is null: its foreign key is read.
+                for name in link[2]:
+                    found.uses.append((model.model, name, False, line, column))
+            else:
+                pairs = _prisma_pairs(value, content, PrismaColumns())
+                if pairs and all(k in _PRISMA_RELATION_FILTERS for k, *_ in pairs):
+                    for _, _, _, inner in pairs:
+                        if _prisma_object(inner) is not None and (
+                            _prisma_object(inner).type == "null"
+                        ):
+                            continue
+                        _prisma_filter(inner, content, related, models, found)
+                else:
+                    _prisma_filter(value, content, related, models, found)
+        else:
+            found.complete = False
+
+
+def _prisma_select(node, content, model, models, found, root, include=False):
+    """A Select or Include: fields read, and relations with their own
+    query arguments."""
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        value_node = _prisma_object(value)
+        if _prisma_field(model, key, found) and not include:
+            if value_node is not None and value_node.type == "false":
+                continue
+            found.uses.append((model.model, key, False, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            # The relation's own foreign key fields are read to join it.
+            for name in link[2]:
+                found.uses.append((model.model, name, False, line, column))
+            if value_node is not None and value_node.type == "true":
+                # Every field of the related rows comes back.
+                found.rows = True
+            elif value_node is not None and value_node.type != "false":
+                inner = PrismaColumns()
+                _prisma_arguments(value_node, content, related, models, inner, False)
+                found.uses.extend(inner.uses)
+                found.complete = found.complete and inner.complete
+                selects = {k for k, *_ in _prisma_pairs(value_node, content, inner)}
+                if "select" not in selects:
+                    found.rows = True
+        elif key == "_count":
+            continue
+        else:
+            found.complete = False
+
+
+def _prisma_order(node, content, model, models, found):
+    """An OrderByInput: a field, or a relation's own order."""
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        if _prisma_field(model, key, found):
+            found.uses.append((model.model, key, False, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            _prisma_order(value, content, related, models, found)
+        elif key not in ("_count", "_relevance"):
+            found.complete = False
+
+
+def _prisma_write(node, content, model, models, found, pairs=None):
+    """A CreateInput or UpdateInput: fields written. A relation key writes
+    the foreign key fields this model holds, and its nested writes
+    (create, connect, update, ...) name the related model's fields."""
+    if pairs is None:
+        pairs = _prisma_pairs(node, content, found)
+    for key, line, column, value in pairs:
+        if _prisma_field(model, key, found):
+            found.uses.append((model.model, key, True, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            for name in link[2]:
+                found.uses.append((model.model, name, True, line, column))
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            _prisma_nested(value, content, related, models, found)
+        else:
+            found.complete = False
+
+
+def _prisma_nested(node, content, model, models, found):
+    """A relation's nested writes in a data object, on its related model."""
+
+    def write(value):
+        for item in _prisma_items(value, found):
+            _prisma_write(item, content, model, models, found)
+
+    def where(value):
+        for item in _prisma_items(value, found):
+            _prisma_filter(item, content, model, models, found)
+
+    def parts(value, *names):
+        """Each element's values of ``names``, as a dict of lists."""
+        for item in _prisma_items(value, found):
+            pairs = _prisma_pairs(item, content, found)
+            if any(k not in names for k, *_ in pairs):
+                found.complete = False
+            yield {k: v for k, _, _, v in pairs}
+
+    for key, _, _, value in _prisma_pairs(node, content, found):
+        flag = _prisma_object(value)
+        if flag is not None and flag.type in ("true", "false"):
+            continue
+        if key == "create":
+            write(value)
+        elif key == "createMany":
+            for item in parts(value, "data", "skipDuplicates"):
+                write(item.get("data"))
+        elif key == "connectOrCreate":
+            for item in parts(value, "where", "create"):
+                where(item.get("where"))
+                write(item.get("create"))
+        elif key in ("connect", "delete", "deleteMany", "disconnect", "set"):
+            where(value)
+        elif key == "upsert":
+            for item in parts(value, "where", "create", "update"):
+                if "where" in item:
+                    where(item["where"])
+                write(item.get("create"))
+                write(item.get("update"))
+        elif key in ("update", "updateMany"):
+            for item in _prisma_items(value, found):
+                keys = {k for k, *_ in _prisma_pairs(item, content, PrismaColumns())}
+                if "data" in keys and keys <= {"where", "data"}:
+                    for k, _, _, v in _prisma_pairs(item, content, found):
+                        if k == "where":
+                            where(v)
+                        else:
+                            write(v)
+                else:
+                    _prisma_write(item, content, model, models, found)
+        else:
+            found.complete = False
 
 
 # Go: database/sql, sqlx, pgx and GORM ---------------------------------------

@@ -517,11 +517,7 @@ def analyze_repository(
                 stats["parsed"] += 1
                 tree = parse_source(parsers[key], language, suffix, content)
                 if tree.root_node.has_error:
-                    coverage.append(
-                        FileCoverage(
-                            relative, language, "partial", sha256(content).hexdigest()
-                        )
-                    )
+                    coverage.append(FileCoverage(relative, language, "partial", digest))
                     diagnostics.append(
                         Diagnostic(
                             "syntax_error", "Source contains syntax errors", relative
@@ -529,9 +525,7 @@ def analyze_repository(
                     )
                 else:
                     coverage.append(
-                        FileCoverage(
-                            relative, language, "analyzed", sha256(content).hexdigest()
-                        )
+                        FileCoverage(relative, language, "analyzed", digest)
                     )
                 if language == "c":
                     # C: declarations, includes and calls.

@@ -190,9 +190,16 @@ parser rule. One that the compiler follows to another file is
 file with no analyzed implementation is `typescript.call-declaration-file`
 (resolved): it names what the call is typed against, not the code that runs.
 The IMPORTS edge still names the file the compiler resolves, declaration file
-included. Where the language rejects a program, as with two `export *` that
-give one name or two exports of one name, the compiler reports an error and
-binds the first or later declaration it keeps; the call follows that binding.
+included. Where the language rejects an export on the way, the compiler
+reports an error and keeps one declaration, and the call links to it with its
+own rule, `typescript.call-export-conflict` (resolved). The cases are two
+export clauses, or a clause and a declaration, that give one name (TS2300,
+TS2323, TS2484), and a name that two of a module's `export *` give as
+different symbols while the module does not export it itself (TS2308). They
+are found in the imported module, in each module the compiler follows the
+export through, and in the implementation beside a declaration file. The
+program does not link at run time, so the link names what the compiler kept,
+not code that runs.
 
 The compiler is required. `analyze_repository` itself never starts a process,
 so its result carries no compiler view: callers attach one with
@@ -293,7 +300,12 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 `reason` it gives and, when ambiguous, the
 `candidates`' qualified names. Its caller (the innermost enclosing declaration,
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
-`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. The
+`line` and `column` of a CALLS edge, an `UnresolvedCall` and its
+`HAS_UNRESOLVED_CALL` edge are where the callee's last name is written
+(`CallSite.callee_at`), so each call of a member chain over several lines
+(`new Hono()` then `.basePath('/api')` lines later) sits on its own line;
+`end_line` and `end_column` still close the whole call. So one
 query counts the linked, ambiguous and unresolved calls of a name:
 `get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
@@ -356,7 +368,9 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
-| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, or whose target no declaration names, to the declaration pyright's go-to-definition gives |
+| `pyright.call-alias` | a Python call through a function local assigned once from a name or dotted name (`get = self.fetch`, `S = Segment`) to the declaration pyright gives for that name |
+| `pyright.call-class-parameter` | `cls(...)` in a classmethod to its class |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
@@ -371,11 +385,17 @@ follow a star re-export to the wrong function), an external target for
 index may name a builtin), and more than one target (the index names a
 function nested in a method by the class alone, `Group#decorator().`, so
 same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
-occurrence for (scip-python skips code it treats as unreachable), are answered
+occurrence for (scip-python skips code it treats as unreachable) or whose
+target no declaration names (a local variable), are answered
 by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
 language server's go-to-definition at the callee's last name gives the
 declaration, linked as `pyright.call-definition` with `producer:
-pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+pyright@1.1.409`. When pyright names a local instead (its own assignment), a
+function local assigned exactly once from a name or dotted name is followed to
+that name, up to three hops (`pyright.call-alias`), and a classmethod's first
+parameter to its class (`pyright.call-class-parameter`); locals assigned more
+than once, parameters, call results, module globals and class attributes stay
+unlinked, or the call stays unlinked as `pyright_no_definition`,
 `pyright_external` or `pyright_target_not_declaration`. The parser's link is
 never kept over the index. Pyright is required: binding a covered Python file
 without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
@@ -1163,8 +1183,12 @@ calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
-the variable's name, so calls inside it belong to it. A named function
-expression keeps no declaration of its own.
+the variable's name, so calls inside it belong to it. A class field that holds
+one (`fetch = async () => {}`, `static make = function () {}`, a `#private`
+field too) is a `Method` of the class with the field's name (`static` when the
+field is), so calls inside it belong to the field, impact reaches its
+callers, and `this.fetch()` links to it. A named function expression keeps no
+declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
@@ -3029,7 +3053,21 @@ repository of separate packages with no lockfile (grpc-node's `packages/*`)
 gets each package's dependencies. Every install also runs with
 `npm_config_script_shell` set to `true`: npm 10.9 runs a `file:`
 dependency's `prepare` script even with `--ignore-scripts`, and a shell
-that does nothing keeps it from running. On grpc-node (ca7f83f) the
+that does nothing keeps it from running. After a directory installs, each
+package its package.json declares that ships no declarations (no `types`
+or `typings`, no `types` export condition, no `index.d.ts`) and has no
+`@types` package installed gets its DefinitelyTyped package, as the
+TypeScript language server's automatic type acquisition gives one: the
+pinned `types-registry` 0.1.794 (installed into the engine's cache) says
+which packages DefinitelyTyped has and the exact version tagged `ts6.0`
+(else `latest`); those are installed with npm, scripts off, into a scratch
+prefix and moved into `node_modules` where nothing of that name is. The
+install records them under `types`; a failed acquisition makes the run
+`partial`, so its files carry `dependencies_unavailable`. Without it a
+plain JavaScript Express or koa-router app has no library symbol at any
+route call: node-express-boilerplate then gets 15 Express route methods
+resolved in the index (0 before), koa-knex-realworld 19 koa-router ones (0
+before). On grpc-node (ca7f83f) the
 `grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
 tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
 files `indexer_failed`; now every file is covered. A directory without a
@@ -4210,6 +4248,7 @@ CARRIES backwards):
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler (a declared function or method, or a func literal written as the route's handler argument, found by the position of its first parameter that the type checker gives) decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
+| HttpRoute -[:CARRIES {direction: request\|response, via}]-> Symbol | `service-contracts.go-request-body-type-in-helper`, `service-contracts.go-response-body-type-in-helper` | resolved | the same body types, read in a function of the module the handler passes its request context to (gin's `*Context`, echo's `Context`, fiber's `*Ctx` or `Ctx`): the type checker gives the call, the callee and the parameter that receives the context, followed up to four calls deep; `via` lists the functions (`file::symbol`), outermost first. A standard-library `*http.Request` or `http.ResponseWriter` passed to a helper is not followed yet |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
@@ -4885,8 +4924,30 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   decodes it, and the module's File is `GENERATED_FROM` each message and
   enum of that descriptor that the repository's `.proto` files declare
   (rule `service-contracts.python-generated-proto-module`, resolved). The
-  classes are built at import time, so no class declaration links. Generated
-  TypeScript and JavaScript are not linked yet.
+  classes are built at import time, so no class declaration links.
+- **Generated JavaScript and TypeScript.** The TypeScript compiler reads
+  each generator's own registrations, with names bound to their modules
+  through the checker:
+  - protoc-gen-js (google-protobuf, as grpc-web and grpc-tools use it):
+    the module's File is `GENERATED_FROM` each type it registers with
+    `goog.exportSymbol('proto.<full name>')`, `goog` bound to
+    `require('google-protobuf')` (rule
+    `service-contracts.js-generated-proto-module`, resolved).
+  - protobuf-es 2: `fileDesc` embeds the file's descriptor (base64, which
+    protobuf decodes), and `messageDesc(file, i, ...)` /
+    `enumDesc(file, i, ...)` index into it; the type that schema's
+    `GenMessage<X>` / `GenEnum<X>` names is `GENERATED_FROM` the indexed
+    message or enum, as is a type alias `Message<"<full name>">`.
+    protobuf-es 1: a class extending `Message` with
+    `static typeName = "<full name>"`, and an enum passed to
+    `proto3.util.setEnumType` (rule
+    `service-contracts.ts-generated-proto-type`, resolved). The schema
+    consts are no graph symbols.
+  - ts-proto embeds no descriptor or type names, only
+    `export const protobufPackage`. A type, interface or enum of that file
+    named as ts-proto names a type of that package (nested path joined
+    with `_`) is `GENERATED_FROM` it (rule
+    `service-contracts.ts-proto-generated-type`, name_matched).
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
@@ -5643,6 +5704,9 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a model of a `.prisma` schema as Prisma's own schema engine reads it (`get_dmmf` of the `@prisma/prisma-schema-wasm` build the project's Prisma pins): its `@@map` name, else the model name. A schema with no Prisma version up its tree, a build npm cannot fetch, or a schema the engine rejects is unread and named in a `prisma_schema_unread` warning, and the run is partial |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.prisma-foreign-key` | resolved | a relation field with `fields` and `references` as Prisma's schema engine reads it (`relationFromFields`, `relationToFields`, `relationOnDelete` of `get_dmmf`): the model's table holds a foreign key to the related model's table. Column names are the `@map` names. Implicit many-to-many join tables (`_AToB`) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.prisma-column` | resolved | a scalar field of a Prisma model as Prisma's schema engine lists it in the DMMF, under its `@map` name, for a model table whose migrations give no columns (no Prisma Migrate SQL, `db push` projects). The DMMF leaves out `Unsupported(...)` and `@ignore` fields, so the table is not marked `columns_read`. Where the migrations give the columns, each field maps to the table's column of its `@map` name (exactly, else case-insensitively) and none is declared; a field with no such column is counted `field_not_a_table_column`. Counted in `prisma_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.prisma-column-key` | pattern_matched | a key of a Prisma Client call's arguments (`data-contracts.prisma-client`) that names a field of the model in Prisma's DMMF. Keys of `where`, `cursor`, `having` (with `AND`/`OR`/`NOT`, compound unique keys and relation filters `some`/`every`/`none`/`is`/`isNot` on the related model), `select`, `orderBy`, `distinct`, `by` and aggregates read; keys of `data`, `create` and `update` write, and a relation key there writes the foreign key fields the model holds, its nested `create`, `createMany`, `connectOrCreate`, `upsert`, `update` and `updateMany` writing (and `connect`, `delete`, `disconnect`, `set` reading) the related model's fields. A relation in a `select` or `include` reads its foreign key fields. Objects are read through conditionals (both branches), spreads of object literals and `.map` callbacks returning them. The same keys are read in objects written for a Prisma input type outside a call, where a scip-typescript index resolves the type name to the client's (`const where: Prisma.UserWhereInput = {...}`, later `where = ...`/`where.name = ...` assignments to it, a function declared to return one, `satisfies`, `Prisma.validator<...>()`; counted `typed_inputs`). Prisma Client types these objects by the model's fields, which scip-typescript records as local keys, not references. The call's READS or WRITES edge carries `columns_resolved: true` when every key is read and names a field, and, for a read, the call returns only selected fields (a `select` without whole relations, or a count, aggregate or groupBy). Counted in `prisma_columns` |
+| Symbol\|File -[:READS_COLUMN]-> DbColumn | `data-contracts.prisma-scip-column-read` | resolved | a reference a scip-typescript index resolves to a scalar of a model's payload type in the Prisma Client `prisma generate` writes (`$UserPayload` scalars: `user.email` on any row type of the model) or of its groupBy row (`UserGroupByOutputType`); the model of the reader's namespace wins. A row read through a `select` has no such symbol and is covered by the select's keys |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: the name TypeORM's own `DefaultNamingStrategy.tableName` gives the class (`HTTPRequestLog` is `http_request_log`), run by `deepthought.typeorm_naming` (`typeormnames/names.js`) at the typeorm release the entity's project pins: installed `node_modules/typeorm`, else a lockfile entry (npm, pnpm, yarn, bun), else the newest release of the declared range (`npm view`), installed into the cache with `npm install --ignore-scripts`. Custom naming strategies are not read. An entity whose release cannot be found or installed gets no table, named in a `typeorm_naming_unread` warning, and the run is partial |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-child-entity` | pattern_matched | a class decorated with `@ChildEntity` (single-table inheritance): the table of the entity it extends by name, through any number of child levels |
