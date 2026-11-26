@@ -80,5 +80,6 @@ RELATIONSHIP_SENTENCES = {
     "MAPS_TO": "maps to",
     "REFERENCES_TABLE": "references the table",
     "CARRIES_MESSAGE": "is a message type of",
+    "CARRIES": "carries the payload type",
     "HAS_COLUMN": "has the column",
 }
