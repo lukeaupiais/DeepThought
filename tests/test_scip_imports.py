@@ -334,6 +334,52 @@ class ScriptImportTest(unittest.TestCase):
             {"linked": 1, "scip_external": 3, "scip_no_occurrence": 2},
         )
 
+    def test_files_the_analysis_left_out_are_not_link_targets(self):
+        from deepthought.analysis_tools.tree_sitter import TreeSitterTool
+
+        # The index's project covers the whole tsconfig; the analysis skips
+        # one file (as a scenario excluding a path does).
+        with tempfile.TemporaryDirectory() as scratch:
+            write(
+                scratch,
+                {
+                    "package.json": '{"name": "w", "version": "1.0.0"}',
+                    "tsconfig.json": (
+                        '{"compilerOptions": {"strict": true, "module": "esnext",'
+                        ' "moduleResolution": "bundler"}, "include": ["src"]}'
+                    ),
+                    "src/a.ts": "export const A = 1;\n",
+                    "src/(all)/[slug]/b.ts": "export const B = 2;\n",
+                    "src/main.ts": (
+                        'import { A } from "./a";\n'
+                        'import { B } from "./(all)/[slug]/b";\n'
+                        "export const x = [A, B];\n"
+                    ),
+                },
+            )
+            output = asyncio.run(
+                TreeSitterTool(scratch).analyze(
+                    "repo",
+                    languages={"typescript"},
+                    skip_patterns=["src/(all)/*"],
+                )
+            )
+        self.assertEqual(
+            _imports(output, "src/main.ts"),
+            [
+                (
+                    "IMPORTS",
+                    "./a",
+                    "repo::src/a.ts::file",
+                    "scip.typescript-import-module",
+                )
+            ],
+        )
+        self.assertNotIn(
+            "repo::src/(all)/[slug]/b.ts::file",
+            {n.properties.get("qualified_name") for n in output.nodes},
+        )
+
 
 @unittest.skipUnless(
     indexers.locate(indexers.INDEXERS["scip-go"])
