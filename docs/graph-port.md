@@ -143,6 +143,39 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
+### Python imports from scip-python
+
+In a file a scip-python index covers, an absolute import is resolved as the
+interpreter would resolve it: each Python project (a directory with a
+`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
+directory with its `src`, so the FastAPI template's `backend/app` imports as
+`app`, and pyright searches those roots, the project's installed dependencies
+and the standard library. scip-python records the module at each
+name the statement writes, including the submodules `from a import b` names.
+
+| Rule | Evidence | Meaning |
+| --- | --- | --- |
+| `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+
+Externally resolved specifiers are listed in the File's `external_imports`, not
+`unresolved_imports`. A covered absolute import with no module occurrence
+stays unresolved (`scip_no_occurrence`): pyright found no module, for example
+a dependency that is not installed. Two cases keep the path rules. Relative
+imports do, because scip-python 0.6.8 names the module of `from .models import
+X` by the written remainder alone (`` `models`/__init__: ``), which is another
+project's top-level `models` or nothing. A from-import of an in-repository
+package also keeps the path rule's links to the submodules it names (`from
+flask import json`), which the index records as attributes of the package.
+Files no index covers keep the path rules throughout. scip-python 0.6.8 also
+names a module's package from the installed distributions' file lists rather
+than from pyright's resolution, so a wheel that ships a top-level `tests`
+package (msal-extensions does) labels the repository's own `tests` as its
+module. A module that the same index defines links to its document instead:
+pyright searched the local roots first and resolved the names to it. Tool metadata counts
+scip-python's decisions in `scip_python_imports` and the packages in
+`python_packages`.
+
 ## Calls
 
 Tree-sitter extraction records each call whose callee is a plain or dotted name
@@ -320,8 +353,9 @@ calls inside a callback take the test case as their caller; `get_impact` and
 `get_call_sites` then name the test case. The test case's own call (and a
 modifier's, `it.each(rows)`) belongs to the enclosing suite or file. A name
 with a substitution or with an escape other than a quote or backslash, a call
-whose result is used, and a call through another object (`runner.it(...)`)
-declare nothing. This is a parser rule: listing a runner's tests would load
+whose result is used other than as an array element (`await
+Promise.all([it("a", fa), it("b", fb)])` declares both), and a call through
+another object (`runner.it(...)`) declare nothing. This is a parser rule: listing a runner's tests would load
 the project's test configuration, which runs its code. Python test functions
 and Go `TestX` functions are declarations already; Go `t.Run` closures stay
 inside their test function.
@@ -394,6 +428,26 @@ Checked against independent parsers:
 
 The TypeScript check finds each declaration by its UTF-16 name position, so it
 also confirms those positions.
+
+### Generated files
+
+A Tree-sitter File node that a generator wrote carries `generated_by`:
+- `linguist`: GitHub Linguist's rules, run by go-enry's port
+  (`enry.IsGenerated`, `deepthought.generated_files`). They read the file's
+  name and content: generator headers such as "Code generated ... DO NOT
+  EDIT.", protobuf, gRPC and Thrift outputs, minified or bundled JavaScript,
+  source maps and lock files.
+- `gitattributes`: the repository's own `linguist-generated` attribute, read
+  with `git check-attr` when the workspace is in a git work tree.
+
+An unset attribute (`-linguist-generated`) clears the rules' verdict, as it
+does on GitHub. Other files have no `generated_by`.
+
+The rules run in the `genfiles` Go program of the package. Its go.mod and
+go.sum pin go-enry, and its first build downloads that module into the module
+cache. An offline host installs it ahead, from that directory, with
+`GOBIN=<dir on PATH> go install .`, which names it `deepthought-genfiles`.
+`DEEPTHOUGHT_GENFILES` names another build.
 
 ### Indexer symbols and parsed declarations
 
@@ -534,7 +588,8 @@ by path (`deepthought.source_roles`: directories such as `tests/`,
 test file names such as `*_test.go`, `test_*.py`, pytest's `conftest.py`,
 Django's `tests.py`, `FooTest.java`,
 `FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
-unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+unclassified), and `generated` when the dependent's File has `generated_by`
+(see "Generated files"); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
 first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
@@ -1070,9 +1125,8 @@ own listing (`--fixtures-per-test`) imports the project and runs its
 plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
 `getfixturevalue`, fixtures inherited from a test class's base classes,
 and `python_files` or `python_functions` settings in
-configuration are not read, and neither is a file the running Python's
-`ast` cannot parse; each such file is named in the analysis warnings
-(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
+configuration are not read, and neither is a file `ast` cannot parse (see
+"Python versions" below). `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
 
 ### FastAPI dependencies
@@ -1088,9 +1142,11 @@ indexer that resolved it (`producer`, `receipt`):
 |---|---|
 | `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
 
-Both ends come from the scip-python index, so the rule is `resolved`. The
-call counts only when the index resolves its callee to FastAPI's own
-`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+Both ends come from the scip-python index, so the rule is `resolved`. A
+call written `Depends(...)` or `Security(...)` (or under a name one of them
+is imported `as`) counts only when the index resolves its callee to
+FastAPI's own `fastapi.param_functions` `Depends` or `Security`, or to the
+`fastapi.params` classes of those names. The dependency is the
 first argument or `dependency=`. For a `Depends()` with neither, it is what
 FastAPI calls: the parameter's annotation, or the `T` of
 `Annotated[T, Depends()]`. It is linked only when the index resolves that
@@ -1113,12 +1169,8 @@ Not read: a dependency given as an instance (`Security(scheme)` with
 `scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
 at run time (`Depends(make_dependency())`, a loop variable); an alias of an
 alias, or an alias written inside another annotation
-(`Optional[SessionDep]`); files no scip-python index covers; and files the
-running Python's `ast` cannot parse, such as Python 3.14's
-`except A, B:` read by an older interpreter. Each such file is named in the
-analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
-interpreter version, in the `python_ast_unparsed` metric; the same applies to
-pytest fixtures.
+(`Optional[SessionDep]`); files no scip-python index covers; and files `ast`
+cannot parse (see "Python versions" below).
 
 On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
 come through aliases, 21 are on an app or router, and 14 are `Depends()`
@@ -1130,13 +1182,40 @@ were all correct. On the full-stack-fastapi-template backend (77e550a) 39
 uses are linked: 20 `SessionDep` and 13 `CurrentUser` parameters through
 their aliases, and 6 `dependencies=[...]`. The one `TokenDep` parameter
 injects an instance and is not linked. That template's `app/api/deps.py`
-uses Python 3.14 syntax, so this was measured with its one `except A, B:`
-line parenthesised; under an older interpreter the aliases there are not
-read.
+uses Python 3.14 syntax (`except A, B:`), which the declared Python 3.14
+reads (see below).
 `tools/check_impact.py` matches on every compared seed: 117 of 117 (136
 dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
+
+### Python versions
+
+The pytest fixture and FastAPI dependency rules read sources with Python's
+`ast`, which parses only the syntax of the interpreter it runs in
+(`deepthought.python_ast_facts`, `deepthought.python_runtime`). So the
+sources are read by the newest Python the repository declares: the first
+entry of each `.python-version` file and each `pyproject.toml`'s
+`requires-python` (virtual environments and `node_modules` are skipped).
+When a declaration admits nothing newer than the running interpreter, the
+running one reads them itself, since newer Pythons parse older syntax.
+Otherwise uv (a pinned dependency of the `python` extra) finds that Python,
+installing a managed CPython when none is present, and the facts are read
+by a script run there that uses only the standard library. The
+`python_interpreter` metric gives the version that read them, the
+declarations, whether it was a managed interpreter, and any errors.
+
+When no declared Python can be obtained (uv missing included), or it fails,
+the running
+interpreter reads the sources, and each reason is a
+`python_interpreter_unavailable` warning. A file the chosen interpreter
+still cannot parse is named in a `python_ast_unparsed: FILE: ...` warning
+and listed with the interpreter version in the `python_ast_unparsed` metric.
+
+On full-stack-fastapi-template (77e550a, `requires-python = ">=3.14,<4.0"`),
+an analysis running under Python 3.13 reads the backend with a uv-managed
+3.14.6. `app/api/deps.py` parses, and all 39 dependency uses and 147 fixture
+uses are found with no warning.
 
 ### Interface implementations
 
@@ -2344,8 +2423,24 @@ bind to its src-layout package. Two of those `src` directories with a
 top-level module or regular package of the same name are both left off, so
 one module name never names two files; namespace packages (no `__init__`)
 merge across them as Python merges them. A project's own directory is not
-added, since pyright already resolves a flat layout from the importing
-file's directory. On haystack-core-integrations (47d359e; `chroma`,
+on the workspace's path; a nested Python project (a `pyproject.toml` or
+`setup.cfg` below the root) whose files import one of its own top-level
+modules by absolute name, as Python's `ast` reads the imports, gets a
+scip-python run of its own instead: from the workspace root with
+`--target-only <project>`, its own directory and `src` first on
+`PYTHONPATH`, then the workspace's roots, and its declared packages
+installed. A service imports its own modules by bare name (`from schemas
+import ...` in src/OrderService) and two services' `schemas` cannot share one
+path; running from the root keeps workspace symbols, since scip-python names
+a file outside `--cwd` with a local symbol. A requirement on a distribution
+the workspace itself builds (flask's examples require `flask`) is not
+installed, so its source is read, and that project's own dependencies are
+installed in its place; the receipt lists it under `provided`. Cross-file
+references (non-local symbols defined in another document): flask
+(49943b5) 3,017 to 3,135, joe0106/fastapi-microservices-orchestrator
+0 to 71, AntonVagabond/OnlineStore 297 to 985, full-stack-fastapi-template
+1,038 to 1,183; its SQLModel table gate stays 64/66. A fixture project that
+never imports itself (poetry's 100 test fixtures) gets no run. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
 from 5,403 to 6,473. scip-go gets
@@ -2396,6 +2491,14 @@ with a reason:
 | `no_go_module` | No `go.mod` in the file's directory or any directory above it |
 | `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+A known scip-python 0.6.8 fault makes one repository time out: its bundled
+pyright builds unions in quadratic time, so a module holding a very large
+tuple literal never finishes (netbox's `extras/data/un_locode.py`, about
+111,000 entries; current pyright reads it in about two seconds). 0.6.8 is the
+latest release, and the engine does not work around it: the run stops at
+`--timeout` and every Python file of that run is `indexer_timeout`, named per
+file.
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
 (outside `vendor` and hidden directories; a `go.mod` below a directory whose
@@ -2574,6 +2677,28 @@ scip-typescript passes. The run and receipt record `dependencies`: `status`
 directory, manager, command, lockfile digest and outcome, and the installed
 package count; a failed install gives each covered file
 `warning: dependencies_unavailable`.
+
+scip-go loads each package with `go/packages`, which reads a required module
+from the module cache. A missing module failed a whole module under 0.1.26; 0.2.7
+indexes it but attributes its symbols wrongly. Before
+scip-go runs, each Go module of the workspace has the go command download
+what it needs to build and test its packages (`deepthought.go_dependencies`):
+`go mod download -json` from the module's directory, into a module cache in a
+scratch directory, with `GOWORK=off` and `-modcacherw`. The go command is
+given a copy of the module's `go.mod` and `go.sum` (`-modfile`), so the
+checksums it verifies are the module's and any it adds go to the copy; the
+workspace and the machine's own module cache are left as they were. The go
+command reads its usual settings (`GOPROXY`, `GOPRIVATE`, `GONOSUMDB`), so a
+mirror works, and downloading runs no module's code. A module with
+`vendor/modules.txt` downloads nothing. Modules are downloaded once per
+`index_workspace`, for every scip-go run, platform passes included, and
+scip-go and the go command's package listing then read only that cache, with
+`GOPROXY=off`. Before, scip-go downloaded what it lacked itself, into the
+machine's cache, without a record. The run and receipt record
+`dependencies`: `status` (`none`, `present`, `downloaded`, `partial`,
+`failed`), the `go.sum` digest, the number of modules downloaded and each
+`path@version` that could not be. A partial or failed download gives each of
+the module's files `warning: dependencies_unavailable`, covered or not.
 
 On full-stack-fastapi-template (77e550a), whose only JavaScript lockfile is
 a root `bun.lock`, the install used to be an unlocked `npm install`: 103 of
@@ -3643,7 +3768,7 @@ link to their mutations, and `subscribeWebPush` is
 
 ### Payload types
 
-A route or message destination CARRIES the types its handler writes for
+A route or message destination CARRIES the types its handler, or a producer, writes for
 what goes over it, so a change to such a type reaches the contract and,
 through it, the clients that must change with it (`get_impact` follows
 CARRIES backwards):
@@ -3658,6 +3783,8 @@ CARRIES backwards):
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-client-data-type` | resolved | the value a NestJS `ClientProxy` sends with `send(pattern, data)` or `emit(pattern, data)`: the type written where `data`'s name is declared, else the compiler's type of it, and the types of an object or array literal's members (`{ shipment, audit }` carries both) |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.kafkajs-message-value-type` | resolved | the value a kafkajs producer's `send()` message serializes: `JSON.stringify(x)` as a `value` written anywhere in `messages` (an array, or `rs.map((r) => ({ value: ... }))`), directly or inside `Buffer.from(...)`; x's types as for `nestjs-client-data-type`, with an array method's callback parameter and `rs[0]` carrying what `rs` carries. A value written another way, or typed `any`, counts in `payload_types_unresolved` |
 
 The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
 name written in such a type, through imports, re-exports and the project's
