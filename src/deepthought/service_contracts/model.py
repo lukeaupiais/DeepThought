@@ -35,6 +35,10 @@ class HttpRoute:
     # "package.Service/Method" of the rpc a route transcodes to (an rpc's
     # google.api.http option): the GrpcMethod handles it.
     rpc: str | None = None
+    # (direction, start byte, end byte, body key) of the types written for the
+    # request body ("request") and the response ("response") on the
+    # handler, which the TypeScript compiler resolves (CARRIES).
+    payloads: tuple = ()
 
 
 @dataclass(frozen=True)
