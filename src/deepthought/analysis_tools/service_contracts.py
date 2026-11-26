@@ -113,7 +113,7 @@ from ..service_contracts.web import (
     nest_settings,
     python_routers,
 )
-from ..syntax import identifier, make_parser
+from ..syntax import identifier, make_parser, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -2424,6 +2424,26 @@ def _go_grpc_carriers(root, sources, grpc, definitions):
     return messages, carriers
 
 
+def _go_func_literal(tree, line, column):
+    """The func literal whose first parameter's name is written at ``line``
+    (1-based) and ``column`` (0-based, bytes), else None."""
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "func_literal":
+            parameters = node.child_by_field_name("parameters")
+            first = None if parameters is None else parameters.named_children
+            if first and first[0].type == "parameter_declaration":
+                names = first[0].children_by_field_name("name")
+                if names and (
+                    names[0].start_point.row + 1,
+                    names[0].start_point.column,
+                ) == (line, column):
+                    return node
+        stack.extend(node.children)
+    return None
+
+
 def _php_wrapper_calls(sources):
     """{file: {method start byte: [("file:line", positional, named)]}}: the
     calls of PHP methods, through ``$this->m(...)`` in the class or a trait
@@ -2914,8 +2934,9 @@ class ServiceContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
+            # A Vue component is read as its script blocks.
+            suffix, content = script_source(coverage.file, content)
             grpc_sources.append((coverage.file, coverage.language, content))
-            suffix = "." + coverage.file.rsplit(".", 1)[-1]
             key = (coverage.language, suffix if suffix == ".tsx" else "")
             if key not in parsers:
                 parsers[key] = make_parser(coverage.language, suffix)
@@ -3048,7 +3069,12 @@ class ServiceContractTool(AnalysisTool):
                     definition.id
                 )
         go_routes = defaultdict(dict)
+        # The first parameter of each Go route's func literal handler, by the
+        # (file, line, column) of the route call.
+        go_literals = {}
         for route in go_found_routes:
+            if route.literal is not None and route.literal[1] == route.file:
+                go_literals[(route.file, route.line, route.column)] = route.literal
             handler = None
             if route.handler is not None:
                 ids = go_declarations.get(route.handler[1:3], [])
@@ -3712,16 +3738,31 @@ class ServiceContractTool(AnalysisTool):
             handler = (
                 None if route.handler_id is None else definitions.get(route.handler_id)
             )
-            if handler is None:
+            literal = go_literals.get((route.file, route.line, route.column))
+            if handler is not None:
+                file = handler.file
+            elif literal is not None:
+                file = route.file
+            else:
                 continue
-            calls = go_handler_calls.get(handler.file)
-            tree, content = trees.get(handler.file, (None, None))
+            calls = go_handler_calls.get(file)
+            tree, content = trees.get(file, (None, None))
             if not calls or tree is None:
                 continue
-            function = _declaration_node(tree, handler)
-            if function is None:
-                continue
-            inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
+            if handler is not None:
+                function = _declaration_node(tree, handler)
+                if function is None:
+                    continue
+                inside = [
+                    c for c in calls if handler.line <= c.line <= handler.end_line
+                ]
+            else:
+                function = _go_func_literal(tree, literal[2], literal[3])
+                if function is None:
+                    continue
+                start = (function.start_point.row + 1, function.start_point.column)
+                end = (function.end_point.row + 1, function.end_point.column)
+                inside = [c for c in calls if start <= (c.line, c.column) < end]
             for direction, sent, where in handler_payloads(function, content, inside):
                 if sent is None:
                     payload_unresolved += 1  # an interface value

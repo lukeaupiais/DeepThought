@@ -133,7 +133,8 @@ ROUTER_PACKAGES = {
 class GoRoute:
     """A route call: its framework, methods, full paths (PLACEHOLDER where
     the code does not fix the text, at the start for a router whose prefix
-    is not followed), and the reference of its handler function."""
+    is not followed), the reference of its handler function, and of the
+    first parameter of a handler written as a func literal."""
 
     file: str
     line: int
@@ -143,6 +144,7 @@ class GoRoute:
     methods: tuple[str, ...]
     paths: tuple[str, ...]
     handler: tuple | None
+    literal: tuple | None = None
 
 
 def _joined(prefix, path):
@@ -339,8 +341,14 @@ class GoRouters:
             tuple(methods),
             tuple(paths),
             self._handler(call, handler_at),
+            self._literal(call, handler_at),
         )
 
     @staticmethod
     def _handler(call, index):
         return call.functions[index] if index < len(call.functions) else None
+
+    @staticmethod
+    def _literal(call, index):
+        parameters = call.literal_parameters
+        return parameters[index] if index < len(parameters) else None
