@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from collections import Counter, defaultdict
 from hashlib import sha256
+import contextlib
 import dataclasses
 from pathlib import PurePosixPath
 import functools
@@ -24,12 +25,10 @@ import time
 
 from .._version import __version__
 from ..data_contracts import (
-    read_tsconfig_paths,
-    resolve_script_alias,
     resolve_script_module,
 )
 from ..engine import analyze_repository, source_languages
-from .. import go_facts
+from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -39,6 +38,7 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
+from ..service_contracts.folding import compiler_values
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -952,6 +952,28 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+CARRIES_MESSAGE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-signature-carries-message",
+        "resolved",
+        "The Go type checker (go/types) reads the protobuf message types "
+        "(named types whose pointer has protoc-gen-go's ProtoReflect method) "
+        "that each linked Go stub call of a gRPC method passes or receives, "
+        "type arguments of generic stream types included; a Go function or "
+        "method whose parameter or result types are built from one of them "
+        "(through pointers, slices, arrays, maps, channels and type "
+        "arguments) carries that method's messages. Set only when every "
+        "linked client call and handler of the method is Go and fully "
+        "type-checked.",
+    )
+)
+
+# Rules of this tool's edges that are not contract sites (HANDLES,
+# REQUESTS, PUBLISHES, CONSUMES): what a site's code or contract carries.
+# Contract coverage counts sites only, so these may be resolved.
+NON_SITE_RULES = frozenset({CARRIES_MESSAGE_RULE.rule_id})
+
+
 _BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
 
 
@@ -1339,9 +1361,9 @@ def _config_paths(root, names):
 
 
 def _script_constants(root, sources):
-    """String constants the repository's scripts export, import or have
-    defined by angular.json, resolving relative imports and tsconfig.json
-    ``paths`` aliases to analyzed script files."""
+    """The repository's scripts with the TypeScript compiler's facts about
+    them (``ts_facts``: string values of names, and how imports resolve)
+    and the globals angular.json defines for them."""
     scripts = {
         coverage.file: (tree, content, coverage.language)
         for coverage, content, tree in sources
@@ -1349,30 +1371,15 @@ def _script_constants(root, sources):
     }
     if not scripts:
         return None
-    files = set(scripts)
-    ts_paths, defines = {}, []
-    for path in _config_paths(root, ("tsconfig.json", "angular.json")):
+    defines = []
+    for path in _config_paths(root, ("angular.json",)):
         try:
             content = (root / path).read_bytes()
         except OSError:
             continue
-        if path.endswith("angular.json"):
-            defines.extend(angular_defines(path, content))
-            continue
-        found = read_tsconfig_paths(path, content)
-        if found is not None:
-            ts_paths[path.rpartition("/")[0]] = found
-    cache = {}
-
-    def resolve(file, module):
-        key = (file, module)
-        if key not in cache:
-            cache[key] = resolve_script_module(
-                file, module, files
-            ) or resolve_script_alias(file, module, files, ts_paths)
-        return cache[key]
-
-    return ScriptConstants(scripts, resolve, defines)
+        defines.extend(angular_defines(path, content))
+    facts = ts_facts.collect(root, list(scripts), defines)
+    return ScriptConstants(scripts, facts, defines)
 
 
 # Build manifests: the nearest directory above a file with one of them is
@@ -1751,6 +1758,76 @@ def _go_messaging_facts(root, sources):
     return found, go_facts.gopath_report(facts)
 
 
+def _go_grpc_carriers(root, sources, grpc, definitions):
+    """({(service, method): message types}, [(definition id, (service,
+    method), carried types)]) from the Go type checker: the protobuf
+    messages each gRPC method's linked Go stub calls pass or receive, and
+    the Go functions whose signatures are built from them. A method gets
+    message types only when every linked client call of it is Go, in a
+    fully type-checked file, and matched to the checker's call, and every
+    handler of it is in such a file too. Without the
+    Go toolchain go_facts raises GoMissing."""
+    calls = {c.id: c for c in grpc.calls}
+    linked = defaultdict(list)
+    for resolution in grpc.resolutions:
+        if resolution.status == "linked":
+            linked[(resolution.service, resolution.method)].append(
+                calls[resolution.call_id]
+            )
+    if not any(c.file.endswith(".go") for found in linked.values() for c in found):
+        return {}, []
+    files = [
+        c.file for c, _, _ in sources if c.language == "go" and c.file.endswith(".go")
+    ]
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    unchecked = set(facts.uncovered) | set(facts.partial)
+    written = {}
+    for call in facts.calls:
+        if call.name_line is not None and call.messages:
+            written[(call.file, call.name_line, call.name_column, call.method)] = (
+                call.messages
+            )
+    messages = {}
+    for key, found in linked.items():
+        types = set()
+        for call in found:
+            carried = (
+                None
+                if not call.file.endswith(".go") or call.file in unchecked
+                else written.get((call.file, call.line, call.column, call.method))
+            )
+            if not carried:
+                break
+            types.update(carried)
+        else:
+            messages[key] = frozenset(types)
+    # A handler outside the checked Go files may carry the messages unseen.
+    files_of = {d.id: d.file for d in definitions}
+    for handler in grpc.handlers:
+        file = files_of.get(handler.handler_id, "")
+        if not file.endswith(".go") or file in unchecked:
+            messages.pop((handler.service, handler.method), None)
+    if not messages:
+        return {}, []
+    carriers_of = defaultdict(set)
+    for key, types in messages.items():
+        for t in types:
+            carriers_of[t].add(key)
+    at = defaultdict(list)
+    for d in definitions:
+        if d.file.endswith(".go") and d.kind in ("Function", "Method"):
+            at[(d.file, d.line)].append(d.id)
+    carriers = []
+    for signature in facts.signatures:
+        found = at.get((signature.file, signature.line), ())
+        if signature.file in unchecked or len(found) != 1:
+            continue
+        for key in sorted({k for t in signature.types for k in carriers_of[t]}):
+            carried = sorted(t for t in signature.types if t in messages[key])
+            carriers.append((found[0], key, carried))
+    return messages, carriers
+
+
 def _go_router_mounts(root, sources):
     """{package directory: {(function, parameter index): prefixes}}: the Gin
     and Echo routers each function's router parameters receive from calls
@@ -1995,6 +2072,14 @@ class ServiceContractTool(AnalysisTool):
     async def analyze(
         self, repo_url, languages=None, file_patterns=None, skip_patterns=None
     ):
+        # The TypeScript compiler's values serve the folders of this run.
+        with contextlib.ExitStack() as stack:
+            self._compiler_stack = stack
+            return await self._analyze(
+                repo_url, languages, file_patterns, skip_patterns
+            )
+
+    async def _analyze(self, repo_url, languages, file_patterns, skip_patterns):
         started = time.monotonic()
         selected = tuple(
             sorted(
@@ -2182,6 +2267,15 @@ class ServiceContractTool(AnalysisTool):
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
+        if scripts is not None:
+            self._compiler_stack.enter_context(
+                compiler_values(
+                    {
+                        content: scripts.compiler.values.get(file, {})
+                        for file, (_, content, _) in scripts.sources.items()
+                    }
+                )
+            )
         axios_exported = {}
 
         def axios_imported(file):
@@ -2499,6 +2593,9 @@ class ServiceContractTool(AnalysisTool):
                 () if skip_patterns is None else tuple(skip_patterns),
             ),
             tests=frozenset(tests),
+        )
+        grpc_messages, grpc_carriers = _go_grpc_carriers(
+            root, sources, grpc, result.definitions
         )
         # An rpc's google.api.http option is an HTTP route the gRPC method
         # serves through grpc-gateway or Kratos.
@@ -2984,6 +3081,20 @@ class ServiceContractTool(AnalysisTool):
                             and declared[0].streaming
                             else {}
                         ),
+                        # The protobuf message types its Go clients pass
+                        # and receive (see CARRIES_MESSAGE).
+                        **(
+                            {
+                                "message_types": sorted(
+                                    f"{package}.{name}"
+                                    for package, name in grpc_messages[
+                                        (service, method)
+                                    ]
+                                )
+                            }
+                            if (service, method) in grpc_messages
+                            else {}
+                        ),
                     },
                 )
             )
@@ -3002,6 +3113,21 @@ class ServiceContractTool(AnalysisTool):
                     {
                         "line": handler.line,
                         **_evidence(GRPC_SERVER_RULES[handler.rule]),
+                    },
+                )
+            )
+        for definition_id, key, carried in grpc_carriers:
+            labels, source = symbol_node(definition_id)
+            relationships.append(
+                RelationshipData(
+                    "CARRIES_MESSAGE",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {"qualified_name": grpc_names[key], "repo_url": repo_url},
+                    {
+                        "message_types": [f"{p}.{n}" for p, n in carried],
+                        **_evidence(CARRIES_MESSAGE_RULE),
                     },
                 )
             )
@@ -3247,9 +3373,21 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
+                "grpc_methods_with_message_types": len(grpc_messages),
+                "grpc_message_carriers": len(grpc_carriers),
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
+                ),
+                "typescript_compiler": (
+                    {
+                        "files": len(scripts.compiler.programs),
+                        "programs": len(set(scripts.compiler.programs.values())),
+                        "rejected_configs": len(scripts.compiler.rejected_configs),
+                        "names_failed": sum(scripts.compiler.failures.values()),
+                    }
+                    if scripts is not None
+                    else {}
                 ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
