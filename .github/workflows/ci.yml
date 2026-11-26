@@ -144,7 +144,7 @@ jobs:
       - name: Install the pinned SCIP indexers and pyright
         run: |
           npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409
-          GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Install the pinned Go callgraph into the full installation
@@ -206,7 +206,7 @@ jobs:
       - name: Install the pinned SCIP indexers, pyright and callgraph
         run: |
           npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409
-          GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
           GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/tools/cmd/callgraph@v0.31.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
@@ -260,7 +260,7 @@ jobs:
           # scip-typescript --pnpm-workspaces runs pnpm; keep it from switching to a
           # corpus's packageManager version, which it would try to download.
           echo "npm_config_manage_package_manager_versions=false" >> "$GITHUB_ENV"
-          GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "DEEPTHOUGHT_PYRIGHT=$(npm prefix -g)/bin/pyright" >> "$GITHUB_ENV"
       - name: Check the indexers are found

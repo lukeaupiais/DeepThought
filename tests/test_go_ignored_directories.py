@@ -95,5 +95,57 @@ class IgnoredDirectoriesTest(unittest.TestCase):
                 )
 
 
+def _go_version(directory, environ):
+    """The Go release the go command runs for a module, as (major, minor)."""
+    import re
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["go", "env", "GOVERSION"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=environ,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.match(r"go(\d+)\.(\d+)", result.stdout.strip())
+    return (int(match[1]), int(match[2])) if match else None
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-go"])
+    and shutil.which("go")
+    and importlib.util.find_spec("google.protobuf"),
+    "Install scip-go, go and the scip extra",
+)
+class NewStandardLibraryTest(unittest.TestCase):
+    def test_a_standard_package_newer_than_the_indexer_still_indexes(self):
+        # Go 1.27 added the standard package uuid, which database/sql/driver
+        # imports. scip-go 0.1.26 knew the standard library from a list built
+        # into it, took uuid for a module's package without a module, and
+        # failed the run: "Should not be possible to have nil module for
+        # userland package: uuid uuid".
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / "work", Path(scratch) / "out"
+            root.mkdir()
+            (root / "go.mod").write_text("module example.com/svc\n\ngo 1.27.1\n")
+            (root / "main.go").write_text(
+                'package main\n\nimport "database/sql/driver"\n\n'
+                "var _ driver.Valuer\n\nfunc main() {}\n"
+            )
+            environ = dict(os.environ)
+            if (_go_version(root, environ) or (0, 0)) < (1, 27):
+                self.skipTest("Needs Go 1.27 or later")
+            report = indexers.index_workspace(
+                root, out, languages=("go",), environ=environ
+            )
+            self.assertEqual(indexers.failed_files(report), {})
+            self.assertEqual(report["coverage"]["main.go"]["status"], "covered")
+
+
 if __name__ == "__main__":
     unittest.main()
