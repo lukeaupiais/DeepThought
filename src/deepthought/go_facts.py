@@ -87,6 +87,25 @@ class GoCall:
     texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
     values: tuple[GoValue, ...] = ()
+    # The named type of each of the callee's results (None: not named), and
+    # where the method name is written (0-based column).
+    result_types: tuple[tuple[str, str] | None, ...] = ()
+    # The protobuf message types (a ProtoReflect method) its arguments and
+    # results are built from, type arguments included.
+    messages: tuple[tuple[str, str], ...] = ()
+    name_line: int | None = None
+    name_column: int | None = None
+
+
+@dataclass(frozen=True)
+class GoSignature:
+    """The named types a function's parameters and results are built from
+    (``namedIn`` in gofacts), at the function's name."""
+
+    file: str
+    line: int
+    column: int  # 0-based
+    types: tuple[tuple[str, str], ...]  # (import path, type name)
 
 
 @dataclass(frozen=True)
@@ -119,6 +138,7 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    signatures: list[GoSignature] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -296,21 +316,22 @@ def _cache_directory():
     return Path(base) / "deepthought"
 
 
-def build(go, timeout=300):
-    """(path of the gofacts binary for this source and toolchain, built into
-    the cache directory when missing; the toolchain's GOROOT)."""
-    source = resources.files(__package__).joinpath("gofacts/main.go").read_bytes()
+def build(go, timeout=300, program="gofacts"):
+    """(path of the ``program`` binary (a directory of this package holding
+    main.go) for this source and toolchain, built into the cache directory
+    when missing; the toolchain's GOROOT)."""
+    source = resources.files(__package__).joinpath(f"{program}/main.go").read_bytes()
     environment = _environment(go)
     info = _info(go)
     version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
     key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
-    binary = _cache_directory() / f"gofacts-{key}"
+    binary = _cache_directory() / f"{program}-{key}"
     if binary.is_file():
         return binary, version[3]
     binary.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="deepthought-gofacts-") as scratch:
+    with tempfile.TemporaryDirectory(prefix=f"deepthought-{program}-") as scratch:
         (Path(scratch) / "main.go").write_bytes(source)
-        output = Path(scratch) / "gofacts"
+        output = Path(scratch) / program
         subprocess.run(
             [go, "build", "-trimpath", "-o", str(output), "main.go"],
             cwd=scratch,
@@ -548,6 +569,24 @@ def _read(text, directory, members, facts):
                     ),
                     tuple(_type(a.get("type")) for a in arguments),
                     tuple(_value(a) for a in arguments),
+                    tuple(_type(t) for t in item.get("result_types") or ()),
+                    tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
+                    item.get("name_line"),
+                    item["name_column"] - 1 if item.get("name_column") else None,
+                )
+            )
+        elif kind == "signature":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "signature")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.signatures.append(
+                GoSignature(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    tuple(dict.fromkeys(_type(t) for t in item["types"])),
                 )
             )
         elif kind == "literal":
