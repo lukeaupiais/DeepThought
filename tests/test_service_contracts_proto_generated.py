@@ -7,7 +7,12 @@ import tempfile
 import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
-from deepthought.service_contracts.protoc import available, flattened_types
+from deepthought.service_contracts.protoc import (
+    available,
+    declared_types,
+    flattened_types,
+    python_descriptors,
+)
 from go_stubs import go_mod, go_stub_files, needs_go
 from typescript_ready import needs_typescript
 
@@ -203,6 +208,79 @@ class GoGeneratedTypeTests(unittest.TestCase):
     def test_no_proto_in_the_repository_links_nothing(self):
         found, _ = self.generated_from("string", proto=False)
         self.assertEqual(found, [])
+
+
+def _pb2(data, form):
+    """A protoc Python module for PROTO: the builder form protoc writes
+    since protobuf 3.20, or the older FileDescriptor form."""
+    if form == "builder":
+        return (
+            "from google.protobuf.internal import builder as _builder\n"
+            "from google.protobuf import descriptor_pool as _descriptor_pool\n"
+            "DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile("
+            f"{data!r})\n"
+            "_builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())\n"
+        )
+    return (
+        "from google.protobuf import descriptor as _descriptor\n"
+        "DESCRIPTOR = _descriptor.FileDescriptor(\n"
+        "  name='order.proto', package='shop.v1', syntax='proto3',\n"
+        f"  serialized_pb={data!r})\n"
+    )
+
+
+@unittest.skipUnless(available(), "grpcio-tools is not installed")
+class PythonGeneratedModuleTests(unittest.TestCase):
+    def test_descriptor_literals(self):
+        data = _descriptor()
+        for form in ("builder", "descriptor"):
+            with self.subTest(form=form):
+                self.assertEqual(python_descriptors(_pb2(data, form)), [data])
+        # Not protobuf's descriptor pool: nothing is read.
+        self.assertEqual(
+            python_descriptors(f"pool = Pool()\npool.AddSerializedFile({data!r})\n"),
+            [],
+        )
+        self.assertIn(("message", "shop.v1.Order.TotalsEntry"), declared_types(data))
+
+    @needs_typescript
+    def test_module_links_to_its_types(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = {
+                "proto/order.proto": PROTO,
+                "svc/order_pb2.py": _pb2(_descriptor(), "builder"),
+            }
+            for path, text in files.items():
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8")
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        found = sorted(
+            (
+                r.source_match["qualified_name"],
+                r.target_match["qualified_name"].removeprefix("r::proto::"),
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type == "GENERATED_FROM"
+        )
+        rule = "service-contracts.python-generated-proto-module"
+        self.assertEqual(
+            found,
+            [
+                ("r::svc/order_pb2.py::file", f"{kind}::shop.v1.{name}", rule)
+                for kind, name in (
+                    ("enum", "Channel"),
+                    ("enum", "Order.Line.Kind"),
+                    ("enum", "Order.Status"),
+                    ("message", "Item"),
+                    ("message", "Item.Tag"),
+                    ("message", "Order"),
+                    ("message", "Order.Line"),
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":
