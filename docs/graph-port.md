@@ -3418,7 +3418,18 @@ which only client requests are read:
   scip-python index resolves the name to one such router another module
   binds; the route takes that router's full prefix, mounts included (rules
   `flask-route-imported-router`, `fastapi-route-imported-router`). Without
-  an index those decorators are not read. Express `get`/`post`/.../`all` calls on an app or Router
+  an index those decorators are not read. A JavaScript or TypeScript call
+  whose method the scip-typescript index resolves to a router library's
+  registration method is a route whatever its receiver is called or
+  where it was made: Express `get`/`post`/.../`all` of `IRouter`,
+  `Application` or an `IRoute` chain (`router.route(path).get(h).put(h)`,
+  path from `route`), and koa-router `get`/`post`/`put`/`patch`/`del`/
+  `all` (rules `express-route-resolved-method`, `koa-router-route`). A call
+  with no handler argument (`app.get("port")`) is none. koa-router routers
+  join their `prefix` option and the paths they are mounted at with `use`,
+  including `router.routes()` mounts and exports; the index decides what
+  is a koa-router `Router`. Plain JavaScript gets these symbols through
+  the DefinitelyTyped packages acquired before indexing. Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
