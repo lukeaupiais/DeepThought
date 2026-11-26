@@ -161,14 +161,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ).consume()
 
-    async def write(self, tool, files, name):
+    async def write(self, tool, files, name, **options):
         repo = "impact-" + uuid4().hex
         self.repos.append(repo)
         with tempfile.TemporaryDirectory() as directory:
             for path, content in files.items():
                 (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
                 (Path(directory) / path).write_text(content)
-            output = await tool(directory).analyze(repo)
+            output = await tool(directory).analyze(repo, **options)
         written = await WriteCoordinator(
             self.manager.driver, database=self.manager.database
         ).write_tool_output(name, output, repo)
@@ -269,6 +269,57 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(strict["status"], "unsupported_or_unobserved")
         self.assertIn("Absence does not prove", strict["semantics"])
 
+    async def test_tests_depend_on_code_their_fixtures_call(self):
+        repo, snapshot, names = await self.write(
+            TreeSitterTool,
+            {
+                "app.py": "def make():\n    return 1\n",
+                "tests/conftest.py": "import pytest\n\nfrom app import make\n\n"
+                "@pytest.fixture\ndef thing():\n    return make()\n",
+                "tests/test_app.py": "def test_thing(thing):\n    assert thing\n",
+            },
+            "tree-sitter",
+        )
+        impact = await self.service.get_impact(
+            names["make"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("thing", 1, "resolved", ["CALLS"]),
+                ("test_thing", 2, "pattern_matched", ["USES_FIXTURE", "CALLS"]),
+            ],
+        )
+        self.assertEqual(impact["items"][1]["source_roles"], ["test"])
+
+    async def test_endpoints_depend_on_the_fastapi_dependencies_they_inject(self):
+        from test_fastapi_dependencies import OCCURRENCES, SOURCES, scip_index
+
+        # A file that does not parse would leave the analysis incomplete.
+        sources = {p: t for p, t in SOURCES.items() if p != "app/broken.py"}
+        found = {p: o for p, o in OCCURRENCES.items() if p in sources}
+        with tempfile.TemporaryDirectory() as scratch:
+            indexes = (scip_index(sources, found, scratch),)
+            repo, snapshot, names = await self.write(
+                TreeSitterTool,
+                sources,
+                "tree-sitter",
+                languages=("python",),
+                scip_indexes=indexes,
+            )
+        impact = await self.service.get_impact(
+            names["Params"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(impact),
+            [
+                ("b", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("c", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("d", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("f", 1, "resolved", ["USES_DEPENDENCY"]),
+            ],
+        )
+
     async def test_direct_and_transitive_dependents_with_source_roles(self):
         files = dict(SOURCES)
         files["tests/test_base.py"] = (
@@ -337,6 +388,40 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.rows(files), [("app.py", 1, "name_matched", ["IMPORTS"])])
 
+    async def test_answers_say_which_named_files_changed_since(self):
+        repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in SOURCES.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            service = GraphQueryService(
+                self.manager.driver, database=self.manager.database, workspace=directory
+            )
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            self.assertEqual(impact["freshness"]["status"], "current")
+            self.assertGreater(impact["freshness"]["files_checked"], 0)
+            edited, removed = sorted(SOURCES)[:2]
+            (Path(directory) / edited).write_text(SOURCES[edited] + "\n# edited\n")
+            (Path(directory) / removed).unlink()
+            impact = await service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot
+            )
+            named = {
+                item["element"]["file_path"] or item["element"]["path"]
+                for item in impact["items"]
+            }
+            freshness = impact["freshness"]
+            self.assertEqual(freshness["status"], "changed")
+            self.assertEqual(set(freshness.get("changed_files", [])), {edited} & named)
+            self.assertEqual(set(freshness.get("missing_files", [])), {removed} & named)
+        # Without a workspace nothing is checked, and answers say nothing.
+        plain = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+        self.assertNotIn("freshness", plain)
+
     async def test_bounds_and_budget(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
         for depth in (0, 6, "3"):
@@ -345,7 +430,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1024
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1100
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)

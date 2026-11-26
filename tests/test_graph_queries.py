@@ -13,7 +13,12 @@ from deepthought.analysis_tools.contracts import (
     StandardizedOutput,
     ToolExecutionMetadata,
 )
-from deepthought.graph_queries import GraphQueryService, _bounds, _cypher_code
+from deepthought.graph_queries import (
+    GraphQueryService,
+    _bounds,
+    _cypher_code,
+    _named_paths,
+)
 
 from evidence_fixtures import FIXTURE_EVIDENCE
 
@@ -29,6 +34,116 @@ class QueryInputTests(unittest.TestCase):
         ]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 _bounds(*args)
+
+    def test_answers_name_the_files_they_point_at(self):
+        self.assertEqual(
+            _named_paths(
+                [
+                    {"file": "a.go", "line": 3},
+                    {"element": {"file_path": "b/c.ts", "path": None}},
+                    {"p": {"nodes": [{"path": "d.py"}, {"path": "/abs.py"}]}},
+                    {"file": "../up.go", "name": "e.go"},
+                    # A raw query's unaliased columns.
+                    {"f.path": "f.go", "s.file_path": "g.go", "f.paths": "h.go"},
+                ]
+            ),
+            {"a.go", "b/c.ts", "d.py", "f.go", "g.go"},
+        )
+
+    def test_freshness_names_files_edited_or_gone_since_the_snapshot(self):
+        from hashlib import sha256
+        import tempfile
+        from pathlib import Path
+
+        class Records:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def __aiter__(self):
+                async def rows():
+                    for row in self.rows:
+                        yield row
+
+                return rows()
+
+        class Transaction:
+            def __init__(self, recorded):
+                self.recorded = recorded
+                self.asked = None
+
+            async def run(self, query, **parameters):
+                self.asked = parameters["paths"]
+                return Records(
+                    [
+                        {"path": p, "digest": d}
+                        for p, d in self.recorded.items()
+                        if p in parameters["paths"]
+                    ]
+                )
+
+        def digest(text):
+            return sha256(text.encode()).hexdigest()
+
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "same.go").write_text("package a\n")
+            (Path(root) / "edited.go").write_text("package a // edited\n")
+            recorded = {
+                "same.go": digest("package a\n"),
+                "edited.go": digest("package a\n"),
+                "gone.go": digest("package a\n"),
+            }
+            service = GraphQueryService(None, workspace=root)
+            tx = Transaction(recorded)
+            items = [{"file": p} for p in ("same.go", "edited.go", "gone.go", "x.md")]
+            freshness = asyncio.run(service._freshness(tx, "r", "s", items))
+            self.assertEqual(
+                freshness,
+                {
+                    "status": "changed",
+                    "files_checked": 3,
+                    "changed_files": ["edited.go"],
+                    "missing_files": ["gone.go"],
+                },
+            )
+            self.assertEqual(tx.asked, ["edited.go", "gone.go", "same.go", "x.md"])
+            current = asyncio.run(
+                service._freshness(tx, "r", "s", [{"file": "same.go"}])
+            )
+            self.assertEqual(current, {"status": "current", "files_checked": 1})
+            # No analyzed file named, or no workspace given: nothing to vouch for.
+            self.assertEqual(
+                asyncio.run(service._freshness(tx, "r", "s", [{"n": 1}])),
+                {"status": "unverified"},
+            )
+            self.assertEqual(
+                asyncio.run(GraphQueryService(None)._freshness(tx, "r", "s", items)),
+                {"status": "unverified"},
+            )
+
+        # A workspace symlink whose target is outside it is not read.
+        with (
+            tempfile.TemporaryDirectory() as root,
+            tempfile.TemporaryDirectory() as out,
+        ):
+            (Path(out) / "secret.go").write_text("package a\n")
+            (Path(root) / "link.go").symlink_to(Path(out) / "secret.go")
+            (Path(root) / "same.go").write_text("package a\n")
+            service = GraphQueryService(None, workspace=root)
+            tx = Transaction(
+                {"link.go": digest("package a\n"), "same.go": digest("package a\n")}
+            )
+            self.assertEqual(
+                asyncio.run(service._freshness(tx, "r", "s", [{"file": "link.go"}])),
+                {"status": "unverified"},
+            )
+            self.assertEqual(
+                asyncio.run(
+                    service._freshness(
+                        tx, "r", "s", [{"file": "link.go"}, {"file": "same.go"}]
+                    )
+                ),
+                {"status": "current", "files_checked": 1},
+            )
 
     def test_cypher_guard_reads_only_the_query_code(self):
         reads = []
@@ -443,6 +558,54 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 self.assertLessEqual(
                     len(json.dumps(raw, sort_keys=True).encode()), 1024
                 )
+                # The text form reads links as sentences, names link ends the
+                # query did not return, and keeps its own byte budget.
+                text = await service.query_cypher_text(
+                    "MATCH ()-[r:CALLS]->() RETURN r",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    text,
+                    "1 result (all of them).\n"
+                    "- Child.run (src/a.py:5) calls helper (src/a.py:12) at line 6",
+                )
+                text = await service.query_cypher_text(
+                    "MATCH p=(f:File)-[:DEFINES]->(n:Symbol) RETURN p ORDER BY n.start_line",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    text.splitlines()[:3],
+                    [
+                        "4 results (all of them).",
+                        'Each chain below starts at src/a.py (file) ("it"):',
+                        "- it defines Base (class, src/a.py:1)",
+                    ],
+                )
+                text = await service.query_cypher_text(
+                    "MATCH (n:Symbol) RETURN n.name AS name, n.start_line AS line",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                    limit=2,
+                    max_output_bytes=1024,
+                )
+                self.assertTrue(text.startswith("2 results, cut at the limit"))
+                self.assertLessEqual(len(text.encode()), 1024)
+                with self.assertRaises(ValueError):
+                    await service.query_cypher_text(
+                        "MATCH (n) DETACH DELETE n",
+                        {},
+                        repo,
+                        snapshot_id=snapshot,
+                        allow_database_scope=True,
+                    )
         finally:
             async with driver.session(database=database) as session:
                 result = await session.run(
