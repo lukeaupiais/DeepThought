@@ -286,6 +286,67 @@ class NestedFunctionTests(unittest.TestCase):
         self.assertEqual((plain["confirmed"], plain["extra"]), (1, 1))
         self.assertEqual((folded["confirmed"], folded["extra"]), (1, 0))
 
+    def test_test_cases_are_judged_where_the_oracle_can_rule(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "a.ts").write_text("export function base() {\n  return 1\n}\n", "utf-8")
+        (repo / "a.test.ts").write_text(
+            "import { base } from './a'\n"
+            "describe('suite', () => {\n"
+            "  const helper = () => base()\n"
+            "  it('uses helper', () => {\n"
+            "    helper()\n"
+            "  })\n"
+            "  it.each([[() => base()]])('row %#', (f) => {\n"
+            "    f()\n"
+            "  })\n"
+            "})\n"
+            "describe('wrapped', () => {\n"
+            "  wrap(() => base())\n"
+            "})\n",
+            "utf-8",
+        )
+        from deepthought.ts_modules import with_compiler_modules
+
+        # TypeScript imports are the compiler's.
+        result = with_compiler_modules(
+            deepthought.analyze_repository(
+                repo, repository_id="t", languages=("typescript",)
+            ),
+            repo,
+        )
+        # The oracle labels test cases by their call (`it.each(rows)("x")`)
+        # and keeps the callback inside describe("wrapped") as its own node.
+        nodes = {
+            ("a.ts", 1): "base",
+            ("a.test.ts", 2): 'describe("suite")',
+            ("a.test.ts", 4): 'it("uses helper")',
+            ("a.test.ts", 7): 'it.each([[()=>base()]])("row %#")',
+            ("a.test.ts", 11): 'describe("wrapped")',
+            ("a.test.ts", 12): "wrap(…)",
+        }
+        truth = {
+            ("a.ts", 1, "base"): {
+                ("a.ts", 1, "base"): 0,
+                ("a.test.ts", 2, 'describe("suite")'): 1,
+                ("a.test.ts", 12, "wrap(…)"): 1,
+            }
+        }
+        report, samples = impact_truth.score(
+            result, truth, fold_nested=True, nodes=nodes
+        )
+        # describe("suite") matches by line; the it reached only through
+        # the local helper, the it.each reached only through its rows and
+        # describe("wrapped") around an oracle dependent are unjudged.
+        self.assertEqual(
+            (report["confirmed"], report["extra"], report["unjudged"]), (1, 0, 3)
+        )
+        self.assertEqual(
+            samples["missed"], [["a.ts", 1, "a.test.ts", 12, "wrap(…)", 1]]
+        )
+
 
 class FunctionValueTests(unittest.TestCase):
     def test_initializers_that_hold_a_function(self):

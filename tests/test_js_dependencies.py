@@ -93,6 +93,40 @@ class ManagerTest(unittest.TestCase):
                 command = [Path(command[0]).name, Path(command[1]).name]
             return manager, arguments[:2], lockfile, command
 
+    def test_a_copy_links_the_node_modules_a_directory_already_has(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "ws"
+            write(
+                root,
+                {
+                    "app/package.json": '{"dependencies": {"base": "1.0.0"}}',
+                    "app/node_modules/base/tsconfig.base.json": "{}",
+                    "other/package.json": '{"dependencies": {"left-pad": "1.3.0"}}',
+                },
+            )
+
+            def install(root, copy, relative, *rest):
+                (copy / relative / "node_modules").mkdir()
+                return {"directory": relative, "status": "installed"}
+
+            with mock.patch.object(
+                js_dependencies, "_install", side_effect=install
+            ) as called:
+                outcome = js_dependencies.prepare(root, Path(scratch) / "s")
+            copy = Path(outcome["root"])
+            self.assertEqual(outcome["status"], "installed")
+            self.assertEqual([c.args[2] for c in called.call_args_list], ["other"])
+            self.assertTrue((copy / "app/node_modules").is_symlink())
+            self.assertTrue(
+                (copy / "app/node_modules/base/tsconfig.base.json").is_file()
+            )
+            self.assertEqual(
+                [(i["directory"], i.get("source")) for i in outcome["installs"]],
+                [("app", "workspace"), ("other", None)],
+            )
+
     def test_the_lockfile_chooses_the_manager(self):
         self.assertEqual(
             self.manager({"bun.lock": "{}", "yarn.lock": ""})[:3],
