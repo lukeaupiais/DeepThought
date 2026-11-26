@@ -2379,8 +2379,8 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             )
             continue
         if len(parts) == 1 and site.binding is not None:
-            # JavaScript and TypeScript: the declaration the call's scopes
-            # give, or none; a binding that declares no callable (a
+            # JavaScript, TypeScript and Go: the declaration the call's
+            # scopes give, or none; a binding that declares no callable (a
             # parameter, `let f = make()`) is not one further out.
             if not site.binding:
                 resolutions.append(
@@ -2402,7 +2402,14 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             )
             continue
         if len(parts) == 1:
-            lexical = bindings.lexical(site.file, scope, site.callee, _CALLABLE)
+            lexical = bindings.lexical(
+                site.file,
+                # Go's func literals bound in a function are found through
+                # the call's binding; no other declaration is in a scope.
+                () if languages.get(site.file) == "go" else scope,
+                site.callee,
+                _CALLABLE,
+            )
             bound = names.get((site.file, site.callee), [])
             if lexical and bound:
                 resolutions.append(

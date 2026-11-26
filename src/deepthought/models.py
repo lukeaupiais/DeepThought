@@ -429,7 +429,9 @@ class CallSite:
     # following block and function scopes; ``()`` when the file declares
     # none the call sees. None when an import binds the name, or the scopes
     # around the call cannot be read (``with``, a syntax error), and
-    # elsewhere.
+    # elsewhere. Go calls of a plain name a variable in the function around
+    # the call (or a package-level ``var`` of the file) binds: the start of
+    # that name when it declares a func literal, else ``()``.
     binding: tuple[int, ...] | None = None
     # Java calls with an argument that is itself a method call: that call's
     # span (line, column, end line, end column) for each such argument, None

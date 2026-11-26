@@ -189,6 +189,7 @@ def extract(
     while stack:
         node, scope, in_class = stack.pop()
         kind = KINDS.get(node.type)
+        bound = _bound_name(node)
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
             name = node.child_by_field_name("name")
@@ -209,6 +210,9 @@ def extract(
             ):
                 kind = "Function"
         name_node = node.child_by_field_name("name") if kind else None
+        if bound is not None:
+            # A Go func literal or a Python lambda declared under a name.
+            kind, name_node = ("Method" if in_class else "Function"), bound
         if node.type == "type_spec":
             kind = _GO_TYPE_KINDS.get(
                 getattr(node.child_by_field_name("type"), "type", None), "Type"
@@ -358,8 +362,10 @@ def extract(
                 file=file,
                 symbol=symbol,
                 kind=kind,
-                line=node.start_point.row + 1,
-                column=node.start_point.column,
+                # A bound literal's span starts at its name, where an
+                # indexer places the definition.
+                line=(bound or node).start_point.row + 1,
+                column=(bound or node).start_point.column,
                 end_line=node.end_point.row + 1,
                 end_column=node.end_point.column,
                 **arity,
@@ -371,6 +377,66 @@ def extract(
             in_class = kind == "Class"
         stack.extend((child, scope, in_class) for child in reversed(children(node)))
     return definitions
+
+
+_FUNCTION_BODIES = {
+    "function_definition",
+    "lambda",
+    "function_declaration",
+    "method_declaration",
+    "func_literal",
+}
+
+
+def _bound_name(node):
+    """The identifier a Go func literal or a Python lambda outside any
+    function is declared under, as JavaScript's ``const f = () => ...`` is:
+    a package-level ``var f = func() {...}``, a module- or class-level
+    ``f = lambda: ...``. None for any other node: a literal in a function, one
+    assigned to an existing Go variable (``f = func() {...}``, which declares
+    nothing), one of several names declared together, Go's blank identifier,
+    or a Python target that is not a plain name. The declaration spans the
+    name and the literal, so the calls in its body take it as their caller
+    instead of no declaration (the file)."""
+    parent = node.parent
+    if parent is None or node.type not in {"lambda", "func_literal"}:
+        return None
+    ancestor = parent
+    while ancestor is not None:
+        if ancestor.type in _FUNCTION_BODIES:
+            # Inside a function the literal stays part of it: the function
+            # is what runs the calls in its body, and impact reaches the
+            # function's callers through it.
+            return None
+        ancestor = ancestor.parent
+    if node.type == "lambda":
+        if (
+            parent.type == "assignment"
+            and parent.child_by_field_name("right") == node
+            and getattr(parent.child_by_field_name("left"), "type", None)
+            == "identifier"
+        ):
+            return parent.child_by_field_name("left")
+        return None
+    if node.type != "func_literal" or parent.type != "expression_list":
+        return None
+    declaration = parent.parent
+    if declaration is None:
+        return None
+    if declaration.type == "var_spec":
+        if declaration.child_by_field_name("value") != parent:
+            return None
+        names = declaration.children_by_field_name("name")
+    else:
+        return None
+    # One name only, so that nothing but `:=` or `=` lies between the name
+    # and the literal.
+    if len(names) != 1 or len(parent.named_children) != 1:
+        return None
+    name = names[0]
+    if name.type != "identifier" or name.text == b"_":
+        return None
+    return name
 
 
 # C: declarators that wrap the declared name.
@@ -5242,6 +5308,32 @@ def _go_receiver_fields(node, content, callee, cache):
     return _go_receiver_type(node, content, callee, cache) or {}
 
 
+def _go_binding(node, content, callee, cache):
+    """``CallSite.binding`` for a Go call of a plain name ``f()`` that a
+    declaration in the function around it, or a package-level ``var`` of the
+    file, binds (Go's scopes, as ``_go_visible`` reads them): the start of
+    that name when it declares a func literal (``var f = func() {...}``),
+    else ``()`` (a parameter, a local or any other variable, which no
+    declaration answers). None when no variable is named ``f`` there."""
+    if "." in callee:
+        return None
+    outer, ancestor = None, node.parent
+    while ancestor is not None:
+        if ancestor.type in _GO_FUNCTIONS:
+            outer = ancestor
+        ancestor = ancestor.parent
+    if outer is None:
+        return None
+    visible = _go_visible(callee, node, outer, content, cache)
+    if visible is None:
+        return None
+    value = visible[1]
+    name = _bound_name(value) if getattr(value, "type", None) == "func_literal" else None
+    if name is None:
+        return ()
+    return (name.start_point.row + 1, name.start_point.column)
+
+
 def _go_enclosing_functions(node):
     """The Go function and method declarations around ``node``."""
     while node is not None:
@@ -5380,6 +5472,8 @@ def extract_call_sites(
                         else None,
                         binding=_js_binding(node, content, callee, scopes)
                         if script
+                        else _go_binding(node, content, callee, receivers)
+                        if go
                         else None,
                         callee_at=_callee_at(node) if script or python or go else None,
                         **(
