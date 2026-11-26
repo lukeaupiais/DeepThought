@@ -390,6 +390,19 @@ IMPORT_RULES = {
         ),
     )
 }
+NEST_INJECTED_CALL_RULE = register_rule(
+    EvidenceRule(
+        ts_modules.NEST_INJECTED_CALL,
+        "resolved",
+        "A TypeScript call this.p.m() in a class whose constructor parameter "
+        "property p NestJS injects links to m of the class a class provider "
+        "({provide: token, useClass: C}) binds p's token to: the argument of "
+        "p's @Inject(token) (Inject from @nestjs/common), or else the class "
+        "p's type names. The TypeScript compiler's checker resolves the "
+        "token and the class; m is the method C declares or inherits through "
+        "extends.",
+    )
+)
 IMPORT_RULES[ts_modules.TYPESCRIPT_COMPILER_MODULE] = register_rule(
     EvidenceRule(
         ts_modules.TYPESCRIPT_COMPILER_MODULE,
@@ -1657,6 +1670,35 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        # NestJS: a call through an injected property runs the provided
+        # class's method, beside what the call itself links to.
+        injected = ts_modules.injected_calls(result)
+        for site_id, targets in sorted(injected.items()):
+            site = sites[site_id]
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        [kinds[site.caller_id], "Symbol"],
+                        {
+                            "qualified_name": qualified[site.caller_id],
+                            "repo_url": repo_url,
+                        },
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "nest-injection",
+                            "producer": ts_modules.TYPESCRIPT_TOOL,
+                            **_evidence(NEST_INJECTED_CALL_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1716,6 +1758,10 @@ class TreeSitterTool(AnalysisTool):
                 "scip_uses": dict(sorted(use_counts.items())),
                 "scip_fields": len(fields),
                 "signature_types": len(named_types),
+                "nest_injected_calls": {
+                    "sites": len(injected),
+                    "edges": sum(len(t) for t in injected.values()),
+                },
                 "go_implementations": {
                     GO_INTERFACE_RULE.rule_id: len(implementations),
                     SCIP_GO_IMPLEMENTATION_RULE.rule_id: len(recorded.implements),
