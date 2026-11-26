@@ -265,6 +265,21 @@ class GraphQueryIntegrationTests(unittest.TestCase):
             node(
                 "imported", ["Import"], name="typing", nested={"a": [1, 2]}, empty=None
             ),
+            *(
+                node(
+                    f"coverage-{family}-{language}",
+                    ["EdgeCoverage"],
+                    family=family,
+                    language=language,
+                    status=status,
+                    resolver=resolver,
+                )
+                for family, language, status, resolver in (
+                    ("IMPORTS", "python", "not_linked", ["tree-sitter@1"]),
+                    ("CALLS", "python", "linked", ["scip-python@0.6.8"]),
+                    ("CALLS", "go", "no_sites", []),
+                )
+            ),
         ]
         byname = {n.properties["qualified_name"]: n for n in nodes}
 
@@ -400,13 +415,49 @@ class GraphQueryIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(path["items"][0]["depth"], 1)
             stats = await service.get_repository_stats(repo, snapshot_id=snapshot)
-            self.assertEqual(stats["items"][0]["nodes"], 7)
+            self.assertEqual(stats["items"][0]["nodes"], 10)
             exists = await service.node_exists(
                 "method", repo, snapshot_id=snapshot, node_type="Method"
             )
             self.assertTrue(exists["items"][0]["exists"])
             with self.assertRaises(ValueError):
                 await service.search_elements("", repo, snapshot_id="missing")
+            described = await service.describe_snapshot(repo, snapshot_id=snapshot)
+            self.assertEqual(
+                (
+                    described["repo_url"],
+                    described["snapshot_id"],
+                    described["capabilities"],
+                ),
+                (repo, snapshot, ["definitions", "calls"]),
+            )
+            self.assertEqual(described["returned"], 1)
+            # Coverage records by family and language, without storage keys.
+            self.assertEqual(
+                described["items"][0]["coverage"],
+                [
+                    {
+                        "family": "CALLS",
+                        "language": "go",
+                        "resolver": [],
+                        "status": "no_sites",
+                    },
+                    {
+                        "family": "CALLS",
+                        "language": "python",
+                        "resolver": ["scip-python@0.6.8"],
+                        "status": "linked",
+                    },
+                    {
+                        "family": "IMPORTS",
+                        "language": "python",
+                        "resolver": ["tree-sitter@1"],
+                        "status": "not_linked",
+                    },
+                ],
+            )
+            with self.assertRaises(ValueError):
+                await service.describe_snapshot(repo, snapshot_id="missing")
             # Raw Cypher tests require an exclusively owned single-snapshot database.
             raw_enabled = (
                 os.environ.get("DEEPTHOUGHT_NEO4J_SINGLE_SNAPSHOT_TEST") == "1"
@@ -434,7 +485,41 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                     snapshot_id=snapshot,
                     allow_database_scope=True,
                 )
-                self.assertEqual(raw["items"], [{"n": 4}])
+                self.assertEqual(
+                    raw,
+                    {
+                        "status": "succeeded",
+                        "items": [{"n": 4}],
+                        "returned": 1,
+                        "truncated": False,
+                    },
+                )
+                # A partial snapshot says so in every answer.
+                async with driver.session(database=database) as session:
+                    marked = await session.run(
+                        "MATCH (s:AnalysisSnapshot {repo_url:$repo,snapshot_id:$id})"
+                        " SET s.metadata_json=$metadata",
+                        repo=repo,
+                        id=snapshot,
+                        metadata=json.dumps(
+                            {"custom_metrics": {"analysis_status": "partial"}}
+                        ),
+                    )
+                    await marked.consume()
+                raw = await service.query_cypher(
+                    "RETURN 1 AS n",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    (sorted(raw), raw["analysis_status"]),
+                    (
+                        ["analysis_status", "items", "returned", "status", "truncated"],
+                        "partial",
+                    ),
+                )
                 raw = await service.query_cypher(
                     "RETURN $value AS value",
                     {"value": {"nested": [1, 2]}},
