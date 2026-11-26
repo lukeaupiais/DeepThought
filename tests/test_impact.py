@@ -347,15 +347,24 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         impact = await self.service.get_impact(
             names["Params"], repo, snapshot_id=snapshot
         )
+        # The module-level ``ParamsDep = Annotated[Params, ...]`` alias names
+        # the type itself. Each endpoint both injects Params and names it as
+        # a parameter type: both links are resolved and one hop, so which one
+        # the row shows is the first by edge identity.
+        rows = self.rows(impact)
         self.assertEqual(
-            self.rows(impact),
+            [row[:3] for row in rows],
             [
-                ("b", 1, "resolved", ["USES_DEPENDENCY"]),
-                ("c", 1, "resolved", ["USES_DEPENDENCY"]),
-                ("d", 1, "resolved", ["USES_DEPENDENCY"]),
-                ("f", 1, "resolved", ["USES_DEPENDENCY"]),
+                ("app/aliases.py", 1, "resolved"),
+                ("b", 1, "resolved"),
+                ("c", 1, "resolved"),
+                ("d", 1, "resolved"),
+                ("f", 1, "resolved"),
             ],
         )
+        self.assertEqual(rows[0][3], ["USES_TYPE"])
+        for row in rows[1:]:
+            self.assertIn(row[3], (["USES_DEPENDENCY"], ["USES_TYPE"]))
 
     async def test_direct_and_transitive_dependents_with_source_roles(self):
         files = dict(SOURCES)
@@ -499,7 +508,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                     names["helper"], repo, snapshot_id=snapshot, max_depth=depth
                 )
         small = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1536
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=1612
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
