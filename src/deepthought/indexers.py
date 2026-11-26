@@ -87,7 +87,12 @@ INDEXERS = {
         ),
         IndexerSpec(
             "scip-go",
-            "0.1.26",
+            # 0.1.26 knew the standard library from a list built into it: the
+            # uuid package Go 1.27 added (imported by database/sql/driver)
+            # was taken for a module's package without a module, and the run
+            # stopped. 0.2.x reads it from the go command. 0.2.8 and later
+            # write only typed_range, which this reader does not decode yet.
+            "0.2.7",
             ("go",),
             "DEEPTHOUGHT_SCIP_GO",
             # go/token columns are byte offsets.
@@ -231,6 +236,7 @@ def _arguments(spec, root, output, project_name):
         ], root
     if spec.name == "scip-go":
         return [
+            "index",
             "--output",
             str(output),
             "--module-version",
@@ -427,8 +433,10 @@ _GO_IGNORED = {"vendor", "testdata", "node_modules"}
 
 def go_modules(workspace):
     """Workspace-relative directories holding a go.mod (``.`` for the root),
-    outside vendor, testdata and hidden directories. Directories whose name
-    starts with ``_`` are searched too."""
+    outside vendor and hidden directories. Directories named testdata or
+    whose name starts with ``_`` are searched too: the go command's ./...
+    skips them, but a go.mod there is a module of its own (sqlc keeps its
+    922 generated end-to-end packages in internal/endtoend/testdata)."""
     root = Path(workspace).resolve(strict=True)
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -436,9 +444,9 @@ def go_modules(workspace):
             name
             for name in names
             if name not in _SKIP_DIRECTORIES
-            and name not in _GO_IGNORED
-            # A go.mod below a directory the go command ignores (_examples)
-            # is still a module of its own.
+            and name not in _GO_IGNORED - {"testdata"}
+            # A go.mod below a directory the go command ignores (_examples,
+            # testdata) is still a module of its own.
             and not name.startswith(".")
             and not (Path(directory) / name).is_symlink()
         )
@@ -929,8 +937,11 @@ def canonical_bytes(index):
 
     Some indexers (scip-go) emit the same facts in a different order from run
     to run; sorting makes equal facts equal bytes, so receipts and snapshot
-    identities are reproducible.
+    identities are reproducible. The indexer's own arguments are dropped:
+    scip-go 0.2 records its scratch output path there, and the receipt keeps
+    the arguments with paths left out.
     """
+    del index.metadata.tool_info.arguments[:]
     documents = sorted(index.documents, key=lambda d: d.relative_path)
     for document in documents:
         occurrences = sorted(
@@ -1054,6 +1065,16 @@ def _index_workspace(
 ):
     runs = []
     modules = go_modules(root) if "go" in present else []
+    # A module that holds no Go source file of its own (a testdata fixture
+    # with only a go.mod) has nothing to index.
+    modules = [
+        m
+        for m in modules
+        if any(
+            language == "go" and go_module_of(path, modules) == m
+            for path, language in sources.items()
+        )
+    ]
     projects = (
         typescript_projects(root) if present & {"typescript", "javascript"} else []
     )
