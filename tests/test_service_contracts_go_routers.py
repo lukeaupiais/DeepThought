@@ -267,6 +267,7 @@ func main() {
 	r.Post("/token", token.ServeHTTP)
 	r.Method(http.MethodPut, "/token", auth(token))
 	r.Mount("/ui", ui())
+	r.Route("/v2", api{}.Routes)
 	http.ListenAndServe(":8080", r)
 }
 
@@ -276,6 +277,12 @@ func ui() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/page", List)
 	return r
+}
+
+type api struct{}
+
+func (api) Routes(r chi.Router) {
+	r.Get("/list", List)
 }
 """
 
@@ -352,7 +359,9 @@ class ChiRouterTests(unittest.TestCase):
                 (34, "chi", ("POST",), "/token", False, "List"),
                 (35, "chi", ("PUT",), "/token", False, None),
                 # Mount given a call takes the router the function returns.
-                (44, "chi", ("GET",), "/ui/page", False, "List"),
+                (45, "chi", ("GET",), "/ui/page", False, "List"),
+                # Route given a method value scopes its router parameter.
+                (52, "chi", ("GET",), "/v2/list", False, "List"),
             ],
         )
 

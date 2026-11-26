@@ -85,6 +85,9 @@ type argument struct {
 	Function string `json:"function,omitempty"`
 	// The reference of the first parameter of a func literal argument.
 	Literal string `json:"literal,omitempty"`
+	// The reference of the first parameter of the module's function or
+	// method an argument names as a value (r.Route("/x", api.Routes)).
+	Callback string `json:"callback,omitempty"`
 	// On a "pass" fact: the reference of the callee's parameter it fills.
 	Parameter string `json:"parameter,omitempty"`
 }
@@ -661,6 +664,22 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		}
 		return objectRef(info.Defs[literal.Type.Params.List[0].Names[0]])
 	}
+	callbackParameter := func(arg ast.Expr) string {
+		switch ast.Unparen(arg).(type) {
+		case *ast.Ident, *ast.SelectorExpr:
+		default:
+			return ""
+		}
+		fn := called(arg)
+		if fn == nil || functionRef(fn) == "" {
+			return ""
+		}
+		params := fn.Type().(*types.Signature).Params()
+		if params.Len() == 0 {
+			return ""
+		}
+		return objectRef(params.At(0))
+	}
 	// A named type of a library outside the module and the standard
 	// library (a router), through pointers.
 	library := func(t types.Type) *types.Named {
@@ -1055,6 +1074,7 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			a.Ref = reference(arg)
 			a.Function = function(arg)
 			a.Literal = literalParameter(arg)
+			a.Callback = callbackParameter(arg)
 			out.Arguments = append(out.Arguments, a)
 		}
 		emit(out)
