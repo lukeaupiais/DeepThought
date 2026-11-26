@@ -13,7 +13,11 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
-    "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "typescript": (
+        (".ts", ".tsx", ".mts", ".cts"),
+        "tree_sitter_typescript",
+        "language_typescript",
+    ),
     "javascript": (
         (".js", ".jsx", ".mjs", ".cjs"),
         "tree_sitter_javascript",
@@ -1543,9 +1547,13 @@ def _typescript_imports(node, content):
 
     JavaScript ES modules share this syntax. A ``require("x")`` call
     (``require``) or an ``import("x")`` call (``dynamic_import``) is recorded
-    too, binding no names: the module it loads, as the TypeScript compiler
-    records it. The specifier is a string literal, or a template without
-    substitutions; it is require's only argument and import()'s first.
+    too: the module it loads, as the TypeScript compiler records it. The
+    specifier is a string literal, or a template without substitutions; it
+    is require's only argument and import()'s first. A require() that
+    initializes a destructuring declaration (``const { a, b: c } =
+    require("x")``) binds the names it destructures, which the compiler
+    takes as aliases of what the module exports under those names; any
+    other call binds none.
     """
     if node.type == "call_expression":
         yield from _import_call(node, content)
@@ -1627,7 +1635,39 @@ def _import_call(node, content):
     parts = literal.named_children
     if len(parts) != 1 or parts[0].type != "string_fragment":
         return
-    yield _text(parts[0], content), kind, (), ()
+    pairs = _required_names(node, content) if kind == "require" else []
+    yield (
+        _text(parts[0], content),
+        kind,
+        tuple(name for name, _ in pairs),
+        tuple(local for _, local in pairs),
+    )
+
+
+def _required_names(node, content):
+    """(name, local name) for each property ``const { a, b: c } =
+    require("x")`` destructures into a name of its own: ``a`` and ``c``. A
+    nested pattern, a default value, a rest element or a computed or quoted
+    key binds no export by name, so it is left out."""
+    declarator = node.parent
+    if declarator is None or declarator.type != "variable_declarator":
+        return []
+    # A plain name or an array pattern has no property patterns.
+    pairs = []
+    for child in declarator.child_by_field_name("name").named_children:
+        if child.type == "shorthand_property_identifier_pattern":
+            pairs.append((_text(child, content), _text(child, content)))
+        elif child.type == "pair_pattern":
+            key = child.child_by_field_name("key")
+            value = child.child_by_field_name("value")
+            if (
+                key is not None
+                and key.type == "property_identifier"
+                and value is not None
+                and value.type == "identifier"
+            ):
+                pairs.append((_text(key, content), _text(value, content)))
+    return pairs
 
 
 def _go_imports(node, content):

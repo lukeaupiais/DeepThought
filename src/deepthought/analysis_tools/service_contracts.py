@@ -27,6 +27,7 @@ from .._version import __version__
 from ..data_contracts import (
     resolve_script_module,
 )
+from .. import ts_modules
 from ..engine import analyze_repository, source_languages
 from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
@@ -2076,6 +2077,8 @@ class ServiceContractTool(AnalysisTool):
             exclude=() if skip_patterns is None else tuple(skip_patterns),
         )
         root = self.repo_path.resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
         graphql_resolvers = []

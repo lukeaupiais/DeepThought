@@ -10,21 +10,18 @@ import unittest
 import deepthought
 from deepthought import analyze_repository
 from deepthought.models import AnalysisResult
-from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
-    CALL_JS_REEXPORT,
+    CALL_TS_COMPILER_EXPORT,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
 )
 from deepthought.imports import (
-    JAVASCRIPT_EXTENSIONLESS_MODULE,
-    JAVASCRIPT_RELATIVE_FILE,
-    TYPESCRIPT_RELATIVE_MODULE,
     resolve_imports,
 )
 from deepthought.syntax import identifier
+from deepthought.ts_modules import TYPESCRIPT_COMPILER_MODULE, with_compiler_modules
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_javascript"
@@ -42,7 +39,11 @@ def analyze(files, languages=("javascript",)):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         options = {} if languages is None else {"languages": languages}
-        return analyze_repository(directory, repository_id="fixture", **options)
+        # Imports and the calls through them are the TypeScript compiler's.
+        return with_compiler_modules(
+            analyze_repository(directory, repository_id="fixture", **options),
+            directory,
+        )
 
 
 def resolved(result):
@@ -102,6 +103,32 @@ class JavaScriptDeclarationTests(unittest.TestCase):
         )
         self.assertIn("tree-sitter-javascript", dict(result.analyzer_versions))
 
+    @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
+    def test_typescript_module_extensions_are_typescript(self):
+        result = analyze(
+            {
+                "m.mts": "export function esm(): void {}\n",
+                "c.cts": "export function common(): number { return 1; }\n",
+                "t.d.mts": "export declare function declared(): void;\n",
+                "g.cts": "const n = <number>(1 as unknown);\nexport { n };\n",
+            },
+            languages=("typescript",),
+        )
+        self.assertEqual(
+            sorted(
+                (d.file, d.symbol) for d in result.definitions if d.kind == "Function"
+            ),
+            [("c.cts", "common"), ("m.mts", "esm"), ("t.d.mts", "declared")],
+        )
+        # Not JSX: a type assertion in angle brackets parses.
+        self.assertEqual(
+            {(c.file, c.language, c.status) for c in result.coverage},
+            {
+                (name, "typescript", "analyzed")
+                for name in ("m.mts", "c.cts", "t.d.mts", "g.cts")
+            },
+        )
+
     def test_javascript_is_analyzed_only_when_selected(self):
         files = {"main.py": "def f():\n    pass\n", "app.js": "function g() {}\n"}
         default = analyze(files, languages=None)
@@ -115,7 +142,7 @@ class JavaScriptDeclarationTests(unittest.TestCase):
 
 @unittest.skipUnless(READY, "Provision the javascript extra")
 class JavaScriptImportTests(unittest.TestCase):
-    def test_exact_files_resolve_and_extensionless_specifiers_are_conventions(self):
+    def test_imports_resolve_where_the_compiler_resolves_them(self):
         result = analyze(
             {
                 "src/main.js": (
@@ -150,26 +177,28 @@ class JavaScriptImportTests(unittest.TestCase):
             ],
         )
         links = resolved(result)
-        for specifier, target, rule in (
-            # src/a.ts is not JavaScript; a .js specifier names exactly a.js.
-            ("./a.js", "src/a.js", JAVASCRIPT_RELATIVE_FILE),
-            ("./b", "src/b.jsx", JAVASCRIPT_EXTENSIONLESS_MODULE),
-            ("./dir", "src/dir/index.js", JAVASCRIPT_EXTENSIONLESS_MODULE),
-            ("../lib/c.mjs", "lib/c.mjs", JAVASCRIPT_RELATIVE_FILE),
+        for specifier, target in (
+            ("./b", "src/b.jsx"),
+            ("./dir", "src/dir/index.js"),
+            ("../lib/c.mjs", "lib/c.mjs"),
         ):
             with self.subTest(specifier=specifier):
                 self.assertEqual(
                     links[("src/main.js", specifier)],
-                    ("linked", ((target, rule),), None),
+                    ("linked", ((target, TYPESCRIPT_COMPILER_MODULE),), None),
                 )
+        # The compiler prefers the TypeScript source a .js specifier names,
+        # src/a.ts, which this JavaScript analysis does not read.
         self.assertEqual(
-            links[("src/main.js", "./missing.js")],
-            ("unresolved", (), "no_analyzed_file"),
+            links[("src/main.js", "./a.js")],
+            ("unresolved", (), "compiler_target_not_analyzed"),
         )
-        self.assertEqual(
-            links[("src/main.js", "react")],
-            ("unresolved", (), "non_relative_specifier"),
-        )
+        for specifier in ("./missing.js", "react"):
+            with self.subTest(specifier=specifier):
+                self.assertEqual(
+                    links[("src/main.js", specifier)],
+                    ("unresolved", (), "compiler_module_not_found"),
+                )
 
     def test_only_a_call_of_one_string_literal_loads_a_module(self):
         source = (
@@ -225,77 +254,11 @@ class JavaScriptImportTests(unittest.TestCase):
             [(i.kind, i.line) for i in result.imports], [("dynamic_import", 2)]
         )
 
-    def test_extensionless_lookup_prefers_js_then_jsx_mjs_cjs_then_index(self):
-        cases = (
-            (("x.js", "x.jsx", "x/index.js"), "x.js"),
-            (("x.jsx", "x.mjs"), "x.jsx"),
-            (("x.mjs", "x.cjs"), "x.mjs"),
-            (("x.cjs", "x/index.js"), "x.cjs"),
-            (("x/index.js", "x/index.jsx"), "x/index.js"),
-            (("x/index.jsx",), "x/index.jsx"),
-        )
-        for present, target in cases:
-            with self.subTest(present=present):
-                files = {"main.js": "import './x';\n"}
-                files.update({name: "" for name in present})
-                self.assertEqual(
-                    resolved(analyze(files))[("main.js", "./x")],
-                    ("linked", ((target, JAVASCRIPT_EXTENSIONLESS_MODULE),), None),
-                )
-
-    def test_rules_are_registered_with_their_evidence_type(self):
-        import deepthought.analysis_tools.tree_sitter  # noqa: F401 (registers)
-
-        rules = registered_rules()
-        self.assertEqual(rules[JAVASCRIPT_RELATIVE_FILE].evidence_type, "resolved")
-        self.assertEqual(
-            rules[JAVASCRIPT_EXTENSIONLESS_MODULE].evidence_type, "pattern_matched"
-        )
-
-
-@unittest.skipUnless(TYPESCRIPT_READY, "Provision the javascript and typescript extras")
-class TypeScriptToJavaScriptTests(unittest.TestCase):
-    def test_typescript_reaches_javascript_only_after_every_typescript_candidate(self):
-        files = {
-            "main.ts": (
-                "import { a } from './a';\n"
-                "import { b } from './b';\n"
-                "import { c } from './c.js';\n"
-                "import { d } from './d.js';\n"
-                "import { e } from './e';\n"
-            ),
-            "a.ts": "",
-            "a.js": "",
-            "b.js": "",
-            "c.js": "",
-            "d.ts": "",
-            "d.js": "",
-            "e.jsx": "",
-            "e.js": "",
-        }
-        links = resolved(analyze(files, languages=("javascript", "typescript")))
-        for specifier, target in (
-            ("./a", "a.ts"),
-            ("./b", "b.js"),
-            ("./c.js", "c.js"),
-            ("./d.js", "d.ts"),
-            ("./e", "e.js"),
-        ):
-            with self.subTest(specifier=specifier):
-                self.assertEqual(
-                    links[("main.ts", specifier)],
-                    ("linked", ((target, TYPESCRIPT_RELATIVE_MODULE),), None),
-                )
-        # Without the javascript language no .js file is analyzed, so the
-        # TypeScript-only result is unchanged.
-        only = resolved(analyze(files, languages=("typescript",)))
-        self.assertEqual(
-            only[("main.ts", "./b")], ("unresolved", (), "no_analyzed_file")
-        )
-
 
 @unittest.skipUnless(READY, "Provision the javascript extra")
 class JavaScriptCallTests(unittest.TestCase):
+    maxDiff = None
+
     def test_imported_names_and_this_methods_link_by_name(self):
         result = analyze(
             {
@@ -324,6 +287,67 @@ class JavaScriptCallTests(unittest.TestCase):
             {
                 "this.store": ("linked", "Shelf.store", CALL_SELF_METHOD),
                 "build": ("linked", "make", CALL_IMPORTED_NAME),
+            },
+        )
+
+    def test_names_destructured_from_require_link_to_the_modules_exports(self):
+        result = analyze(
+            {
+                "lib.js": "export function make() {}\nexport function other() {}\n",
+                "main.js": (
+                    "const { make, other: o, nested: { deep }, d = 1, ...rest } ="
+                    " require('./lib.js');\n"
+                    "let { ['make']: c } = require('./lib.js');\n"
+                    "var { other: { x } } = require('./lib.js'), w = require('./lib.js');\n"
+                    "make(); o(); deep(); d(); rest(); c(); x(); w(); other();\n"
+                    "const [a] = require('./lib.js'), { make: p } = import('./lib.js');\n"
+                    "a(); p();\n"
+                    "function inner() {\n"
+                    "  const { make: m2 } = require('./lib.js');\n"
+                    "  m2();\n"
+                    "}\n"
+                ),
+            }
+        )
+        # The compiler takes each name of its own as an alias of the
+        # module's export; nested patterns, defaults, rest elements,
+        # computed keys and array patterns alias none, nor does import(),
+        # whose value is a promise.
+        self.assertEqual(
+            [(i.line, i.names, i.local_names) for i in result.imports],
+            [
+                (1, ("make", "other"), ("make", "o")),
+                (2, (), ()),
+                (3, (), ()),
+                (3, (), ()),
+                (5, (), ()),
+                (5, (), ()),
+                (8, ("make",), ("m2",)),
+            ],
+        )
+        sites = {site.id: site for site in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                definitions[r.target_id].symbol if r.target_id else None,
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee != "require"
+        }
+        self.assertEqual(
+            found,
+            {
+                "make": ("make", CALL_IMPORTED_NAME),
+                "o": ("other", CALL_IMPORTED_NAME),
+                "m2": ("make", CALL_IMPORTED_NAME),
+                # Bound by the declaration, but to no export by name.
+                **{
+                    n: (None, None)
+                    for n in ("deep", "d", "rest", "c", "x", "w", "a", "p")
+                },
+                # `other` names the property, not a binding.
+                "other": (None, None),
             },
         )
 
@@ -416,28 +440,30 @@ class JavaScriptCallTests(unittest.TestCase):
             found,
             {
                 # Named re-exports, with aliases, one and two steps away.
-                "render": ("linked", "a.js:render", CALL_JS_REEXPORT),
-                "h": ("linked", "a.js:hh", CALL_JS_REEXPORT),
-                "hyper": ("linked", "a.js:hh", CALL_JS_REEXPORT),
-                # A star export gives every name but default; a name two
-                # stars give is ambiguous.
-                "only": ("linked", "b.js:only", CALL_JS_REEXPORT),
-                "S.only": ("linked", "b.js:only", CALL_JS_REEXPORT),
-                "dup": ("ambiguous", "multiple_declarations", None),
+                "render": ("linked", "a.js:render", CALL_TS_COMPILER_EXPORT),
+                "h": ("linked", "a.js:hh", CALL_TS_COMPILER_EXPORT),
+                "hyper": ("linked", "a.js:hh", CALL_TS_COMPILER_EXPORT),
+                # A star export gives every name but default.
+                "only": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
+                "S.only": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
+                # A name two stars give is a link error in the language; the
+                # compiler reports it and binds the first star's export.
+                "dup": ("linked", "a.js:dup", CALL_TS_COMPILER_EXPORT),
                 # A default export declared in place, and an import
                 # exported by a separate clause, are followed; a namespace
                 # re-export and a cycle are not.
-                "Comp": ("linked", "c.js:Comp", CALL_JS_REEXPORT),
+                "Comp": ("linked", "c.js:Comp", CALL_TS_COMPILER_EXPORT),
                 "ns.render": ("unresolved", "attribute_call", None),
                 "loop": ("unresolved", "imported_name_not_declared", None),
-                "r2": ("linked", "a.js:render", CALL_JS_REEXPORT),
+                "r2": ("linked", "a.js:render", CALL_TS_COMPILER_EXPORT),
                 # A default that a named re-export gives is followed; a star
                 # export gives no default, and a namespace export no names.
-                "D2": ("linked", "b.js:only", CALL_JS_REEXPORT),
+                "D2": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
                 "S2.default": ("unresolved", "module_attribute_not_declared", None),
                 "nr": ("unresolved", "imported_name_not_declared", None),
-                # Two re-exports of one name, which the language rejects.
-                "o2": ("unresolved", "imported_name_not_declared", None),
+                # Two re-exports of one name, which the language rejects;
+                # the compiler reports it and binds the first.
+                "o2": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
             },
         )
         # The same in TypeScript, through an extensionless index module.
@@ -453,7 +479,7 @@ class JavaScriptCallTests(unittest.TestCase):
         definitions = {d.id: d for d in result.definitions}
         self.assertEqual(
             (resolution.rule_id, definitions[resolution.target_id].file),
-            (CALL_JS_REEXPORT, "lib.ts"),
+            (CALL_TS_COMPILER_EXPORT, "lib.ts"),
         )
 
     def test_a_plain_name_calls_the_declaration_its_scopes_give(self):
@@ -630,8 +656,9 @@ class JavaScriptDifferentialTests(unittest.TestCase):
     """Independent check: a scip-typescript index of the same fixture (allowJs)."""
 
     def setUp(self):
-        self.result = analyze_repository(
-            FIXTURE, repository_id="r", languages=("javascript",)
+        self.result = with_compiler_modules(
+            analyze_repository(FIXTURE, repository_id="r", languages=("javascript",)),
+            FIXTURE,
         )
         self.graph = deepthought.compose_graph(
             [deepthought.ingest_scip(INDEX, repository_id="javascript")]
@@ -656,8 +683,9 @@ class JavaScriptDifferentialTests(unittest.TestCase):
         self.assertEqual(observed, expected)
 
     def test_linked_calls_agree_with_scip_references_and_are_deterministic(self):
-        again = analyze_repository(
-            FIXTURE, repository_id="r", languages=("javascript",)
+        again = with_compiler_modules(
+            analyze_repository(FIXTURE, repository_id="r", languages=("javascript",)),
+            FIXTURE,
         )
         self.assertEqual(self.result.to_json(), again.to_json())
         self.assertEqual(resolve_calls(self.result), resolve_calls(again))
