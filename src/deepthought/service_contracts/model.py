@@ -45,6 +45,9 @@ class HttpRoute:
     # request body ("request") and the response ("response") on the
     # handler, which the TypeScript compiler resolves (CARRIES).
     payloads: tuple = ()
+    # Python: the decorator's receiver is a router another module defines,
+    # found through the SCIP index rather than a binding in the file.
+    receiver_indexed: bool = False
 
 
 @dataclass(frozen=True)

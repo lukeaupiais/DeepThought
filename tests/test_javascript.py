@@ -13,6 +13,7 @@ from deepthought.models import AnalysisResult
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
     CALL_TS_COMPILER_EXPORT,
+    CALL_TS_EXPORT_CONFLICT,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
@@ -102,6 +103,62 @@ class JavaScriptDeclarationTests(unittest.TestCase):
             },
         )
         self.assertIn("tree-sitter-javascript", dict(result.analyzer_versions))
+
+    def test_class_fields_holding_functions_are_methods(self):
+        source = (
+            "export class C {\n"
+            "  fetch = async (u) => {\n"
+            "    return run(u);\n"
+            "  };\n"
+            "  static make = function () { return run(1); };\n"
+            "  #hide = function* () { yield run(2); };\n"
+            "  named = function own() { return run(3); };\n"
+            "  plain = run(4);\n"
+            "  go() { return this.fetch(1); }\n"
+            "}\n"
+            "export function run(x) { return x; }\n"
+        )
+        for name, language, typed in (
+            ("a.js", "javascript", source),
+            # TypeScript's grammar names the field differently.
+            ("a.ts", "typescript", source.replace("(u)", "(u: number)")),
+        ):
+            if language == "typescript" and not TYPESCRIPT_READY:
+                continue
+            with self.subTest(language=language):
+                result = analyze({name: typed}, languages=(language,))
+                definitions = {d.id: d for d in result.definitions}
+                self.assertEqual(
+                    sorted(
+                        (d.symbol, d.kind, d.line, d.end_line, d.static)
+                        for d in result.definitions
+                    ),
+                    [
+                        ("C", "Class", 1, 10, None),
+                        ("C.#hide", "Method", 6, 6, None),
+                        ("C.fetch", "Method", 2, 4, None),
+                        ("C.go", "Method", 9, 9, None),
+                        ("C.make", "Method", 5, 5, True),
+                        ("run", "Function", 11, 11, None),
+                    ],
+                )
+                # Calls in the field's function are the field's.
+                self.assertEqual(
+                    sorted(
+                        (s.line, s.callee, definitions[s.caller_id].symbol)
+                        for s in result.call_sites
+                    ),
+                    [
+                        (3, "run", "C.fetch"),
+                        (5, "run", "C.make"),
+                        (6, "run", "C.#hide"),
+                        # A function expression with its own name, and a
+                        # value that is not a function, declare no method.
+                        (7, "run", "C"),
+                        (8, "run", "C"),
+                        (9, "this.fetch", "C.go"),
+                    ],
+                )
 
     @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
     def test_typescript_module_extensions_are_typescript(self):
@@ -448,7 +505,7 @@ class JavaScriptCallTests(unittest.TestCase):
                 "S.only": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
                 # A name two stars give is a link error in the language; the
                 # compiler reports it and binds the first star's export.
-                "dup": ("linked", "a.js:dup", CALL_TS_COMPILER_EXPORT),
+                "dup": ("linked", "a.js:dup", CALL_TS_EXPORT_CONFLICT),
                 # A default export declared in place, and an import
                 # exported by a separate clause, are followed; a namespace
                 # re-export and a cycle are not.
@@ -463,7 +520,7 @@ class JavaScriptCallTests(unittest.TestCase):
                 "nr": ("unresolved", "imported_name_not_declared", None),
                 # Two re-exports of one name, which the language rejects;
                 # the compiler reports it and binds the first.
-                "o2": ("linked", "b.js:only", CALL_TS_COMPILER_EXPORT),
+                "o2": ("linked", "b.js:only", CALL_TS_EXPORT_CONFLICT),
             },
         )
         # The same in TypeScript, through an extensionless index module.
