@@ -25,6 +25,7 @@ from ..pyright_calls import PyrightDefinitions
 from ..signature_types import signature_types
 from ..scip_calls import ScipReferences, bind_calls
 from .. import scip_bases
+from .. import scip_implements
 from ..edge_coverage import edge_coverage
 from ..fastapi_dependencies import dependency_uses
 from ..pytest_fixtures import FixtureUse
@@ -721,6 +722,18 @@ GO_INTERFACE_RULE = register_rule(
         "alike once each named type is tied to its package; an unexported "
         "method only in the interface's package. The type IMPLEMENTS the "
         "interface, and each interface method DISPATCHES_TO the type's method.",
+    )
+)
+SCIP_GO_IMPLEMENTATION_RULE = register_rule(
+    EvidenceRule(
+        scip_implements.SCIP_GO_IMPLEMENTATION,
+        "resolved",
+        "scip-go, type-checking the package, records an is_implementation "
+        "relationship from a named type of the analyzed files to an interface "
+        "declared there (the type's method set, pointer receivers and "
+        "promoted methods included, has every interface method), or from a "
+        "method to an interface method: the type IMPLEMENTS the interface, "
+        "and the interface method DISPATCHES_TO the method.",
     )
 )
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
@@ -1535,25 +1548,53 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
-        implementations = go_interfaces.resolve_go_implementations(result)
-        for item in implementations:
+        # scip-go's implementations for the files it covers; the method-set
+        # rule only where scip-go records nothing it could.
+        recorded = scip_implements.bind_implementations(result, references)
+        declared = {d.id: d for d in result.definitions}
+        implementations = [
+            item
+            for item in go_interfaces.resolve_go_implementations(result)
+            if (item.type_id, item.interface_id) not in recorded.producers
+            and recorded.method_set_stands(
+                declared[item.type_id], declared[item.interface_id]
+            )
+        ]
+        implemented = [
+            (pair, GO_INTERFACE_RULE, None)
+            for pair in sorted((i.type_id, i.interface_id) for i in implementations)
+        ] + [
+            (pair, SCIP_GO_IMPLEMENTATION_RULE, recorded.producers[pair])
+            for pair in recorded.implements
+        ]
+        for (type_id, interface_id), rule, producer in implemented:
             relationships.append(
                 RelationshipData(
                     "IMPLEMENTS",
-                    [kinds[item.type_id], "Symbol"],
-                    {"qualified_name": qualified[item.type_id], "repo_url": repo_url},
-                    [kinds[item.interface_id], "Symbol"],
-                    {
-                        "qualified_name": qualified[item.interface_id],
-                        "repo_url": repo_url,
-                    },
-                    _evidence(GO_INTERFACE_RULE),
+                    [kinds[type_id], "Symbol"],
+                    {"qualified_name": qualified[type_id], "repo_url": repo_url},
+                    [kinds[interface_id], "Symbol"],
+                    {"qualified_name": qualified[interface_id], "repo_url": repo_url},
+                    {**_evidence(rule), **_produced(producer)},
                 )
             )
         # A call of an interface method can run the method each implementing
         # type declares: the interface method dispatches to it.
-        dispatches = sorted({pair for item in implementations for pair in item.methods})
-        for interface_method, method in dispatches:
+        dispatched = [
+            (pair, GO_INTERFACE_RULE, None)
+            for pair in sorted(
+                {
+                    pair
+                    for item in implementations
+                    for pair in item.methods
+                    if pair not in recorded.producers
+                }
+            )
+        ] + [
+            (pair, SCIP_GO_IMPLEMENTATION_RULE, recorded.producers[pair])
+            for pair in recorded.dispatches
+        ]
+        for (interface_method, method), rule, producer in dispatched:
             relationships.append(
                 RelationshipData(
                     "DISPATCHES_TO",
@@ -1564,7 +1605,7 @@ class TreeSitterTool(AnalysisTool):
                     },
                     [kinds[method], "Symbol"],
                     {"qualified_name": qualified[method], "repo_url": repo_url},
-                    _evidence(GO_INTERFACE_RULE),
+                    {**_evidence(rule), **_produced(producer)},
                 )
             )
         # Which families a deterministic resolver linked, per language: the
@@ -1585,6 +1626,7 @@ class TreeSitterTool(AnalysisTool):
                 [(site.id, site.file) for site in result.call_sites],
                 {r.call_id: r.status for r in binding.resolutions},
                 call_producers,
+                {r.call_id: r.reason for r in binding.resolutions if r.reason},
             ),
             (
                 [(r.import_id, imports[r.import_id].file) for r in resolutions],
@@ -1598,6 +1640,7 @@ class TreeSitterTool(AnalysisTool):
                         for link in r.links
                     )
                 },
+                {r.import_id: r.reason for r in resolutions if r.reason},
             ),
         )
         for record in coverage_records:
@@ -1675,7 +1718,10 @@ class TreeSitterTool(AnalysisTool):
                 "scip_uses": dict(sorted(use_counts.items())),
                 "scip_fields": len(fields),
                 "signature_types": len(named_types),
-                "go_implementations": len(implementations),
+                "go_implementations": {
+                    GO_INTERFACE_RULE.rule_id: len(implementations),
+                    SCIP_GO_IMPLEMENTATION_RULE.rule_id: len(recorded.implements),
+                },
                 "python_ast_unparsed": {
                     "python": interpreter,
                     "files": sorted(unparsed),

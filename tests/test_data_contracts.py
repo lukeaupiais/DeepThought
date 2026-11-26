@@ -1503,6 +1503,156 @@ export async function member() {
 }
 
 
+DRIZZLE_COLUMNS = {
+    "src/helpers.ts": """import { timestamp } from "drizzle-orm/pg-core";
+export const createdAt = () => timestamp("created_at").notNull();
+export const timestamps = { updatedAt: timestamp("updated_at") };
+""",
+    "src/schema.ts": """import { pgTable, text } from "drizzle-orm/pg-core";
+import { createdAt, timestamps } from "./helpers";
+export const users = pgTable("users", { id: text("id"), email: text("email_address"), createdAt: createdAt(), ...timestamps });
+export const posts = pgTable("posts", { id: text("id"), ...timestamps });
+""",
+    "src/repo.ts": """import { users, posts } from "./schema";
+export async function find() {
+  return db.select({ e: users.email }).from(users);
+}
+export async function add() {
+  await db.insert(users).values({ id: "1", email: "a", nope: 1 });
+}
+export async function touch(row: any) {
+  return [posts.updatedAt, row.updatedAt];
+}
+""",
+    "db/migrations/0001_init.sql": "CREATE TABLE users (id text, "
+    "email_address text, created_at timestamp, updated_at timestamp);\n"
+    "CREATE TABLE posts (id text, updated_at timestamp);\n",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class DrizzleColumnTests(unittest.TestCase):
+    """Drizzle column properties: read through the index, written by key."""
+
+    def index(self, directory):
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        drizzle = "scip-typescript npm drizzle-orm 0.45.3 pg-core/"
+        database = drizzle + "`db.d.ts`/PgDatabase#"
+        select = drizzle + "query-builders/`select.d.ts`/PgSelectBuilder#from()."
+        helpers = "scip-typescript npm app 1 src/`helpers.ts`/"
+        schema = "scip-typescript npm app 1 src/`schema.ts`/"
+        documents = {
+            "src/helpers.ts": [
+                (1, "createdAt", helpers + "createdAt.", True, 0),
+                (2, "timestamps", helpers + "timestamps.", True, 0),
+                (2, "updatedAt", helpers + "updatedAt0:", True, 0),
+            ],
+            "src/schema.ts": [
+                (2, "users", schema + "users.", True, 0),
+                (2, "id", schema + "id0:", True, 0),
+                (2, "email", schema + "email0:", True, 0),
+                (2, "createdAt", schema + "createdAt0:", True, 0),
+                (2, "createdAt", helpers + "createdAt.", False, 1),
+                (2, "timestamps", helpers + "timestamps.", False, 0),
+                (3, "posts", schema + "posts.", True, 0),
+                (3, "id", schema + "id1:", True, 0),
+                (3, "timestamps", helpers + "timestamps.", False, 0),
+            ],
+            "src/repo.ts": [
+                (2, "select", database + "select().", False, 0),
+                (2, "users", schema + "users.", False, 0),
+                (2, "email", schema + "email0:", False, 0),
+                (2, "from", select, False, 0),
+                (2, "users", schema + "users.", False, 1),
+                (5, "insert", database + "insert().", False, 0),
+                (5, "users", schema + "users.", False, 0),
+                (8, "posts", schema + "posts.", False, 0),
+                (8, "updatedAt", helpers + "updatedAt0:", False, 0),
+                (8, "updatedAt", helpers + "updatedAt0:", False, 1),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = DRIZZLE_COLUMNS[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_columns_read_and_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r",
+                    languages=["typescript"],
+                    scip_indexes=(self.index(directory),),
+                )
+            )
+        edges = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[1],
+                r.properties["line"],
+                r.properties.get("columns_resolved", False),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES", "READS_COLUMN", "WRITES_COLUMN")
+        )
+        self.assertEqual(
+            edges,
+            [
+                # nope is no column of users: the insert's columns are not
+                # all known.
+                ("add", "WRITES", "users", 6, False),
+                ("add", "WRITES_COLUMN", "users::column::email_address", 6, False),
+                ("add", "WRITES_COLUMN", "users::column::id", 6, False),
+                ("find", "READS", "users", 3, True),
+                ("find", "READS_COLUMN", "users::column::email_address", 3, False),
+                # The shared property's table is the receiver's.
+                ("touch", "READS_COLUMN", "posts::column::updated_at", 9, False),
+            ],
+        )
+        # A row's shared property names no one table: whose reads they are
+        # is not known.
+        unattributed = sorted(
+            n.properties["name"]
+            for n in output.nodes
+            if n.properties.get("reads_unattributed")
+        )
+        self.assertEqual(unattributed, ["posts.updated_at", "users.updated_at"])
+        self.assertEqual(
+            output.metadata.custom_metrics["drizzle_columns"],
+            {
+                "columns": 6,
+                "helper_names": 1,
+                "spread_columns": 2,
+                "keys": 2,
+                "key_not_a_column": 1,
+                "reads": 2,
+                "reads_unattributed": 1,
+            },
+        )
+
+
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter")
     and importlib.util.find_spec("tree_sitter_typescript"),
