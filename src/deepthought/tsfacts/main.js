@@ -24,7 +24,10 @@
 // for each import or re-export specifier the compiler resolves to a file
 // of the repository (outside node_modules); {"file", "program"} for each
 // file read; {"file", "failures"} for names the checker failed on; or
-// {"error"} for a config the compiler rejects.
+// {"error"} for a config the compiler rejects; and {"file", "start",
+// "end", "types"} for a parameter or return type written on a decorated
+// method, with the repository's declarations of the named types it
+// carries (declaredTypes).
 //
 // Globals a build defines (the Angular CLI "define" option) are given as
 // DEFINES, a JSON list of [directory, {name: value}]: an ambient
@@ -372,7 +375,124 @@ function analyze(program, checker, file, seen) {
     return !ts.isTypeNode(parent) && !ts.isTypeReferenceNode(parent);
   }
   visit(file);
+  declaredTypes(checker, file, offset, out);
   if (failures > 0) emit({ file: out, failures });
+}
+
+// Types that only wrap the type a value carries: Promise<T>, T[] and the
+// like give T. With noLib the checker has no lib types, so wrappers are
+// read from the type's written form.
+const WRAPPERS = new Set([
+  "Promise",
+  "PromiseLike",
+  "Observable",
+  "Array",
+  "ReadonlyArray",
+  "Readonly",
+  "Partial",
+  "Required",
+]);
+
+function declaredTypes(checker, file, offset, out) {
+  // For each parameter type and return type written on a decorated method
+  // (a NestJS handler, say), the declarations in the repository of the
+  // named types it carries: {file, start, end, types: [{file, name, line,
+  // column}], unresolved}, line 1-based and column in UTF-8 bytes of the
+  // name; unresolved counts the written names the compiler resolves to no
+  // declaration at all.
+  let unresolved = 0;
+  function named(node, depth, found) {
+    if (!node || depth > MAX_DEPTH) return;
+    if (ts.isParenthesizedTypeNode(node) || ts.isTypeOperatorNode(node)) {
+      named(node.type, depth + 1, found);
+    } else if (ts.isArrayTypeNode(node)) {
+      named(node.elementType, depth + 1, found);
+    } else if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
+      node.types.forEach((t) => named(t, depth + 1, found));
+    } else if (ts.isTypeLiteralNode(node)) {
+      // An inline object type carries the types of its members.
+      node.members.forEach((m) => m.type && named(m.type, depth + 1, found));
+    } else if (ts.isTypeReferenceNode(node)) {
+      const written = ts.isIdentifier(node.typeName)
+        ? node.typeName.text
+        : node.typeName.right.text;
+      let symbol = checker.getSymbolAtLocation(node.typeName);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+        try {
+          symbol = checker.getAliasedSymbol(symbol);
+        } catch (error) {
+          symbol = undefined;
+        }
+      }
+      const declarations = ((symbol && symbol.declarations) || []).filter(
+        (d) =>
+          (ts.isClassDeclaration(d) ||
+            ts.isInterfaceDeclaration(d) ||
+            ts.isTypeAliasDeclaration(d) ||
+            ts.isEnumDeclaration(d)) &&
+          d.name,
+      );
+      const local = declarations.filter((d) => {
+        const where = relative(d.getSourceFile().fileName);
+        return !where.startsWith("..") && !where.split("/").includes("node_modules");
+      });
+      if (local.length > 0) {
+        for (const d of local) {
+          const source = d.getSourceFile();
+          const at = source.getLineAndCharacterOfPosition(d.name.getStart(source));
+          const lineStart = source.getPositionOfLineAndCharacter(at.line, 0);
+          const bytes = byteOffsets(source.text, source.fileName);
+          found.push({
+            file: relative(source.fileName),
+            name: d.name.text,
+            line: at.line + 1,
+            column: bytes(d.name.getStart(source)) - bytes(lineStart),
+          });
+        }
+      } else if (declarations.length === 0 && !WRAPPERS.has(written)) {
+        // Neither the repository's nor a library's: a name the compiler
+        // cannot resolve (a workspace package that is not installed, say).
+        unresolved += 1;
+      }
+      // Type arguments are carried too: Promise<T>, Page<T>, Map<K, V>.
+      (node.typeArguments || []).forEach((t) => named(t, depth + 1, found));
+    }
+  }
+  function visit(node) {
+    if (
+      (ts.isMethodDeclaration(node) || ts.isConstructorDeclaration(node)) &&
+      ts.canHaveDecorators(node)
+    ) {
+      const decorated =
+        (ts.getDecorators(node) || []).length > 0 ||
+        node.parameters.some((p) => (ts.getDecorators(p) || []).length > 0);
+      if (decorated) {
+        const written = node.parameters.map((p) => p.type);
+        if (node.type) written.push(node.type);
+        for (const type of written) {
+          if (!type) continue;
+          const found = [];
+          unresolved = 0;
+          try {
+            named(type, 0, found);
+          } catch (error) {
+            unresolved += 1;
+          }
+          if (found.length > 0 || unresolved > 0) {
+            emit({
+              file: out,
+              start: offset(type.getStart(file)),
+              end: offset(type.end),
+              types: found,
+              unresolved,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
 }
 
 const done = new Set();

@@ -29,6 +29,14 @@ FILES = {
         "def items():\n"
         "    return ''\n"
     ),
+    "api/admin.py": (
+        "from flask import Flask\n"
+        "import os\n"
+        "app = Flask(__name__)\n"
+        "@app.route(os.environ['ADMIN_PATH'])\n"
+        "def admin():\n"
+        "    return ''\n"
+    ),
     "tools/src/main.rs": 'fn main() { println!("hi"); }\n',
 }
 
@@ -72,7 +80,7 @@ class ContractCoverageTests(unittest.TestCase):
             {
                 "status": "not_linked",
                 "reason": "parser_rules",
-                "files": 1,
+                "files": 2,
                 "files_linked": 0,
                 "sites": 1,
                 "linked": 1,
@@ -88,6 +96,9 @@ class ContractCoverageTests(unittest.TestCase):
             ("not_linked", "parser_rules", 2),
         )
         self.assertNotIn("linked", routes)
+        # A route whose path is not a literal is seen but not read.
+        self.assertEqual((routes["unread"], routes["files_unread"]), (1, 1))
+        self.assertEqual((requests["unread"], requests["files_unread"]), (0, 0))
         # A reader that ran and recognised nothing still cannot say there
         # are no sites.
         grpc = found[("REQUESTS", "grpc", "python")]

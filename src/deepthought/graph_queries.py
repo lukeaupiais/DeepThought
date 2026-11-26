@@ -24,7 +24,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
     "|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE"
+    "|REFERENCES_TABLE|CARRIES"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
 # What each dependent must do about a change (``action``), from the change's
@@ -51,6 +51,40 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+def _cypher_code(query):
+    """Return query with string literals, quoted names and comments blanked.
+
+    Each blanked character becomes a space, so keyword checks see only the
+    query's own code. An unterminated literal or comment is refused."""
+    out = []
+    i, n = 0, len(query)
+    while i < n:
+        c = query[i]
+        if c in "'\"`":
+            j = i + 1
+            while j < n and query[j] != c:
+                j += 2 if query[j] == "\\" and c != "`" else 1
+            if j >= n:
+                raise ValueError("Unterminated quoted text in Cypher query")
+            out.append(" " * (j + 1 - i))
+            i = j + 1
+        elif query.startswith("//", i):
+            j = query.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif query.startswith("/*", i):
+            j = query.find("*/", i + 2)
+            if j < 0:
+                raise ValueError("Unterminated comment in Cypher query")
+            out.append(" " * (j + 2 - i))
+            i = j + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _text(value, name):
@@ -892,9 +926,11 @@ class GraphQueryService:
         a call through it can run, so a changed implementation reaches the
         interface's callers), USES_FIXTURE (a test to its pytest fixtures),
         USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
-        CONSUMES, READS and REFERENCES_TABLE
-        (a table with a foreign key to a changed table) edges, and forwards over
-        HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
+        CONSUMES, READS, REFERENCES_TABLE (a table with a foreign key to a
+        changed table) and CARRIES (a route or message destination whose
+        request, response or message is a changed type, so its clients must
+        change with it) edges, and forwards over HANDLES, PUBLISHES and
+        WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
         readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
@@ -2226,13 +2262,16 @@ class GraphQueryService:
             raise ValueError("Scope and fetch_limit parameters are reserved")
         if len(query.encode()) > 16384:
             raise ValueError("Cypher text exceeds 16384 bytes")
+        # Keywords are looked for in the query's code only: a quoted name
+        # such as "use", "Start" or "delete.go" is data, not a clause.
+        code = _cypher_code(query)
         if not re.match(
-            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", query, re.I
+            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I
         ):
             raise ValueError("Only a single read query is accepted")
         if re.search(
             r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
-            query,
+            code,
             re.I,
         ):
             raise ValueError(
