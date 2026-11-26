@@ -33,6 +33,7 @@ from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
+from ..service_contracts.django_urls import django_routes
 from ..service_contracts.deployed import (
     Deployments,
     command_line,
@@ -426,6 +427,16 @@ ROUTE_RULES = {
             "index resolves to a FastAPI app or APIRouter another module binds; "
             "the router's own prefix and the prefixes it is included with are "
             "joined.",
+        )
+    ),
+    "django": register_rule(
+        EvidenceRule(
+            "service-contracts.django-urlconf-route",
+            "pattern_matched",
+            "A URLconf entry the scip-python index resolves to Django's path, "
+            "re_path or url names a view the index resolves to a function or "
+            "class of the repository; the patterns of the includes that reach "
+            "its URLconf are joined, and every method is dispatched to the view.",
         )
     ),
     "express-indexed": register_rule(
@@ -3539,6 +3550,16 @@ class ServiceContractTool(AnalysisTool):
                 )
                 stream_sites.extend(found[0])
                 messaging_unread.extend(found[1])
+        # Django URLconf entries, identified through the scip-python index.
+        found_django, unread_django = django_routes(
+            [source for source in sources if source[0].language == "python"],
+            indexed,
+            result.definitions,
+            repo_url,
+        )
+        routes.extend(found_django)
+        unread.extend(unread_django)
+
         for path in sorted(
             p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
         ):

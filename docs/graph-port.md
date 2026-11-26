@@ -3391,7 +3391,22 @@ which only client requests are read:
   join their `prefix` option and the paths they are mounted at with `use`,
   including `router.routes()` mounts and exports; the index decides what
   is a koa-router `Router`. Plain JavaScript gets these symbols through
-  the DefinitelyTyped packages acquired before indexing. Express `get`/`post`/.../`all` calls on an app or Router
+  the DefinitelyTyped packages acquired before indexing. Django routes are
+  URLconf entries (`service_contracts/django_urls.py`, rule
+  `django-urlconf-route`): from a module's `urlpatterns` (with `+=` and
+  `+` and the module's own lists), a call the scip-python index resolves
+  to Django's `path`, `re_path` or `url` whose view the index resolves to
+  a function or class of the repository (`View.as_view()` names its
+  class) is a route for any method, and an `include` of a dotted module
+  or of a list joins its pattern before the included entries. `path`
+  converters are parameters; a regex is read with Python's own regex
+  parser the way Django reverses it (groups are parameters, anchors and
+  optional parts dropped), and any other construct is `path_not_literal`.
+  A URLconf no other includes is at `/`; one included at a pattern the code
+  does not fix keeps an unknown base. A view the index does not resolve to
+  the repository (`admin.site.urls`) is `view_not_resolved`; Django REST
+  framework routers (`include(router.urls)`) are not read yet
+  (`include_not_resolved`). Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
