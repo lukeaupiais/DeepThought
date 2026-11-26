@@ -1626,6 +1626,7 @@ class TreeSitterTool(AnalysisTool):
                 [(site.id, site.file) for site in result.call_sites],
                 {r.call_id: r.status for r in binding.resolutions},
                 call_producers,
+                {r.call_id: r.reason for r in binding.resolutions if r.reason},
             ),
             (
                 [(r.import_id, imports[r.import_id].file) for r in resolutions],
@@ -1639,6 +1640,7 @@ class TreeSitterTool(AnalysisTool):
                         for link in r.links
                     )
                 },
+                {r.import_id: r.reason for r in resolutions if r.reason},
             ),
         )
         for record in coverage_records:
