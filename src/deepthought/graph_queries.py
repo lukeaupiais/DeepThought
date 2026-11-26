@@ -23,11 +23,23 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE"
+    "|REFERENCES_TABLE|CARRIES"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+# What each dependent must do about a change (``action``), from the change's
+# kind: a declaration's ``signature`` (its parameters or results) or
+# ``behaviour`` (its body only), or a ``contract`` (its messages).
+_IMPACT_ACTIONS = {
+    None: "",
+    "signature": "CASE nearest WHEN 1 THEN 'must_change' ELSE 'retest' END AS action, ",
+    "behaviour": "'retest' AS action, ",
+    "contract": "CASE WHEN carried = 1 THEN 'must_change' "
+    "WHEN root.message_types IS NOT NULL THEN 'retest' "
+    "ELSE 'unknown' END AS action, ",
+}
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
@@ -38,6 +50,40 @@ CONTRACT_KINDS = (
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+def _cypher_code(query):
+    """Return query with string literals, quoted names and comments blanked.
+
+    Each blanked character becomes a space, so keyword checks see only the
+    query's own code. An unterminated literal or comment is refused."""
+    out = []
+    i, n = 0, len(query)
+    while i < n:
+        c = query[i]
+        if c in "'\"`":
+            j = i + 1
+            while j < n and query[j] != c:
+                j += 2 if query[j] == "\\" and c != "`" else 1
+            if j >= n:
+                raise ValueError("Unterminated quoted text in Cypher query")
+            out.append(" " * (j + 1 - i))
+            i = j + 1
+        elif query.startswith("//", i):
+            j = query.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif query.startswith("/*", i):
+            j = query.find("*/", i + 2)
+            if j < 0:
+                raise ValueError("Unterminated comment in Cypher query")
+            out.append(" " * (j + 2 - i))
+            i = j + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _text(value, name):
@@ -869,6 +915,7 @@ class GraphQueryService:
         timeout=5,
         offset=0,
         exclude_roles=None,
+        change="signature",
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -876,9 +923,11 @@ class GraphQueryService:
         Dependents are reached backwards over CALLS, INHERITS_FROM,
         IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
         a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES, READS and REFERENCES_TABLE
-        (a table with a foreign key to a changed table) edges, and forwards over
-        HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
+        interface's callers), REQUESTS, CONSUMES, READS, REFERENCES_TABLE
+        (a table with a foreign key to a changed table) and CARRIES (a route
+        or message destination whose request, response or message is a
+        changed type, so its clients must change with it) edges, and
+        forwards over HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
         readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
@@ -890,7 +939,14 @@ class GraphQueryService:
         change, so it needs re-testing), and lists its ``source_roles``
         (``test``, ``example``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
+
+        Each dependent also has an ``action`` for the kind of ``change``:
+        ``signature`` (default; the declaration's parameters or results:
+        ``must_change`` at one hop, ``retest`` deeper) or ``behaviour`` (its
+        body only: every dependent is ``retest``).
         """
+        if change not in ("signature", "behaviour"):
+            raise ValueError("change must be signature or behaviour")
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -908,6 +964,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action=change,
         )
 
     async def search_contracts(
@@ -979,6 +1036,15 @@ class GraphQueryService:
         across services. ``offset``, ``exclude_roles`` and the
         output are as for ``get_impact``; ``max_output_bytes`` is at least
         2048.
+
+        Each dependent has an ``action`` for a change of the contract's
+        messages: ``must_change`` when it uses the contract itself (one hop:
+        a client, or a provider's caller) or reaches it only through
+        declarations whose parameter or result types carry the contract's
+        messages (CARRIES_MESSAGE edges, from the Go type checker for gRPC
+        methods); otherwise ``retest`` when those types are known for the
+        contract (its ``message_types``), and ``unknown`` when they are not.
+        A caller of a wrapper that hides the messages only re-tests.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -1025,6 +1091,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action="contract",
         )
         response["providers"] = providers
         response["providers_truncated"] = found["truncated"] or len(providers) < len(
@@ -1119,6 +1186,7 @@ class GraphQueryService:
         offset=0,
         reverse=None,
         exclude_roles=None,
+        action=None,
     ):
         _text(subject, "subject")
         exclude = exclusion_pattern(exclude_roles)
@@ -1139,7 +1207,7 @@ class GraphQueryService:
             )
         statement = (
             (
-                seeds + "WITH [root] + parts AS changed "
+                seeds + "WITH root, [root] + parts AS changed "
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
@@ -1147,15 +1215,20 @@ class GraphQueryService:
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
-                "WITH dependent, target, path, "
+                "WITH root, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
-                "WITH dependent, target, path, CASE "
+                "WITH root, dependent, target, path, CASE "
                 "WHEN 'name_matched' IN kinds THEN 2 "
-                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
+                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness, "
+                # A path through declarations that each carry the changed
+                # contract's messages (CARRIES_MESSAGE) hands the dependent
+                # those messages: it builds or reads them.
+                "all(n IN nodes(path)[1..] WHERE n = root OR "
+                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) }) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest "
+                "WITH root, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
                 ".file_path,.start_line,"
                 "labels:labels(dependent)} AS element, "
@@ -1163,6 +1236,7 @@ class GraphQueryService:
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
+                "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
                 "=~ role.pattern | role.name] AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
@@ -1173,6 +1247,7 @@ class GraphQueryService:
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
             )
+            .replace("ACTION", _IMPACT_ACTIONS[action])
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1214,7 +1289,7 @@ class GraphQueryService:
                 else ""
             )
             + " edges; each path's evidence is its weakest edge. Direct (one "
-            "hop): may need edits; transitive: re-test. Absence does "
+            "hop): may need edits; transitive: re-test. " + "Absence does "
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
         )
@@ -2184,13 +2259,16 @@ class GraphQueryService:
             raise ValueError("Scope and fetch_limit parameters are reserved")
         if len(query.encode()) > 16384:
             raise ValueError("Cypher text exceeds 16384 bytes")
+        # Keywords are looked for in the query's code only: a quoted name
+        # such as "use", "Start" or "delete.go" is data, not a clause.
+        code = _cypher_code(query)
         if not re.match(
-            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", query, re.I
+            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I
         ):
             raise ValueError("Only a single read query is accepted")
         if re.search(
             r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
-            query,
+            code,
             re.I,
         ):
             raise ValueError(
