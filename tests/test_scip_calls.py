@@ -1,6 +1,7 @@
 """Call targets read from SCIP indexes (deepthought.scip_calls)."""
 
 import asyncio
+import dataclasses
 from contextlib import redirect_stdout
 import io
 import json
@@ -12,8 +13,9 @@ import unittest
 import deepthought
 import deepthought.calls
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
-from deepthought.engine import analyze_repository
+from deepthought.engine import analyze_repository as _analyze_repository
 from deepthought import scip_calls
+from deepthought.ts_modules import TYPESCRIPT_TOOL, with_compiler_modules
 import test_scip_tool as fixtures
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -59,6 +61,26 @@ PY = (
 )
 BUILTIN = "scip-python python builtins 3 "
 EXTERNAL = "scip-typescript npm typescript 5 lib/Console#log()."
+
+
+def analyze_repository(root, **options):
+    """The engine's analysis, with the compiler's JavaScript and TypeScript
+    modules attached as the analysis tool attaches them."""
+    return with_compiler_modules(_analyze_repository(root, **options), root)
+
+
+class FakePyright:
+    """Answers definitions from a table keyed by (file, line, UTF-16
+    column), recording what it was asked."""
+
+    tool = "pyright@1.1.409"
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def definitions(self, file, line, column):
+        self.asked.append((file, line, column))
+        return self.answers.get((file, line, column), [])
 
 
 def _column(line, text, encoding, start=0):
@@ -228,13 +250,14 @@ class ScipCallTests(unittest.TestCase):
                         scip_calls.SCIP_CALL_OCCURRENCE,
                         tool,
                     ),
-                    # b.ts is not covered: the parser's import rule links it.
+                    # b.ts is not covered. It imports `helper`, which a.ts
+                    # exports only as `aliasName`: the compiler binds nothing.
                     (
                         "b.ts",
                         "helper",
-                        "linked",
-                        ("helper", 2),
-                        "tree-sitter.call-imported-name",
+                        "unresolved",
+                        "imported_name_not_declared",
+                        None,
                         None,
                     ),
                 ],
@@ -461,6 +484,198 @@ class ScipCallTests(unittest.TestCase):
         self.assertEqual(scored(), (0, 1))
         self.assertEqual(scored("--scip", str(self.indexes / "impact.scip")), (1, 0))
 
+    def test_calls_the_index_calls_external_keep_the_compilers_binding(self):
+        files = {
+            "lib.ts": "export function run() {}\nexport function other() {}\n",
+            "index.ts": "export { other as again } from './lib';\n",
+            "types.d.ts": "export declare function typed(): void;\n",
+            "main.ts": (
+                "import { run, run as go } from './lib';\n"
+                "import * as m from './lib';\n"
+                "run(); m.other(); go(); log(); again(); typed();\n"
+                "function log() {}\n"
+                "import { again } from './index';\n"
+                "import { typed } from './types';\n"
+                "let h = run;\n"
+                "h();\n"
+                "import { other as third } from './lib';\n"
+                "third();\n"
+            ),
+            "c.py": "def f():\n    pass\n",
+            "b.py": "from c import f\nf()\n",
+        }
+        for name, text in files.items():
+            (self.root / name).write_text(text)
+        # The index names ./lib's exports by a package it does not define,
+        # as scip-typescript does for a package that imports itself.
+        outside = "scip-typescript npm self 1 lib.ts/"
+        ts = self.index(
+            "ts",
+            "scip-typescript",
+            [
+                (
+                    "main.ts",
+                    [
+                        (0, "go", "local 1", True, 0),
+                        (2, "run", outside + "run().", False, 0),
+                        (2, "other", outside + "other().", False, 0),
+                        (2, "go", "local 1", False, 0),
+                        (2, "log", outside + "log().", False, 0),
+                        (2, "again", outside + "other().", False, 0),
+                        (2, "typed", outside + "typed().", False, 0),
+                        (6, "h", "local 2", True, 0),
+                        (7, "h", "local 2", False, 0),
+                    ],
+                ),
+                ("lib.ts", []),
+            ],
+            2,
+        )
+        py = self.index(
+            "py",
+            "scip-python",
+            [("b.py", [(1, "f", "scip-python python c 1 c/f().", False, 0)])],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript", "python")
+        )
+        binding = scip_calls.bind_calls(result, [ts, py], self.root)
+        names = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].callee): (
+                names.get(r.target_id),
+                r.rule_id,
+                r.reason,
+                binding.resolver(r.call_id),
+            )
+            for r in binding.resolutions
+        }
+        self.assertEqual(
+            found,
+            {
+                # The compiler resolves ./lib in the workspace: its binding
+                # stands where the index calls the symbol external.
+                ("main.ts", "run"): (
+                    "run",
+                    deepthought.calls.CALL_IMPORTED_NAME,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "m.other"): (
+                    "other",
+                    deepthought.calls.CALL_MODULE_ATTRIBUTE,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "again"): (
+                    "other",
+                    deepthought.calls.CALL_TS_COMPILER_EXPORT,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "typed"): (
+                    "typed",
+                    deepthought.calls.CALL_TS_DECLARATION_FILE,
+                    None,
+                    "typescript",
+                ),
+                # The index's target is the import's own local binding,
+                # which it does not follow: the compiler's binding stands.
+                ("main.ts", "go"): (
+                    "run",
+                    deepthought.calls.CALL_IMPORTED_NAME,
+                    None,
+                    "typescript",
+                ),
+                # A target the index defines but the parser does not
+                # declare, and a call no import binds, stay the index's.
+                ("main.ts", "h"): (
+                    None,
+                    None,
+                    scip_calls.NOT_DECLARATION,
+                    "scip",
+                ),
+                ("main.ts", "log"): (None, None, scip_calls.EXTERNAL, "scip"),
+                # Nor does a call the index has no reference at.
+                ("main.ts", "third"): (
+                    None,
+                    None,
+                    scip_calls.NO_OCCURRENCE,
+                    "scip",
+                ),
+                # Only JavaScript and TypeScript imports are the compiler's.
+                ("b.py", "f"): (None, None, scip_calls.EXTERNAL, "scip"),
+            },
+        )
+        self.assertNotIn(
+            next(i for i, s in sites.items() if s.callee == "run"), binding.producers
+        )
+
+    def test_calls_the_compiler_binds_count_as_its_coverage(self):
+        files = {
+            "lib.ts": "export function run() {}\nexport function other() {}\n",
+            "index.ts": "export { other as again } from './lib';\n",
+            # The index calls run external; the compiler's link stands.
+            "y.ts": "import { run } from './lib';\nrun();\n",
+            # No index: a call bound through the compiler's exports.
+            "x.ts": "import { again } from './index';\nagain();\n",
+            # No index: a call the parser's name rules bind, and an import
+            # the compiler finds no module for.
+            "z.ts": "import { nope } from './missing';\nfunction f() {}\nf();\n",
+        }
+        for name, text in files.items():
+            (self.root / name).write_text(text)
+        ts = self.index(
+            "ts",
+            "scip-typescript",
+            [
+                (
+                    "y.ts",
+                    [(1, "run", "scip-typescript npm self 1 lib.ts/run().", False, 0)],
+                )
+            ],
+            2,
+        )
+        output = asyncio.run(
+            TreeSitterTool(self.root).analyze(
+                "r", languages=["typescript"], scip_indexes=[ts]
+            )
+        )
+        calls = next(
+            n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"] and n.properties["family"] == "CALLS"
+        )
+        self.assertEqual(
+            {k: calls[k] for k in ("status", "resolver", "files", "files_linked")},
+            {
+                "status": "partial",
+                "resolver": [
+                    f"tree-sitter@{deepthought.__version__}",
+                    TYPESCRIPT_TOOL,
+                ],
+                "files": 3,
+                "files_linked": 2,
+            },
+        )
+        imports = next(
+            n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"] and n.properties["family"] == "IMPORTS"
+        )
+        # Resolved or not, the compiler decided every import.
+        self.assertEqual(
+            {k: imports[k] for k in ("status", "resolver", "linked", "unresolved")},
+            {
+                "status": "linked",
+                "resolver": [TYPESCRIPT_TOOL],
+                "linked": 3,
+                "unresolved": 1,
+            },
+        )
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(
@@ -472,7 +687,7 @@ class ScipCallTests(unittest.TestCase):
         )
         self.assertEqual((binding.producers, binding.disagreements), ({}, ()))
 
-    def test_python_suspect_targets_keep_the_parser(self):
+    def test_python_suspect_targets_are_answered_by_pyright(self):
         (self.root / "m.py").write_text(PY_MODULE)
         (self.root / "c.py").write_text(PY)
         m = "scip-python python demo 1 m/"
@@ -520,17 +735,48 @@ class ScipCallTests(unittest.TestCase):
             0,
         )
         result = analyze_repository(self.root, repository_id="r", languages=("python",))
-        binding = scip_calls.bind_calls(result, [ingested], self.root)
+        with self.assertRaisesRegex(ValueError, "requires pyright"):
+            scip_calls.bind_calls(result, [ingested], self.root)
+        lines = PY.splitlines()
+
+        def at(line, text, start=0):
+            return ("c.py", line, _column(lines[line - 1], text, "utf-16", start))
+
+        x6, x16, x19 = at(6, "x()"), at(16, "x()"), at(19, "x()")
+        pyright = FakePyright(
+            {
+                x6: [("c.py", 3, 8)],
+                x16: [("c.py", 3, 8)],
+                x19: [("c.py", 3, 8)],
+                at(7, "thing"): [("m.py", 1, 4)],
+                at(20, "inner"): [("c.py", 18, 12)],
+            }
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
         rows = {(row[1], row[2]): row for row in self.targets(result, binding)}
         tool = ("scip-python@1.0", "sha256:py")
-        # The parser's targets stand, with the parser's rules.
-        self.assertEqual(rows[("self.x", "linked")][3], ("A.x", 3))
-        self.assertIsNone(rows[("self.x", "linked")][5])
-        self.assertEqual(rows[("thing", "linked")][3], ("thing", 1))
-        self.assertIsNone(rows[("thing", "linked")][5])
-        # Nothing else links it: unresolved, from the index.
+        answered = ("pyright@1.1.409", "sha256:py")
+        # Pyright answers the suspect targets and the call with no
+        # occurrence; columns are UTF-16, after the emoji too.
+        self.assertEqual(x6[2], len('        t = "') + 2 + len('"; self.'))
         self.assertEqual(
-            rows[("other_name", "unresolved")][3:], ("scip_suspect_target", None, tool)
+            sorted(pyright.asked),
+            sorted(
+                [x6, x16, x19, at(7, "thing"), at(8, "other_name"), at(20, "inner")]
+            ),
+        )
+        self.assertEqual(
+            rows[("thing", "linked")][3:],
+            (("thing", 1), scip_calls.PYRIGHT_CALL_DEFINITION, answered),
+        )
+        self.assertEqual(
+            rows[("inner", "linked")][3:],
+            (("B.w.inner", 18), scip_calls.PYRIGHT_CALL_DEFINITION, answered),
+        )
+        # Pyright gives nothing: unresolved, from pyright.
+        self.assertEqual(
+            rows[("other_name", "unresolved")][3:],
+            (scip_calls.PYRIGHT_NO_DEFINITION, None, answered),
         )
         self.assertEqual(rows[("len", "unresolved")][3], "scip_external")
         self.assertEqual(rows[("self.z", "unresolved")][3], "scip_external")
@@ -546,32 +792,160 @@ class ScipCallTests(unittest.TestCase):
                 for r in binding.resolutions
                 if sites[r.call_id].callee in {"thing", "here", "len"}
             ),
-            [
-                ("here", "scip"),
-                ("len", "scip"),
-                ("thing", "scip_suspect_parser"),
-            ],
+            [("here", "scip"), ("len", "scip"), ("thing", "pyright")],
         )
         # Inherited, and from a function nested in a method, too.
         self.assertEqual(
-            [row[3] for row in self.targets(result, binding) if row[1] == "self.x"],
-            [("A.x", 3)] * 3,
+            [row[3:] for row in self.targets(result, binding) if row[1] == "self.x"],
+            [(("A.x", 3), scip_calls.PYRIGHT_CALL_DEFINITION, answered)] * 3,
         )
-        self.assertEqual(
-            sorted(d.row() for d in binding.disagreements),
+        # Pyright and the parser agree on every call here.
+        self.assertEqual(binding.disagreements, ())
+
+    def test_nested_functions_sharing_a_symbol_are_answered_by_pyright(self):
+        # scip-python 0.6.8 names a function nested in a method by the
+        # class alone, so both `decorator`s are one symbol.
+        source = (
+            "class G:\n"
+            "    def command(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(1)\n"
+            "    def group(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(2)\n"
+        )
+        (self.root / "g.py").write_text(source)
+        g = "scip-python python demo 1 g/"
+        ingested = self.index(
+            "nested",
+            "scip-python",
             [
-                "c.py\t16\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.python-call-self-inherited",
-                "c.py\t19\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.python-call-self-inherited",
-                "c.py\t20\tinner\t-\t0\tc.py\t18\tscip_no_occurrence\t"
-                "tree-sitter.call-lexical-name",
-                "c.py\t6\tself.x\t-\t0\tc.py\t3\tscip_suspect_target\t"
-                "tree-sitter.call-self-method",
-                "c.py\t7\tthing\t-\t0\tm.py\t1\tscip_suspect_target\t"
-                "tree-sitter.call-imported-name",
+                (
+                    "g.py",
+                    [
+                        (0, "G", g + "G#", True, 0),
+                        (1, "command", g + "G#command().", True, 0),
+                        (2, "decorator", g + "G#decorator().", True, 0),
+                        (4, "decorator", g + "G#decorator().", False, 0),
+                        (5, "group", g + "G#group().", True, 0),
+                        (6, "decorator", g + "G#decorator().", True, 0),
+                        (8, "decorator", g + "G#decorator().", False, 0),
+                    ],
+                ),
+            ],
+            0,
+        )
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        with self.assertRaisesRegex(ValueError, "requires pyright"):
+            scip_calls.bind_calls(result, [ingested], self.root)
+        pyright = FakePyright(
+            {("g.py", 5, 15): [("g.py", 3, 12)], ("g.py", 9, 15): [("g.py", 7, 12)]}
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        answered = ("pyright@1.1.409", "sha256:nested")
+        self.assertEqual(
+            self.targets(result, binding),
+            [
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.command.decorator", 3),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.group.decorator", 7),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
             ],
         )
+
+    def test_typescript_symbols_with_several_declarations_stay_ambiguous(self):
+        (self.root / "t.ts").write_text("function f() {}\nfunction f() {}\nf();\n")
+        f = "scip-typescript npm demo 1 t.ts/f()."
+        ingested = self.index(
+            "several",
+            "scip-typescript",
+            [
+                (
+                    "t.ts",
+                    [(0, "f", f, True, 0), (1, "f", f, True, 0), (2, "f", f, False, 0)],
+                )
+            ],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript",)
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root)
+        (resolution,) = binding.resolutions
+        self.assertEqual(
+            (resolution.status, resolution.reason, len(resolution.candidates)),
+            ("ambiguous", "multiple_declarations", 2),
+        )
+
+    def test_pyright_external_and_non_declaration_answers(self):
+        (self.root / "m.py").write_text(PY_MODULE)
+        (self.root / "c.py").write_text(
+            "from m import thing\nthing()\nthing()\nthing()\n"
+        )
+        m = "scip-python python demo 1 m/"
+        ingested = self.index(
+            "pyx",
+            "scip-python",
+            [
+                (
+                    "m.py",
+                    [
+                        (0, "thing", m + "thing().", True, 0),
+                        (3, "other", m + "other().", True, 0),
+                    ],
+                ),
+                (
+                    "c.py",
+                    [
+                        (1, "thing", m + "other().", False, 0),
+                        (2, "thing", m + "other().", False, 0),
+                    ],
+                ),
+            ],
+            0,
+        )
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        pyright = FakePyright(
+            {
+                # Outside the repository, and a position no declaration
+                # of that name holds (the blank line after `pass`).
+                ("c.py", 2, 0): [(None, 1, 0)],
+                ("c.py", 3, 0): [("m.py", 2, 4)],
+            }
+        )
+        # A site with no position for its callee's name.
+        result = dataclasses.replace(
+            result,
+            call_sites=tuple(
+                dataclasses.replace(s, callee_at=None) if s.line == 4 else s
+                for s in result.call_sites
+            ),
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        self.assertEqual(
+            [r[3] for r in self.targets(result, binding)],
+            [
+                scip_calls.PYRIGHT_EXTERNAL,
+                # Nothing to ask pyright.
+                scip_calls.PYRIGHT_NO_DEFINITION,
+                scip_calls.PYRIGHT_NOT_DECLARATION,
+            ],
+        )
+        self.assertEqual(sorted(pyright.asked), [("c.py", 2, 0), ("c.py", 3, 0)])
 
     def test_python_import_alias_and_constructor_names_are_not_suspect(self):
         (self.root / "m.py").write_text(
@@ -775,13 +1149,8 @@ class ScipCallTests(unittest.TestCase):
                     "scip-typescript@1.0",
                     "sha256:ts",
                 ),
-                (
-                    "helper",
-                    "tree-sitter.call-imported-name",
-                    "name_matched",
-                    None,
-                    None,
-                ),
+                # b.ts imports helper from a.ts, which exports it only as
+                # aliasName: the compiler binds nothing.
                 (
                     "inner",
                     "scip.call-local-symbol",
@@ -807,7 +1176,7 @@ class ScipCallTests(unittest.TestCase):
                     "unresolved:scip_no_occurrence": 1,
                     "unresolved:scip_target_not_declaration": 1,
                 },
-                "tree-sitter": {"linked": 1},
+                "tree-sitter": {"unresolved:imported_name_not_declared": 1},
             },
         )
         unresolved = sorted(
@@ -825,6 +1194,7 @@ class ScipCallTests(unittest.TestCase):
             [
                 ("console.log", "scip", "scip_external", "scip-typescript@1.0"),
                 ("helper", "scip", "scip_no_occurrence", "scip-typescript@1.0"),
+                ("helper", "tree-sitter", "imported_name_not_declared", None),
                 (
                     "hh",
                     "scip",
@@ -861,13 +1231,21 @@ class ScipCallTests(unittest.TestCase):
                 ],
                 "files": 3,
                 "files_linked": 2,
-                "linked": 6,
+                "linked": 5,
                 "ambiguous": 0,
-                "unresolved": 3,
+                "unresolved": 4,
             },
         )
+        # The TypeScript compiler resolved every import.
+        imports = coverage["r::edge-coverage::IMPORTS::typescript"]
         self.assertEqual(
-            coverage["r::edge-coverage::IMPORTS::typescript"]["status"], "not_linked"
+            {k: imports[k] for k in ("status", "resolver", "files", "files_linked")},
+            {
+                "status": "linked",
+                "resolver": [TYPESCRIPT_TOOL],
+                "files": 2,
+                "files_linked": 2,
+            },
         )
 
 
