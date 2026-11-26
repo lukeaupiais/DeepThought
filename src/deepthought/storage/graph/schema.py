@@ -89,6 +89,4 @@ RELATIONSHIP_SENTENCES = {
     "CARRIES_MESSAGE": "is a message type of",
     "CARRIES": "carries the payload type",
     "HAS_COLUMN": "has the column",
-    "USES_FIXTURE": "uses the pytest fixture",
-    "USES_DEPENDENCY": "uses the FastAPI dependency",
 }
