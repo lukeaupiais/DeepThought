@@ -1,27 +1,45 @@
-"""Python imports resolved by scip-python instead of path rules.
+"""Imports resolved by the SCIP indexers instead of path rules.
 
-pyright resolves an import as Python would, from the interpreter's search
-path: the workspace's source roots (each project's own directory and its
-``src``, see ``deepthought.indexers.python_path``), its installed
-dependencies, and the standard library. scip-python records that resolution
-as a reference to the module's symbol (`` `a.b`/__init__: ``) at each module
-name an import statement writes, including the submodules ``from a import b``
-names. A module the index defines (a document of the workspace) links the
-importing file to that file; any other module is external and names its
-package and version (``python-stdlib 3.13``, ``pydantic 2.12.5``).
+Each indexer resolves an import as its language's own tooling does and
+records that resolution as a reference to the module's symbol at the name the
+statement writes. A module the index defines (a document of the workspace)
+links the importing file to the files that define it; any other module is
+external and names its package and version.
+
+Python: pyright searches the interpreter's path, the workspace's source roots
+(each project's own directory and its ``src``, see
+``deepthought.indexers.python_path``), its installed dependencies and the
+standard library. The module symbol is `` `a.b`/__init__: ``, recorded at each
+module name, the submodules ``from a import b`` names included; external
+modules name ``python-stdlib 3.13`` or ``pydantic 2.12.5``.
+
+Go: the go command's package loading, through go.mod, replace directives and
+the module cache. The package symbol is `` `example.com/m/pkg`/ ``, defined by
+the package clause of each of the package's files; external packages name
+their module and version (``github.com/go-chi/chi/v5 v5.2.1``; the standard
+library is ``github.com/golang/go/src go1.24``).
+
+TypeScript and JavaScript: the TypeScript compiler's module resolution
+through tsconfig, package.json and node_modules, workspaces included. The
+module symbol is a file's namespace (``src/`a.ts`/``), or an ambient module
+a declaration file declares (`` `buffer.d.ts`/`"node:buffer"`/ ``); external
+modules name their npm package and version (``@types/node 22.10.1``).
 
 Files no index covers keep the path rules (``deepthought.imports``), and so
-do relative imports everywhere: scip-python 0.6.8 names the module of
+do Python relative imports everywhere: scip-python 0.6.8 names the module of
 ``from .models import X`` by the written remainder alone (`` `models`/__init__: ``),
 which matches another project's top-level ``models`` or nothing, while the
-relative path rule is the language's own definition. A from-import of an
-in-repository package also keeps the path rule's links to the submodules it
-names (``from flask import json``), which the index records as attributes of
-the package. An absolute import in a covered file with no module reference
-is unresolved (``scip_no_occurrence``): pyright found no module for it, for
-example a dependency that is not installed.
+relative path rule is the language's own definition. A Python from-import of
+an in-repository package also keeps the path rule's links to the submodules
+it names (``from flask import json``), which the index records as attributes
+of the package. An import in a covered file with no module reference keeps a
+path rule's links if it has them (a side-effect import of a stylesheet has no
+symbol to reference); otherwise it is unresolved (``scip_no_occurrence``):
+the tooling found no module for it, for example a dependency that is not
+installed.
 """
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,8 +49,32 @@ from .scip_calls import _IndexView, _key, _Lines, _to_utf8
 
 SCIP_PYTHON_IMPORT_MODULE = "scip.python-import-module"
 SCIP_PYTHON_IMPORT_PACKAGE = "scip.python-import-package"
+SCIP_GO_IMPORT_MODULE = "scip.go-import-module"
+SCIP_GO_IMPORT_PACKAGE = "scip.go-import-package"
+SCIP_SCRIPT_IMPORT_MODULE = "scip.typescript-import-module"
+SCIP_SCRIPT_IMPORT_PACKAGE = "scip.typescript-import-package"
 EXTERNAL = "scip_external"
 NO_OCCURRENCE = "scip_no_occurrence"
+
+# The analyzed languages each indexer resolves imports for.
+_LANGUAGES = {
+    "scip-python": {"python"},
+    "scip-go": {"go"},
+    "scip-typescript": {"typescript", "tsx", "javascript"},
+}
+ECOSYSTEMS = {"scip-python": "python", "scip-go": "go", "scip-typescript": "npm"}
+LINK_RULES = {
+    "scip-python": SCIP_PYTHON_IMPORT_MODULE,
+    "scip-go": SCIP_GO_IMPORT_MODULE,
+    "scip-typescript": SCIP_SCRIPT_IMPORT_MODULE,
+}
+PACKAGE_RULES = {
+    "scip-python": SCIP_PYTHON_IMPORT_PACKAGE,
+    "scip-go": SCIP_GO_IMPORT_PACKAGE,
+    "scip-typescript": SCIP_SCRIPT_IMPORT_PACKAGE,
+}
+# A TypeScript module namespace's last segment is a source file.
+_SCRIPT_FILE = re.compile(r"\.(d\.)?[mc]?[jt]sx?$")
 
 
 @dataclass(frozen=True)
@@ -42,68 +84,125 @@ class Package:
     name: str
     version: str
     modules: tuple[str, ...]
+    ecosystem: str = "python"
+    rule_id: str = SCIP_PYTHON_IMPORT_PACKAGE
 
 
-def _module(native):
-    """(package, version, module) of a scip-python module symbol, else None."""
-    parts = native.split(" ", 4)
-    if len(parts) != 5 or parts[0] != "scip-python" or parts[1] != "python":
+def _segments(descriptor):
+    """A SCIP descriptor's namespace segments, backticks removed, if it is
+    namespaces only (``a/`b.c`/``); else None."""
+    found, rest = [], descriptor
+    while rest:
+        if rest.startswith("`"):
+            end = rest.find("`", 1)
+            while end != -1 and rest[end + 1 : end + 2] == "`":
+                end = rest.find("`", end + 2)
+            if end == -1 or rest[end + 1 : end + 2] != "/":
+                return None
+            found.append(rest[1:end].replace("``", "`"))
+            rest = rest[end + 2 :]
+        else:
+            end = rest.find("/")
+            if end <= 0 or any(c in rest[:end] for c in "#.:()[]!"):
+                return None
+            found.append(rest[:end])
+            rest = rest[end + 1 :]
+    return found or None
+
+
+def _module(native, indexer="scip-python"):
+    """(package, version, module) of an indexer's module symbol, else None."""
+    parts = (native or "").split(" ", 4)
+    if len(parts) != 5 or parts[0] != indexer:
         return None
     descriptor = parts[4]
-    if not descriptor.endswith("/__init__:"):
+    if indexer == "scip-python":
+        if parts[1] != "python" or not descriptor.endswith("/__init__:"):
+            return None
+        module = descriptor[: -len("/__init__:")]
+        if module.startswith("`") and module.endswith("`"):
+            module = module[1:-1]
+        return parts[2], parts[3], module
+    segments = _segments(descriptor)
+    if segments is None:
         return None
-    module = descriptor[: -len("/__init__:")]
-    if module.startswith("`") and module.endswith("`"):
-        module = module[1:-1]
-    return parts[2], parts[3], module
+    if indexer == "scip-go":
+        if parts[1] != "gomod":
+            return None
+        return parts[2], parts[3], "/".join(segments)
+    if parts[1] != "npm":
+        return None
+    last = segments[-1]
+    if len(segments) > 1 and len(last) > 2 and last[0] == last[-1] == '"':
+        # An ambient module a declaration file declares (`declare module
+        # "node:buffer"`): the module is the name it declares.
+        if _SCRIPT_FILE.search(segments[-2]):
+            return parts[2], parts[3], last[1:-1]
+        return None
+    if not _SCRIPT_FILE.search(last):
+        return None
+    return parts[2], parts[3], "/".join(segments)
 
 
-def bind_python_imports(result, indexes, root, paths=None):
-    """``{import id: (ImportResolution, packages)}`` for the absolute Python
-    imports in files ``indexes`` (pairs of an ingested index and its receipt
-    digest) cover; ``packages`` are the external ``Package``s of each.
-    ``paths`` are the path rules' resolutions by import id, whose submodule
-    links an in-repository from-import keeps."""
+def _indexer(index):
+    for name, version in index.analyzer_versions:
+        if name in _LANGUAGES:
+            return name, f"{name}@{version}"
+    return None, None
+
+
+def bind_imports(result, indexes, root, paths=None):
+    """``{import id: (ImportResolution, packages)}`` for the imports in files
+    ``indexes`` (pairs of an ingested index and its receipt digest) cover;
+    ``packages`` are the external ``Package``s of each. ``paths`` are the path
+    rules' resolutions by import id, which an import keeps where the index
+    has nothing to say, and whose submodule links a Python from-import of an
+    in-repository package keeps."""
     paths = paths or {}
     lines = _Lines(Path(root))
     covering, shared_by_indexer, by_line = {}, {}, defaultdict(list)
-    own_modules = {}
+    own_modules, indexer_of = {}, {}
     for index, receipt in indexes:
-        tool = next(
-            (f"{n}@{v}" for n, v in index.analyzer_versions if n.startswith("scip-")),
-            "scip",
-        )
-        if not tool.startswith("scip-python@"):
+        indexer, tool = _indexer(index)
+        if indexer is None:
             continue
         view = _IndexView(index, tool, receipt)
+        indexer_of[view] = indexer
         # The modules this index's own documents define, by module name.
         own = defaultdict(set)
         for definition in index.definitions:
-            found = _module(definition.native_id or "")
+            found = _module(definition.native_id, indexer)
             if found is not None:
                 own[found[2]].add(definition.file)
         own_modules[view] = own
-        shared = shared_by_indexer.setdefault("scip-python", defaultdict(list))
+        shared = shared_by_indexer.setdefault(indexer, defaultdict(list))
         for key, found in view.definitions.items():
             shared[key].extend(found)
         view.definitions = shared
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
         for reference in index.references:
-            if covering.get(reference.file) is view and _module(reference.native_id):
+            if covering.get(reference.file) is view and _module(
+                reference.native_id, indexer
+            ):
                 by_line[(reference.file, reference.line)].append((reference, view))
     languages = {c.file: c.language for c in result.coverage}
     bound = {}
     for item in result.imports:
-        if (
-            languages.get(item.file) != "python"
-            or item.file not in covering
-            or item.specifier.startswith(".")
-        ):
+        view = covering.get(item.file)
+        if view is None:
+            continue
+        indexer = indexer_of[view]
+        language = languages.get(item.file)
+        if language not in _LANGUAGES[indexer]:
+            continue
+        if language == "python" and item.specifier.startswith("."):
             continue
         links, packages = {}, {}
         for line in range(item.line, item.end_line + 1):
-            for reference, view in by_line.get((item.file, line), ()):
+            for reference, seen in by_line.get((item.file, line), ()):
+                if seen is not view:
+                    continue
                 text = lines.get(item.file, line)
                 column = _to_utf8(text, reference.column, view.encoding(reference))
                 if (line, column) < (item.line, item.column) or (line, column) >= (
@@ -111,32 +210,42 @@ def bind_python_imports(result, indexes, root, paths=None):
                     item.end_column,
                 ):
                     continue
-                package, version, module = _module(reference.native_id)
+                package, version, module = _module(reference.native_id, indexer)
                 declared = view.definitions.get(
                     _key(item.file, reference.native_id), ()
                 )
-                files = sorted({d.file for d in declared})
+                files = {d.file for d in declared}
                 if not files and module in own_modules[view]:
                     # scip-python 0.6.8 names a module's package from the
                     # installed distributions' file lists before pyright's
                     # resolution: a wheel shipping a top-level `tests` puts
                     # its name on the repository's own tests/__init__.py,
                     # which pyright resolved (local roots come first).
-                    files = sorted(own_modules[view][module])
+                    files = own_modules[view][module]
+                if indexer == "scip-go":
+                    # A package's own test files are not part of what an
+                    # import of it loads.
+                    files = {f for f in files if not f.endswith("_test.go")}
                 if files:
-                    for file in files:
+                    for file in sorted(files):
                         if file != item.file:
                             links.setdefault(
-                                file, ImportLink(file, SCIP_PYTHON_IMPORT_MODULE)
+                                file, ImportLink(file, LINK_RULES[indexer])
                             )
                 else:
                     packages.setdefault((package, version), set()).add(module)
         found = tuple(
-            Package(name, version, tuple(sorted(modules)))
+            Package(
+                name,
+                version,
+                tuple(sorted(modules)),
+                ECOSYSTEMS[indexer],
+                PACKAGE_RULES[indexer],
+            )
             for (name, version), modules in sorted(packages.items())
         )
+        earlier = paths.get(item.id)
         if links:
-            earlier = paths.get(item.id)
             for link in earlier.links if earlier is not None else ():
                 if link.rule_id == PYTHON_FROM_IMPORT_SUBMODULE:
                     links.setdefault(link.target_file, link)
@@ -145,6 +254,8 @@ def bind_python_imports(result, indexes, root, paths=None):
             )
         elif found:
             resolution = ImportResolution(item.id, "unresolved", reason=EXTERNAL)
+        elif earlier is not None and earlier.status == "linked":
+            continue
         else:
             resolution = ImportResolution(item.id, "unresolved", reason=NO_OCCURRENCE)
         bound[item.id] = (resolution, found)
