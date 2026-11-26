@@ -5362,9 +5362,7 @@ def extract_call_sites(
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    script = file.endswith(
-        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
-    )
+    script = file.endswith((*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0]))
     sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
