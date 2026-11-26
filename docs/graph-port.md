@@ -552,7 +552,22 @@ messages; it is `retest` otherwise when the contract has `message_types`
 (the types are known, so a wrapper that hides them shields its callers),
 and `unknown` when it has not (no type facts for that contract yet: HTTP
 routes, GraphQL fields, message destinations, tables, and gRPC methods with
-clients or handlers outside type-checked Go). `source_roles` lists `test` and `example`
+clients or handlers outside type-checked Go).
+
+For gRPC methods in any language an index covers, the messages also come
+from SCIP: the GrpcMethod node has protoc's `request_message` and
+`response_message`, and each client's stub call (the CALLS edge from the
+REQUESTS edge's declaration at the same line, to the method as written)
+reaches the generated stub method, whose `SIGNATURE_USES` edges name the
+message declarations (those named like protoc's types; `DeepPartial` or
+`Metadata` beside them are not messages). A declaration whose signature
+names one carries the messages as a `CARRIES_MESSAGE` edge does, and the
+messages are known when every client's stub names one and every provider's
+signature names one too. So a TypeScript client against grpc-tools'
+generated `*_grpc_pb.d.ts` is decided like a Go one (other generators are
+not checked yet); an untyped client (plain JavaScript, a
+`proto-loader` client, Python's generated `*_pb2_grpc.py`, whose stub
+methods are attributes) leaves the method `unknown`. `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
 `__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
 `examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
@@ -2801,6 +2816,27 @@ through a renamed re-export's import name, such as `outward` in the
 guessed. A second compiler pipeline in the engine, pinned to one compiler
 version, costs more than that gap. The compiler stays an offline oracle
 (`tools/typescript_reference_oracle.cjs`).
+
+## Signature types
+
+`deepthought.signature_types` records which types each function's signature
+names, for impact (see "Impact"). A signature is the declaration's span in
+the parse tree up to its `body` (all of it for a declaration without one, such
+as a `.d.ts` method or an interface method): receiver, type parameters,
+parameters with their annotations and defaults, result type, and for a
+function assigned to a variable (`const f = (a: A): B => ...`) the variable's
+annotation too. Every SCIP reference an index records inside that span, other
+than a definition, is read back to the parsed declaration its symbol is
+defined at, as call binding does (see "SCIP references"); a class, interface,
+struct, Go type, type alias, enum, record, trait or union becomes a
+`SIGNATURE_USES` edge from the function to it (`resolved`, rule
+`scip.signature-type-reference`, at the first reference's line and UTF-8
+column). A nested function's signature is its own, not its parent's. String
+annotations (`point: "Point"`) and generic arguments (`Optional[Feature]`,
+`ServerUnaryCall<Point, Feature>`) count, since the indexer resolves them.
+Types declared outside the repository have no parsed declaration and are not
+recorded; files no index covers get no edges. The tree-sitter tool's metrics
+count them as `signature_types`.
 
 ## SCIP implementations
 
