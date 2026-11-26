@@ -2108,7 +2108,20 @@ indexers are required dependencies, not optional tools:
 |---|---|---|---|---|
 | Python | scip-python | 0.6.8 | `DEEPTHOUGHT_SCIP_PYTHON` | UTF-16 |
 | TypeScript, JavaScript | scip-typescript | 0.6.2 | `DEEPTHOUGHT_SCIP_TYPESCRIPT` | UTF-16 |
-| Go | scip-go | 0.1.26 | `DEEPTHOUGHT_SCIP_GO` | UTF-8 |
+| Go | scip-go | 0.2.7 | `DEEPTHOUGHT_SCIP_GO` | UTF-8 |
+
+scip-go is installed as `go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`
+and run as `scip-go index`. 0.1.26 knew the standard library from a list built
+into it, so the `uuid` package Go 1.27 added (imported by
+`database/sql/driver`) was taken for a module's package without a module, and
+every module importing `database/sql` failed with "Should not be possible to
+have nil module for userland package: uuid uuid". 0.2.x reads the standard
+library from the go command. 0.2.8 and later write only `typed_range`, which
+the engine's SCIP reader does not decode yet, so 0.2.7 is pinned. On chi,
+grpc-go, simplebank and miniflux the files covered are the same as with
+0.1.26, and the chi and cobra ground truth has no regression; interface
+methods now carry the method descriptor (`ResponseWriter#Write().`, was
+`ResponseWriter#Write.`).
 
 `deepthought indexers` lists them and whether each is installed (on `PATH`, or
 at the override path); it installs nothing. `deepthought index-scip WORKSPACE
@@ -2180,8 +2193,9 @@ with a reason:
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
-(outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
-directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
+(outside `vendor` and hidden directories; a `go.mod` below a directory whose
+name starts with `_`, such as chi's `_examples/rest`, or below `testdata`,
+such as sqlc's `internal/endtoend/testdata`, counts)
 gets its own run from its
 own directory, written to `scip-go.scip` for the root module and
 `scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
@@ -2386,7 +2400,11 @@ call rules. The import report carries a
 files with their reasons. The indexes a run writes are checked against their
 receipts again before they are read, and are read whole: the 50 MB cap
 `ingest_scip` keeps for an index from elsewhere does not apply to them
-(scip-python writes over 100 MB for a large monorepo such as superset).
+(scip-python writes over 100 MB for a large monorepo such as superset). The
+SCIP analysis tool reads the indexes it is given the same way, once their
+receipts validate (lobe-chat's 80 MB index used to fail there as "SCIP
+producer differs from the source receipt"), and names an index it cannot
+read with the reason.
 `--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
