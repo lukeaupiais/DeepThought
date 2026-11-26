@@ -143,38 +143,65 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
-### Python imports from scip-python
+### Imports from the SCIP indexers
 
-In a file a scip-python index covers, an absolute import is resolved as the
-interpreter would resolve it: each Python project (a directory with a
-`pyproject.toml`, `setup.cfg` or requirements file) is indexed from its own
-directory with its `src`, so the FastAPI template's `backend/app` imports as
-`app`, and pyright searches those roots, the project's installed dependencies
-and the standard library. scip-python records the module at each
-name the statement writes, including the submodules `from a import b` names.
+In a file a SCIP index covers, an import is resolved as the language's own
+tooling resolves it, and the indexer records that module at the name the
+statement writes. A module the index defines links the importing file to the
+files defining it (IMPORTS); any other module is external and becomes an
+IMPORTS_PACKAGE edge to an ExternalPackage node named with its package and
+version as the index states them (`ecosystem` python, go or npm). The edge
+lists the modules imported. Externally resolved specifiers are listed in the
+File's `external_imports`, not `unresolved_imports`.
+
+- Python: each Python project (a directory with a `pyproject.toml`,
+  `setup.cfg` or requirements file) is indexed from its own directory with its
+  `src`, so the FastAPI template's `backend/app` imports as `app`, and pyright
+  searches those roots, the project's installed dependencies and the standard
+  library. scip-python records the module at each name the statement writes,
+  including the submodules `from a import b` names. Packages read
+  `python-stdlib 3.13` or `pydantic 2.12.5`.
+- Go: the go command's package loading through go.mod, replace directives and
+  the module cache. The link reaches each non-test file whose package clause
+  defines the package and that `go list` compiles on the engine's platform
+  (linux/amd64; a `//go:build windows` file is not linked). Packages read
+  `github.com/go-chi/chi/v5 v5.2.1`, at the version the importing module's
+  go.mod requires (`go mod edit -json`, replace directives applied): scip-go's
+  own form drops `+incompatible` and cuts a pseudo-version to its commit. The
+  standard library is the Go repository's `github.com/golang/go/src` module at
+  the go.mod's Go version (`go1.24`).
+- TypeScript and JavaScript: the TypeScript compiler's module resolution
+  through tsconfig, package.json, node_modules and workspaces. A module is a
+  file, or an ambient module a declaration file declares (`declare module
+  "node:buffer"` in `@types/node`). Packages read `@types/node 25.9.12`.
 
 | Rule | Evidence | Meaning |
 | --- | --- | --- |
 | `scip.python-import-module` | resolved | IMPORTS: the module is a document of the index, the analyzed file Python would load |
-| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: the module belongs to an installed distribution or the standard library; the edge names the modules imported, the ExternalPackage node (`ecosystem` python) its name and version as the index states them (`python-stdlib 3.13`, `pydantic 2.12.5`) |
+| `scip.python-import-package` | resolved | IMPORTS_PACKAGE: an installed distribution or the standard library |
+| `scip.go-import-module` | resolved | IMPORTS: a package whose files the index defines, each non-test file of it |
+| `scip.go-import-package` | resolved | IMPORTS_PACKAGE: a package of another module or of the standard library |
+| `scip.typescript-import-module` | resolved | IMPORTS: the file the compiler resolves the specifier to |
+| `scip.typescript-import-package` | resolved | IMPORTS_PACKAGE: a file or ambient module of an npm package |
 
-Externally resolved specifiers are listed in the File's `external_imports`, not
-`unresolved_imports`. A covered absolute import with no module occurrence
-stays unresolved (`scip_no_occurrence`): pyright found no module, for example
-a dependency that is not installed. Two cases keep the path rules. Relative
-imports do, because scip-python 0.6.8 names the module of `from .models import
-X` by the written remainder alone (`` `models`/__init__: ``), which is another
-project's top-level `models` or nothing. A from-import of an in-repository
-package also keeps the path rule's links to the submodules it names (`from
-flask import json`), which the index records as attributes of the package.
-Files no index covers keep the path rules throughout. scip-python 0.6.8 also
-names a module's package from the installed distributions' file lists rather
-than from pyright's resolution, so a wheel that ships a top-level `tests`
-package (msal-extensions does) labels the repository's own `tests` as its
-module. A module that the same index defines links to its document instead:
-pyright searched the local roots first and resolved the names to it. Tool metadata counts
-scip-python's decisions in `scip_python_imports` and the packages in
-`python_packages`.
+A covered import with no module occurrence keeps a path rule's links if it has
+them; otherwise it stays unresolved (`scip_no_occurrence`): the tooling found
+no module, for example a dependency that is not installed, a stylesheet, or a
+package's import of itself by name when its build output is missing. Python
+relative imports keep the path rules, because scip-python 0.6.8 names the
+module of `from .models import X` by the written remainder alone (``
+`models`/__init__: ``), which is another project's top-level `models` or
+nothing. A Python from-import of an in-repository package also keeps the path
+rule's links to the submodules it names (`from flask import json`), which the
+index records as attributes of the package. scip-python 0.6.8 also names a
+module's package from the installed distributions' file lists rather than
+from pyright's resolution, so a wheel that ships a top-level `tests` package
+(msal-extensions does) labels the repository's own `tests` as its module. A
+module that the same index defines links to its document instead: pyright
+searched the local roots first and resolved the names to it. Files no index
+covers keep the path rules throughout. Tool metadata counts the indexes'
+decisions by language in `scip_imports` and the packages in
+`external_packages`.
 
 ## Calls
 
