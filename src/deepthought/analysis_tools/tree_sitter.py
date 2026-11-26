@@ -815,6 +815,14 @@ CALL_RULES.update(
             "index records no occurrence for, links to the declaration "
             "pinned pyright's go-to-definition gives for the callee's last "
             "name.",
+            scip_calls.PYRIGHT_CALL_ALIAS: "A Python call through a local "
+            "assigned once from a dotted name (`get = console.get_style`, "
+            "`S = Segment`) links to the declaration pinned pyright's "
+            "go-to-definition gives for that name.",
+            scip_calls.PYRIGHT_CALL_CLASS_PARAMETER: "A call of a "
+            "classmethod's first parameter (`cls(...)`) links to the class "
+            "the method is declared in; pyright types the parameter as that "
+            "class but gives it no place.",
         }.items()
     }
 )
