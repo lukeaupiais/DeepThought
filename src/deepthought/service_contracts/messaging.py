@@ -40,7 +40,7 @@ from .http import PLACEHOLDER
 from .script_constants import fold_through_calls
 from .stomp_clients import bound_kinds, value_kind
 from .spring import _Imports, _annotations, _arguments, _Values
-from .web import _go_imports, _js_modules, _js_object, _python_imports
+from .web import _js_modules, _js_object, _python_imports, _type_span
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,16 @@ class MessageEndpoint:
     # The calls ("file:line") that pass the destination to the parameter of
     # the function around the site, when that is where it comes from.
     argument_from: tuple = ()
+    # (direction, start byte, end byte, body key) of the types a handler writes for
+    # the message ("request") and its reply ("response"), which the
+    # TypeScript compiler resolves (CARRIES).
+    payloads: tuple = ()
+    # Values the site sends that its reader could not read for types (a
+    # kafkajs message value not written as JSON.stringify(x)).
+    payloads_unread: int = 0
+    # (direction, (declaring file, type name, line)) of the types the Go
+    # type checker gives for what the site sends (CARRIES).
+    types: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -113,6 +123,9 @@ class _Sites:
         client,
         declaration_id=None,
         argument_from=(),
+        payloads=(),
+        payloads_unread=0,
+        types=(),
     ):
         line = node.start_point.row + 1
         if PLACEHOLDER in destination:
@@ -149,25 +162,58 @@ class _Sites:
                 destination=destination,
                 client=client,
                 argument_from=tuple(argument_from),
+                payloads=tuple(payloads),
+                payloads_unread=payloads_unread,
+                types=tuple(types),
             )
         )
 
-    def add_folded(self, node, role, broker, compute, client, folder):
+    def add_folded(
+        self,
+        node,
+        role,
+        broker,
+        compute,
+        client,
+        folder,
+        payloads=(),
+        payloads_unread=0,
+    ):
         """Add the sites of the destination ``compute(folder)`` gives; one
         built from parameters of the module-level function around the site
         takes, instead, each value that calls of the function give
         (``self.calls_of``)."""
         for destination, calls in fold_through_calls(folder, compute, self.calls_of):
-            self.add(node, role, broker, destination, client, argument_from=calls)
+            self.add(
+                node,
+                role,
+                broker,
+                destination,
+                client,
+                argument_from=calls,
+                payloads=payloads,
+                payloads_unread=payloads_unread,
+            )
 
-    def consume_queue(self, node, queue, bindings, client, declaration_id=None):
-        """A consumer of ``queue``: the default exchange plus its bindings."""
+    def consume_queue(
+        self, node, queue, bindings, client, declaration_id=None, identity=None
+    ):
+        """A consumer of ``queue``: the default exchange plus its bindings.
+        A binding is (queue, key, exchange), optionally with the identity of
+        the declaration its queue comes from: a queue whose name is not
+        known (the broker names it) still has the bindings of the same
+        declaration."""
         if PLACEHOLDER in queue:
             self.add(node, "consume", "amqp", queue, client, declaration_id)
-            return
-        self.add(node, "consume", "amqp", "/" + queue, client, declaration_id)
-        for bound_queue, key, exchange in bindings:
-            if bound_queue != queue:
+        else:
+            self.add(node, "consume", "amqp", "/" + queue, client, declaration_id)
+        for binding in bindings:
+            bound_queue, key, exchange = binding[:3]
+            if PLACEHOLDER in queue:
+                bound = binding[3] if len(binding) > 3 else None
+                if identity is None or bound != identity:
+                    continue
+            elif bound_queue != queue:
                 continue
             if "*" in key or "#" in key:
                 self.unread.append(
@@ -603,83 +649,31 @@ def _origin(call, imports, content):
 
 
 # -- Go -----------------------------------------------------------------------
+#
+# Go is read from the type checker's facts (``go_facts``): calls with the
+# package declaring the method and the string values of their arguments, and
+# keyed composite literals of struct types from other modules. Which package
+# a call or a literal belongs to is go/types' answer, not an import pattern;
+# constant folding and locals assigned once are gofacts'. The tables below
+# say which methods and struct fields of each client library carry a
+# destination: that is the libraries' API, not a reading of the code.
 
 _GO_AMQP = ("github.com/streadway/amqp", "github.com/rabbitmq/amqp091-go")
-
-
-def extract_go(sites, imports):
-    content, root = sites.content, sites.root
-    if not any(path in _GO_AMQP for path in imports.values()):
-        return
-    folder = Folder("go", root, content)
-    declared_queues = {}  # name -> queue name, from q, err := ch.QueueDeclare("n", ...)
-    for node in _walk(root):
-        if node.type not in ("short_var_declaration", "assignment_statement"):
-            continue
-        left = node.child_by_field_name("left").named_children
-        right = node.child_by_field_name("right").named_children
-        if len(right) == 1 and right[0].type == "call_expression" and left:
-            function = right[0].child_by_field_name("function")
-            if (
-                function.type == "selector_expression"
-                and text(function.child_by_field_name("field"), content)
-                == "QueueDeclare"
-            ):
-                arguments = right[0].child_by_field_name("arguments").named_children
-                name = text(left[0], content)
-                queue = folder.evaluate(arguments[0]) if arguments else PLACEHOLDER
-                declared_queues.setdefault(name, []).append(queue)
-
-    def queue_name(node):
-        if (
-            node.type == "selector_expression"
-            and text(node.child_by_field_name("field"), content) == "Name"
-        ):
-            found = declared_queues.get(
-                text(node.child_by_field_name("operand"), content)
-            )
-            return found[0] if found and len(found) == 1 else PLACEHOLDER
-        return folder.evaluate(node)
-
-    calls = []
-    bindings = []
-    for node in _walk(root):
-        if node.type != "call_expression":
-            continue
-        function = node.child_by_field_name("function")
-        if function.type != "selector_expression":
-            continue
-        method = text(function.child_by_field_name("field"), content)
-        arguments = node.child_by_field_name("arguments").named_children
-        calls.append((node, method, arguments))
-        if method == "QueueBind" and len(arguments) >= 3:
-            bindings.append(
-                (
-                    queue_name(arguments[0]),
-                    folder.evaluate(arguments[1]),
-                    folder.evaluate(arguments[2]),
-                )
-            )
-    for node, method, arguments in calls:
-        if method in ("Publish", "PublishWithContext"):
-            offset = 1 if method == "PublishWithContext" else 0
-            if len(arguments) < offset + 2:
-                continue
-            exchange = folder.evaluate(arguments[offset])
-            key = folder.evaluate(arguments[offset + 1])
-            sites.add(node, "publish", "amqp", f"{exchange}/{key}", "go-amqp")
-        elif method in ("Consume", "ConsumeWithContext") and arguments:
-            offset = 1 if method == "ConsumeWithContext" else 0
-            if len(arguments) <= offset:
-                continue
-            sites.consume_queue(
-                node, queue_name(arguments[offset]), bindings, "go-amqp"
-            )
-
-
+# Channel methods that publish to (exchange, routing key), after a
+# context.Context in the WithContext forms.
+_GO_AMQP_PUBLISH = frozenset(
+    {
+        "Publish",
+        "PublishWithContext",
+        "PublishWithDeferredConfirm",
+        "PublishWithDeferredConfirmWithContext",
+    }
+)
 _KAFKA_GO = "github.com/segmentio/kafka-go"
 _SARAMA = ("github.com/IBM/sarama", "github.com/Shopify/sarama")
 _CONFLUENT = re.compile(r"github\.com/confluentinc/confluent-kafka-go(?:/v\d+)?/kafka")
+# Import paths whose files go_facts must check for messaging to be read.
+GO_BROKER_IMPORTS = (*_GO_AMQP, _KAFKA_GO, *_SARAMA, "confluent-kafka-go")
 
 
 def _go_kafka_client(path):
@@ -690,40 +684,6 @@ def _go_kafka_client(path):
     if _CONFLUENT.fullmatch(path):
         return "confluent-kafka-go"
     return None
-
-
-def _go_fields(literal, content):
-    """{key: value node} of a Go composite literal's keyed elements."""
-    body = literal.child_by_field_name("body")
-    found = {}
-    if body is None:
-        return found
-    for element in body.named_children:
-        if element.type != "keyed_element":
-            continue
-        parts = element.named_children
-        if len(parts) != 2:
-            continue
-        key, value = parts
-        if value.type == "literal_element" and value.named_children:
-            value = value.named_children[0]
-        found[text(key, content)] = value
-    return found
-
-
-def _go_strings(node):
-    """The elements of a ``[]string{...}`` literal, or None."""
-    if node is None or node.type != "composite_literal":
-        return None
-    kind = node.child_by_field_name("type")
-    if kind is None or kind.type != "slice_type":
-        return None
-    body = node.child_by_field_name("body")
-    return [
-        e.named_children[0] if e.type == "literal_element" else e
-        for e in body.named_children
-        if e.type != "comment"
-    ]
 
 
 # (client, type) -> (role, field) of composite literals that name a topic.
@@ -737,95 +697,199 @@ _GO_KAFKA_LITERALS = {
 }
 
 
-def extract_go_kafka(sites, imports):
-    """segmentio/kafka-go, sarama and confluent-kafka-go topics."""
-    content, root = sites.content, sites.root
-    packages = {
-        # kafka-go's package name is kafka, not its last path element.
-        ("kafka" if local == "kafka-go" else local): client
-        for local, path in imports.items()
-        if (client := _go_kafka_client(path)) is not None
+def go_broker_file(content):
+    """Whether a Go source imports one of the broker clients read here."""
+    return any(path.encode() in content for path in GO_BROKER_IMPORTS)
+
+
+def extract_go(sites, facts):
+    """AMQP and Kafka sites of one Go file from its ``go_facts``: (calls,
+    literals, reason) where reason says why the file was not, or only partly,
+    type-checked (None when it was)."""
+    calls, literals, reason = facts
+    if reason is not None:
+        sites.unread.append(MessageUnread(sites.file, 1, "go_types", reason))
+    nodes = {
+        (node.start_point.row + 1, node.start_point.column): node
+        for node in _walk(sites.root)
+        if node.type in ("call_expression", "composite_literal")
     }
-    if not packages:
-        return
-    clients = set(packages.values())
-    folder = Folder("go", root, content)
+    at = {(c.line, c.column): c for c in calls}
 
-    def topic(node):
-        node = _unwrap_go(node)
-        return PLACEHOLDER if node is None else folder.evaluate(node)
-
-    for node in _walk(root):
-        if node.type == "composite_literal":
-            kind = node.child_by_field_name("type")
-            if kind is None or kind.type != "qualified_type":
-                continue
-            package = text(kind.child_by_field_name("package"), content)
-            name = text(kind.child_by_field_name("name"), content)
-            client = packages.get(package)
-            rule = _GO_KAFKA_LITERALS.get((client, name))
-            if rule is None:
-                continue
-            role, field = rule
-            fields = _go_fields(node, content)
-            if client == "kafka-go" and role == "consume" and "GroupTopics" in fields:
-                for value in _go_strings(fields["GroupTopics"]) or [None]:
-                    sites.add(node, role, "kafka", topic(value), client)
-            # A kafka-go Message without Topic goes to its Writer's topic.
-            if field not in fields:
-                continue
-            sites.add(node, role, "kafka", topic(fields[field]), client)
-        elif node.type == "call_expression":
-            function = node.child_by_field_name("function")
-            if function.type != "selector_expression":
-                continue
-            method = text(function.child_by_field_name("field"), content)
-            arguments = [
-                a
-                for a in node.child_by_field_name("arguments").named_children
-                if a.type != "comment"
-            ]
-            if "sarama" in clients and method == "ConsumePartition" and arguments:
-                sites.add(node, "consume", "kafka", topic(arguments[0]), "sarama")
-            elif "sarama" in clients and method == "Consume" and len(arguments) == 3:
-                for value in _go_strings(arguments[1]) or [None]:
-                    sites.add(node, "consume", "kafka", topic(value), "sarama")
-            elif "confluent-kafka-go" in clients and method in (
-                "Subscribe",
-                "SubscribeTopics",
+    def value(item):
+        if item is None:
+            return PLACEHOLDER
+        if item.text is not None:
+            return item.text
+        if item.result is not None:
+            # q.Name after q, err := ch.QueueDeclare(name, ...): the name;
+            # for "" the broker names the queue, so it is not known.
+            line, column, index, field = item.result
+            call = at.get((line, column))
+            if (
+                call is not None
+                and call.declared in _GO_AMQP
+                and call.method == "QueueDeclare"
+                and (index, field) == (0, "Name")
+                and call.values
+                and call.values[0].text
             ):
-                if not arguments:
-                    continue
-                values = (
-                    [arguments[0]]
-                    if method == "Subscribe"
-                    else _go_strings(arguments[0]) or [None]
+                return call.values[0].text
+        return PLACEHOLDER
+
+    def declaration(item):
+        """The QueueDeclare result field a queue argument reads, or None."""
+        if item is None or item.text is not None or item.result is None:
+            return None
+        line, column, _, field = item.result
+        call = at.get((line, column))
+        if call is None or call.declared not in _GO_AMQP or not field:
+            return None
+        return item.result if call.method == "QueueDeclare" else None
+
+    def marshalled(item):
+        """The type a message value serializes: b after b, err :=
+        json.Marshal(v) (through conversions), as go/types gives v's named
+        type and its declaration; () when not known, and a None type for a
+        value whose static type is an interface (counted as unresolved)."""
+        if item is None or item.result is None:
+            return ()
+        line, column, index, field = item.result
+        call = at.get((line, column))
+        if (
+            call is None
+            or call.declared != "encoding/json"
+            or call.method not in ("Marshal", "MarshalIndent")
+            or (index, field) != (0, "")
+        ):
+            return ()
+        if call.interfaces and call.interfaces[0]:
+            # json encodes the value's dynamic type, which is not known.
+            return (("request", None),)
+        if (
+            not call.types
+            or call.types[0] is None
+            or not call.declarations
+            or call.declarations[0] is None
+        ):
+            return ()
+        file, line = call.declarations[0]
+        return (("request", (file, call.types[0][1], line)),)
+
+    literal_at = {(literal.line, literal.column): literal for literal in literals}
+
+    def message_value(node, client, literal):
+        """The Value element of the message a publish literal belongs to:
+        its own, or, for confluent-kafka-go's TopicPartition, that of the
+        Message literal around it."""
+        elements = dict(literal.elements)
+        if client != "confluent-kafka-go":
+            return elements.get("Value")
+        outer = node.parent
+        while outer is not None and outer.type != "composite_literal":
+            outer = outer.parent
+        if outer is None:
+            return None
+        around = literal_at.get((outer.start_point.row + 1, outer.start_point.column))
+        if around is None or around.type[1] != "Message":
+            return None
+        return dict(around.elements).get("Value")
+
+    def argument(call, index):
+        return call.values[index] if index < len(call.values) else None
+
+    def strings(item):
+        return [None] if item is None or item.strings is None else item.strings
+
+    def text_of(item):
+        return PLACEHOLDER if item is None else item
+
+    sited = []
+    for call in calls:
+        node = nodes.get((call.line, call.column))
+        if node is not None:
+            sited.append((node, call))
+    bindings = [
+        (
+            value(argument(call, 0)),
+            value(argument(call, 1)),
+            value(argument(call, 2)),
+            declaration(argument(call, 0)),
+        )
+        for _, call in sited
+        if call.declared in _GO_AMQP and call.method == "QueueBind"
+    ]
+    for node, call in sited:
+        method = call.method
+        if call.declared in _GO_AMQP:
+            if method in _GO_AMQP_PUBLISH:
+                offset = 1 if method.endswith("WithContext") else 0
+                exchange = value(argument(call, offset))
+                key = value(argument(call, offset + 1))
+                sites.add(node, "publish", "amqp", f"{exchange}/{key}", "go-amqp")
+            elif method in ("Consume", "ConsumeWithContext"):
+                offset = 1 if method == "ConsumeWithContext" else 0
+                queue = argument(call, offset)
+                sites.consume_queue(
+                    node,
+                    value(queue),
+                    bindings,
+                    "go-amqp",
+                    identity=declaration(queue),
                 )
-                for value in values:
-                    name = topic(value)
-                    # A leading ^ subscribes to a regular expression.
-                    if name.startswith("^"):
-                        sites.unread.append(
-                            MessageUnread(
-                                sites.file,
-                                node.start_point.row + 1,
-                                "consume",
-                                "topic_pattern",
-                            )
-                        )
-                        continue
-                    sites.add(node, "consume", "kafka", name, "confluent-kafka-go")
-
-
-def _unwrap_go(node):
-    """``&x`` is ``x``; parentheses."""
-    while node is not None and node.type in (
-        "unary_expression",
-        "parenthesized_expression",
-    ):
-        operand = node.child_by_field_name("operand")
-        node = operand if operand is not None else (node.named_children or [None])[-1]
-    return node
+            continue
+        client = _go_kafka_client(call.declared)
+        if client == "sarama":
+            if method == "ConsumePartition":
+                topic = value(argument(call, 0))
+                sites.add(node, "consume", "kafka", topic, "sarama")
+            elif method == "Consume" and call.receiver is not None:
+                if call.receiver[1] != "ConsumerGroup":
+                    continue
+                for item in strings(argument(call, 1)):
+                    sites.add(node, "consume", "kafka", text_of(item), "sarama")
+        elif client == "confluent-kafka-go" and method in (
+            "Subscribe",
+            "SubscribeTopics",
+        ):
+            names = (
+                [value(argument(call, 0))]
+                if method == "Subscribe"
+                else [text_of(item) for item in strings(argument(call, 0))]
+            )
+            for name in names:
+                # A leading ^ subscribes to a regular expression.
+                if name.startswith("^"):
+                    sites.unread.append(
+                        MessageUnread(sites.file, call.line, "consume", "topic_pattern")
+                    )
+                    continue
+                sites.add(node, "consume", "kafka", name, "confluent-kafka-go")
+    for literal in literals:
+        node = nodes.get((literal.line, literal.column))
+        client = _go_kafka_client(literal.type[0])
+        rule = _GO_KAFKA_LITERALS.get((client, literal.type[1]))
+        if node is None or rule is None:
+            continue
+        role, field = rule
+        elements = dict(literal.elements)
+        if client == "kafka-go" and role == "consume" and "GroupTopics" in elements:
+            for item in strings(elements["GroupTopics"]):
+                sites.add(node, role, "kafka", text_of(item), client)
+        # A kafka-go Message without Topic goes to its Writer's topic.
+        if field in elements:
+            sites.add(
+                node,
+                role,
+                "kafka",
+                value(elements[field]),
+                client,
+                types=(
+                    marshalled(message_value(node, client, literal))
+                    if role == "publish"
+                    else ()
+                ),
+            )
 
 
 # -- JavaScript / TypeScript -------------------------------------------------
@@ -889,6 +953,45 @@ _PUBSUB_CLASSES = (
     ("@nestjs/graphql", "PubSub"),
 )
 _REDIS_PUBSUB = (("graphql-redis-subscriptions", "RedisPubSub"),)
+
+
+def _kafkajs_values(messages, content):
+    """((direction, start, end, None) of what kafkajs messages' ``value``
+    serializes, the number of values not read): the argument of
+    ``JSON.stringify(x)``, written as the value or inside
+    ``Buffer.from(...)``, for every ``value`` member written in the
+    ``messages`` expression (an array, or ``rs.map(r => ({value: ...}))``).
+    The TypeScript compiler gives the types of the value at that span
+    (ts_facts); a value written another way is counted, not guessed."""
+    found, unread = [], 0
+    for pair in [] if messages is None else _walk(messages):
+        if pair.type != "pair":
+            continue
+        key = pair.child_by_field_name("key")
+        if key is None or text(key, content).strip("'\"") != "value":
+            continue
+        value = pair.child_by_field_name("value")
+        while True:
+            if value is None or value.type != "call_expression":
+                unread += 1
+                break
+            arguments = [
+                a
+                for a in value.child_by_field_name("arguments").named_children
+                if a.type != "comment"
+            ]
+            called = text(value.child_by_field_name("function"), content)
+            if called == "JSON.stringify" and arguments:
+                found.append(
+                    ("request", arguments[0].start_byte, arguments[0].end_byte, None)
+                )
+                break
+            if called == "Buffer.from" and arguments:
+                value = arguments[0]
+                continue
+            unread += 1
+            break
+    return tuple(found), unread
 
 
 _KAFKAJS = (("kafkajs", "Kafka"),)
@@ -1087,20 +1190,31 @@ def extract_javascript_brokers(sites, language):
         if kind == "producer" and verb in ("send", "sendBatch") and positional:
             options = _js_object(positional[0], content)
             if verb == "send":
-                topics = [options.get("topic")]
+                sent = [(options.get("topic"), options.get("messages"))]
             else:
                 batch = options.get("topicMessages")
                 if batch is None or batch.type != "array":
-                    topics = [None]
+                    sent = [(None, None)]
                 else:
-                    topics = [
-                        _js_object(item, content).get("topic")
+                    sent = [
+                        (
+                            _js_object(item, content).get("topic"),
+                            _js_object(item, content).get("messages"),
+                        )
                         for item in batch.named_children
                         if item.type != "comment"
                     ]
-            for topic in topics:
+            for topic, messages in sent:
+                values, unread = _kafkajs_values(messages, content)
                 sites.add_folded(
-                    node, "publish", "kafka", _evaluator(topic), "kafkajs", folder
+                    node,
+                    "publish",
+                    "kafka",
+                    _evaluator(topic),
+                    "kafkajs",
+                    folder,
+                    payloads=values,
+                    payloads_unread=unread,
                 )
         elif kind == "consumer" and verb == "subscribe" and positional:
             options = _js_object(positional[0], content)
@@ -1284,6 +1398,54 @@ def _nest_clients(root, content, modules):
     return {name for name, kinds in found.items() if kinds == {True}}
 
 
+def _nest_message_payloads(method, modules, content, kind):
+    """(direction, start, end, None) of the types a Nest pattern handler writes
+    for the message (its parameter decorated ``@Payload()``, else its first
+    parameter when that has no decorator, as Nest passes the data first)
+    and, for a ``@MessagePattern``, its reply (the return type)."""
+    found = []
+    parameters = method.child_by_field_name("parameters")
+    written = [] if parameters is None else parameters.named_children
+
+    def decorators(parameter):
+        return [
+            d.named_children[0].child_by_field_name("function")
+            for d in parameter.named_children
+            if d.type == "decorator"
+            and d.named_children
+            and d.named_children[0].type == "call_expression"
+        ]
+
+    data = next(
+        (
+            p
+            for p in written
+            if any(
+                f is not None
+                and f.type == "identifier"
+                and text(f, content) == "Payload"
+                and _imported_from("Payload", modules, _NEST_MICROSERVICES)
+                for f in decorators(p)
+            )
+        ),
+        None,
+    )
+    if (
+        data is None
+        and written
+        and not any(d.type == "decorator" for d in written[0].named_children)
+    ):
+        data = written[0]
+    span = None if data is None else _type_span(data.child_by_field_name("type"))
+    if span is not None:
+        found.append(("request", *span, None))
+    if kind == "message":
+        span = _type_span(method.child_by_field_name("return_type"))
+        if span is not None:
+            found.append(("response", *span, None))
+    return tuple(found)
+
+
 def extract_nest_microservices(sites, language):
     """NestJS microservice patterns: ``@MessagePattern``/``@EventPattern``
     handlers of controllers consume, and a client's ``send``/``emit``
@@ -1338,6 +1500,7 @@ def extract_nest_microservices(sites, language):
                 ):
                     continue
                 kind = "message" if name == "MessagePattern" else "event"
+                payloads = _nest_message_payloads(member, modules, content, kind)
                 route = _nest_route(
                     arguments[0] if arguments else None, folder, content, objects
                 )
@@ -1348,6 +1511,7 @@ def extract_nest_microservices(sites, language):
                     f"{kind}:{route}",
                     "nestjs-microservices",
                     sites.declaration(member),
+                    payloads=payloads,
                 )
     clients = _nest_clients(root, content, modules)
     if not clients:
@@ -1374,6 +1538,9 @@ def extract_nest_microservices(sites, language):
         if not arguments:
             continue
         kind = "message" if found[1] == "send" else "event"
+        # The data the client sends; its types come from the TypeScript
+        # compiler, by the span (ts_facts).
+        data = arguments[1] if len(arguments) > 1 else None
         sites.add_folded(
             node,
             "publish",
@@ -1383,6 +1550,11 @@ def extract_nest_microservices(sites, language):
             ),
             "nestjs-microservices",
             folder,
+            payloads=(
+                ()
+                if data is None
+                else (("request", data.start_byte, data.end_byte, None),)
+            ),
         )
 
 
@@ -1487,6 +1659,7 @@ def extract_messaging(
     template_exchange=None,
     application_prefixes=None,
     calls_of=None,
+    go_facts=None,
 ):
     """Publish and consume sites, and unread ones, of one source file.
 
@@ -1494,7 +1667,8 @@ def extract_messaging(
     file's module sends to when given only a routing key, None if unknown.
     ``calls_of(name)`` gives the calls of the file's module-level function
     ``name`` and their arguments (JavaScript/TypeScript), for destinations
-    built from its parameters.
+    built from its parameters. ``go_facts`` is (calls, literals, reason) of
+    a Go file that imports a broker client (``extract_go``).
     """
     sites = _Sites(tree, content, repository_id, file, definitions)
     sites.calls_of = calls_of
@@ -1503,9 +1677,8 @@ def extract_messaging(
     elif language == "python":
         extract_python(sites, _python_imports(sites.root, content))
     elif language == "go":
-        imports = _go_imports(sites.root, content)
-        extract_go(sites, imports)
-        extract_go_kafka(sites, imports)
+        if go_facts is not None:
+            extract_go(sites, go_facts)
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
         extract_javascript_brokers(sites, language)

@@ -288,5 +288,62 @@ class CallgraphToolTests(unittest.TestCase):
         )
 
 
+# Functions kept in a slice and run later, as an HTTP client's response
+# middleware: the call f(v) in the loop runs what Use appended.
+MIDDLEWARE = """package main
+
+type Client struct{ after []func(int) int }
+
+func (c *Client) Use(f func(int) int) { c.after = append(c.after, f) }
+
+func (c *Client) Do(v int) int {
+	for _, f := range c.after {
+		v = f(v)
+	}
+	return v
+}
+
+func double(v int) int { return v * 2 }
+
+func inc(v int) int { return v + 1 }
+
+func never(v int) int { return v }
+
+func main() {
+	c := &Client{}
+	c.Use(double)
+	c.Use(inc)
+	c.Do(1)
+}
+"""
+
+
+@unittest.skipUnless(GO_READY and _pinned(), "Install the pinned callgraph")
+class FunctionValueTests(unittest.TestCase):
+    def test_a_call_through_a_slice_of_functions_reaches_each_appended(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        _write(
+            root,
+            {"go.mod": "module example.com/mw\n\ngo 1.21\n", "main.go": MIDDLEWARE},
+        )
+        output = asyncio.run(TreeSitterTool(root).analyze("r", languages={"go"}))
+        edges = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[2],
+                r.properties["callee"],
+                r.properties["line"],
+                r.target_match["qualified_name"].split("::")[2],
+            )
+            for r in output.relationships
+            if r.type == "CALLS" and r.properties.get("rule_id") == GO_CALL_VTA
+        )
+        # never is not appended, so no call reaches it.
+        self.assertEqual(
+            edges,
+            [("Client.Do", "f", 9, "double"), ("Client.Do", "f", 9, "inc")],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,28 +10,46 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
-from collections import Counter
+from collections import Counter, defaultdict
+from dataclasses import replace
 import importlib.util
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from .. import ts_modules
+from ..gorm_naming import table_names as gorm_table_names
+from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
+    _owner_at,
+    drizzle_helper_name,
+    drizzle_spread_columns,
+    statement_columns,
     app_config_label,
     extract_ddl,
+    drizzle_foreign_keys,
+    extract_column_changes,
+    extract_schema_changes,
+    extract_foreign_keys,
+    is_rollback_migration,
+    migration_set,
+    replay_foreign_keys,
+    replay_tables,
     extract_entity_manager,
     extract_go_sql,
     go_sql_from_facts,
     GORM_MODULES,
     GoTableName,
     extract_gorm,
-    gorm_table_name,
+    django_app,
+    django_historical_model,
     extract_django,
     extract_drizzle,
     resolve_script_module,
@@ -41,7 +59,6 @@ from ..data_contracts import (
     extract_java_sql,
     extract_mybatis_xml,
     extract_prisma_client,
-    extract_prisma_schema,
     extract_python_sql,
     extract_script_sql,
     extract_ruby_models,
@@ -50,8 +67,14 @@ from ..data_contracts import (
     RAILS_ENGLISH,
     apply_rails_inflections,
     extract_sqlalchemy,
+    SESSION_METHOD_SYMBOL,
+    annotated_classes,
     sqlmodel_default_mappings,
     extract_typeorm,
+    extract_typeorm_calls,
+    typeorm_builder,
+    typeorm_call_entities,
+    _TYPEORM_WRITES,
     extract_sequelize,
     extract_mongodb_collections,
     extract_knex,
@@ -85,7 +108,9 @@ from ..data_contracts import (
 )
 from ..calls import name_bindings
 from ..engine import analyze_repository
+from ..prisma_schema import SchemaRead, read_schemas
 from ..scip_calls import ScipReferences
+from .. import deploy_facts
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser, parse_source
@@ -107,17 +132,76 @@ CONTAINS_RULE = register_rule(
         "The repository has this SQL file (or Prisma schema) at this path.",
     )
 )
+DDL_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-column",
+        "resolved",
+        "sqlglot parses the CREATE TABLE statement that declares this column, "
+        "or the ALTER TABLE ... ADD or RENAME COLUMN (MySQL CHANGE) that gives "
+        "it this name, and every ALTER TABLE of the table's migration set, "
+        "replayed in order: a column a later statement drops or renames is "
+        "left out.",
+    )
+)
+
+TABLE_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.table-has-column",
+        "resolved",
+        "The column belongs to the table in the replayed schema (see "
+        "data-contracts.sql-column).",
+    )
+)
+
 DDL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sql-create-table",
         "resolved",
         "The SQL file has a CREATE TABLE statement for this table (temporary "
-        "tables excluded). Tables are told apart by their case-insensitive "
+        "tables excluded), or the ALTER TABLE ... RENAME TO that gives an "
+        "earlier table this name; a table a later file of the same migration "
+        "set drops or renames, or that only a rollback (down) migration "
+        "creates, is left out. Tables are told apart by their case-insensitive "
         "name without schema and their namespace: the module's "
         "spring.datasource.url when its Spring configuration fixes one "
         "persistent database, else the one database that the Compose "
         "services building the file's deepest build context name in "
         "connection URLs, else the nearest package.",
+    )
+)
+SQL_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sql-foreign-key",
+        "resolved",
+        "A SQL file's CREATE TABLE or ALTER TABLE statement, parsed by "
+        "sqlglot, declares a foreign key of this table (a column's "
+        "REFERENCES constraint or a FOREIGN KEY constraint) to the referenced "
+        "table. Tables are told apart as data-contracts.sql-create-table "
+        "tells them apart.",
+    )
+)
+DRIZZLE_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-foreign-key",
+        "resolved",
+        "drizzle-kit's snapshot of the schema after the last migration of a "
+        "migrations folder (the last entry of meta/_journal.json) holds a "
+        "foreign key of this table to the referenced table. The folder's "
+        "SQL migrations are not read for keys, so a key a later migration "
+        "drops, or one added inside a DO block, follows the snapshot. When "
+        "that snapshot cannot be read, the migrations are read as any SQL "
+        "file (data-contracts.sql-foreign-key) and a drizzle_snapshot_unread "
+        "warning says so.",
+    )
+)
+PRISMA_FOREIGN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-foreign-key",
+        "resolved",
+        "Prisma's own schema engine reads a relation field with fields and "
+        "references (@relation(fields: [...], references: [...])) on this "
+        "table's model: the model's table holds a foreign key to the related "
+        "model's table. Implicit many-to-many join tables are not read.",
     )
 )
 TABLE_RULE = register_rule(
@@ -234,6 +318,42 @@ DRIZZLE_QUERY_RULE = register_rule(
         "Drizzle database.",
     )
 )
+DRIZZLE_COLUMN_READ_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-scip-column-read",
+        "resolved",
+        "A scip-typescript index resolves a property access (users.email, "
+        "or a selected row's email) to the property of a Drizzle table's "
+        "columns object, and that property's column (its builder's name "
+        "argument, else its key) is a column of the table "
+        "(data-contracts.sql-column).",
+    )
+)
+DRIZZLE_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-column-key",
+        "pattern_matched",
+        "A key of the object a Drizzle insert's values, an update's set or "
+        "onConflictDoUpdate's set writes, or of a relational query's "
+        "columns reads, on a call data-contracts.drizzle-scip resolves to "
+        "the table, names one of the table's column properties; Drizzle "
+        "types those objects by the column keys, which the index does not "
+        "record as references.",
+    )
+)
+DRIZZLE_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to drizzle-orm's "
+        "own query builder (from and the joins read, insert, update and "
+        "delete write, a relational query's findMany/findFirst reads) and "
+        "the written table name (the argument, the property of an imported "
+        "object or the db.query key) to the variable that holds a Drizzle "
+        "table (data-contracts.drizzle-table), through imports, re-exports "
+        "and export * as the index follows them.",
+    )
+)
 RAILS_SCHEMA_RULE = register_rule(
     EvidenceRule(
         "data-contracts.rails-schema-table",
@@ -327,13 +447,23 @@ DJANGO_M2M_RULE = register_rule(
 )
 DJANGO_ACCESS_RULE = register_rule(
     EvidenceRule(
-        "data-contracts.django-manager-call",
-        "pattern_matched",
+        "data-contracts.django-scip-manager-call",
+        "resolved",
         "The code calls Model.objects with a QuerySet method that reads "
         "(filter, get, all, count, ...) or writes (create, update, delete, "
-        "bulk_create, ...) somewhere in the chain, and Model is the one "
-        "Django model of the repository with that class name. Instance "
-        "save() and delete(), other managers and raw SQL are not read.",
+        "bulk_create, ...) somewhere in the chain, and a scip-python index "
+        "resolves the written Model to a Django model class. Instance save() "
+        "and delete(), other managers and raw SQL are not read.",
+    )
+)
+DJANGO_HISTORICAL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-historical-manager-call",
+        "pattern_matched",
+        "As django-scip-manager-call, but the scip-python index resolves the "
+        'written Model to a variable assigned get_model("label", "Model") '
+        "(a data migration's historical model): the model with that app label "
+        "and class name.",
     )
 )
 
@@ -420,6 +550,14 @@ SA_SCIP_RULES = {
             "model-query",
             "The code reads .query on a name a SCIP index resolves to a "
             "mapped class (Flask-SQLAlchemy's Model.query).",
+        ),
+        (
+            "instance",
+            "instance",
+            "A scip-python index resolves the called method to SQLAlchemy's "
+            "Session (or AsyncSession, scoped_session) add, delete or merge "
+            "(WRITES) or refresh (READS), and documents the type it infers "
+            "for the variable passed as a mapped class.",
         ),
         (
             "get",
@@ -543,6 +681,18 @@ SQL_RULES = {
     )
 }
 
+SQL_RULES["typeorm-sql"] = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-sql",
+        "resolved",
+        "A scip-typescript index resolves the call to TypeORM's query "
+        "method (Repository, EntityManager, DataSource, Connection or "
+        "QueryRunner), and the SQL it is passed (string literals, template "
+        "strings and + concatenation, the parts the code does not fix "
+        "dropped) names this table.",
+    )
+)
+
 GORM_TABLE_RULE = register_rule(
     EvidenceRule(
         "data-contracts.gorm-table-name",
@@ -558,10 +708,13 @@ GORM_DEFAULT_RULE = register_rule(
         "name_matched",
         "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
         "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
-        "without a TableName method, and this table is GORM's default name: "
-        "NamingStrategy's snake case of the type name, pluralized by "
-        "jinzhu/inflection 1.0.0 (UserModel is user_models). A repository "
-        "that configures a NamingStrategy gets no default names.",
+        "without a TableName method, and this table is GORM's default name "
+        "as GORM's own schema.NamingStrategy{}.TableName computes it, built "
+        "at the gorm.io/gorm and jinzhu/inflection versions the model's "
+        "module selects (UserModel is user_models). A repository that "
+        "configures a NamingStrategy gets no default names; a module whose "
+        "GORM cannot be built gets none either, with a gorm_naming_unread "
+        "warning.",
     )
 )
 GORM_CALL_RULE = register_rule(
@@ -592,8 +745,9 @@ PRISMA_MODEL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.prisma-model",
         "resolved",
-        "The Prisma schema declares a model for this table: its @@map name, "
-        "else the model name.",
+        "Prisma's own schema engine (the prisma-schema-wasm build the "
+        "project's Prisma pins) reads a model for this table from the "
+        "schema: its @@map name, else the model name.",
     )
 )
 PRISMA_CLIENT_RULE = register_rule(
@@ -621,8 +775,12 @@ TYPEORM_DEFAULT_RULE = register_rule(
         "data-contracts.typeorm-default-table-name",
         "name_matched",
         "The class is decorated with TypeORM's @Entity without a name; the "
-        "table is its DefaultNamingStrategy name, the snake case of the "
-        "class name. A custom naming strategy is not read.",
+        "table is the name TypeORM's own DefaultNamingStrategy.tableName "
+        "gives the class, run at the typeorm release the project pins "
+        "(installed, locked, else the newest release of the declared "
+        "range). A custom naming strategy is not read. An entity whose "
+        "release cannot be found or installed gets no table, with a "
+        "typeorm_naming_unread warning.",
     )
 )
 TYPEORM_CHILD_RULE = register_rule(
@@ -658,6 +816,22 @@ TYPEORM_WRAPPER_RULE = register_rule(
         "a TypeORM entity: the one such entity of the caller's namespace, "
         "else of the repository. Reads and writes follow the chained method "
         "as for data-contracts.typeorm-repository.",
+    )
+)
+
+TYPEORM_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to a read "
+        "(find, count and the like: READS) or write (save, update, delete "
+        "and the like: WRITES) method of TypeORM's Repository, "
+        "TreeRepository, MongoRepository or EntityManager, and the entity "
+        "class to a TypeORM entity: the receiver's declared type "
+        "Repository<E> (a property, parameter or variable, or this in a "
+        "class extending it), a TypeORM getRepository(E) call or a variable "
+        "holding one, or an entity manager method's first argument; every "
+        "name resolved through the index.",
     )
 )
 
@@ -970,6 +1144,8 @@ class DataContractTool(AnalysisTool):
             max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         scan = scan_components(root, include=include, exclude=exclude)
         packages = {c: c for c in scan.components if c.kind in PACKAGE_KINDS}
         cache = {}
@@ -980,20 +1156,17 @@ class DataContractTool(AnalysisTool):
         # Compose build contexts, and the databases each one's services name
         # in connection URLs.
         contexts, compose_keys = set(), {}
-        for manifest in sorted(
-            {c.manifest for c in scan.components if c.kind == "compose_service"}
+        contexts.update(
+            c.context
+            for c in scan.components
+            if c.kind == "compose_service" and c.context is not None
+        )
+        selected = {c.manifest for c in scan.components if c.kind == "compose_service"}
+        projects = deploy_facts.collect(root, skipped=SKIPPED_DIRECTORIES).compose
+        for context, key in compose_databases(
+            p for p in projects if p.file in selected
         ):
-            contexts.update(
-                c.context
-                for c in scan.components
-                if c.manifest == manifest and c.context is not None
-            )
-            try:
-                found = compose_databases(manifest, (root / manifest).read_bytes())
-            except OSError:
-                continue
-            for context, key in found or ():
-                compose_keys.setdefault(context, set()).add(key)
+            compose_keys.setdefault(context, set()).add(key)
 
         def compose_database(path):
             """The one database that the services of the deepest Compose build
@@ -1045,22 +1218,115 @@ class DataContractTool(AnalysisTool):
             if found:
                 digests[path] = sha256(content).hexdigest()
                 doctrine_mapped.extend(found)
+        prisma_texts = {}
+        foreign_keys, foreign_keys_unparsed = [], []
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
-            found = extract_prisma_schema(path, content)
-            if found is None:
+            try:
+                prisma_texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
                 unreadable.append(path)
-            else:
-                prisma.extend(found)
+        # Prisma's own schema engine, the build the project's Prisma pins.
+        prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
+        prisma.extend(prisma_read.models)
+        drizzle_folders, drizzle_keys, drizzle_unread = {}, [], []
+        foreign_keys_superseded = {"prisma": 0}
+
+        def prisma_migrations(path):
+            """Whether a SQL file is a migration of a Prisma schema the engine
+            read: <dir>/migrations/<name>/migration.sql beside the
+            migration_lock.toml Prisma Migrate writes, with a read schema
+            in <dir>. Prisma's schema is the current state, so its keys
+            stand for these migrations, including the ones later dropped."""
+            parts = path.split("/")
+            if len(parts) < 3 or parts[-3] != "migrations":
+                return False
+            base = "/".join(parts[:-3])
+            if not (root / base / "migrations" / "migration_lock.toml").is_file():
+                return False
+            prefix = f"{base}/" if base else ""
+            return any(f.startswith(prefix) for f in prisma_read.engines)
+
+        migration_sets, table_sets = defaultdict(list), defaultdict(list)
+        foreign_keys_dropped, foreign_key_drops_unmatched = 0, []
+        rollbacks, changes_of, ddl_read = [], {}, []
+        # (migration set, table or None for every table) of an ALTER TABLE
+        # no dialect parses: those tables' columns are not known.
+        columns_unknown, columns_unparsed = set(), []
+
+        def read_keys(path, content, folder=None):
+            """Queue a SQL file's foreign keys and drops for the replay of
+            its migration set (``folder`` when given)."""
+            keys, unparsed = extract_foreign_keys(path, content)
+            changes, changes_unparsed = changes_of[path]
+            migration_sets[folder or migration_set(path)].append((path, keys, changes))
+            foreign_keys_unparsed.extend(
+                (path, line) for line in sorted({*unparsed, *changes_unparsed})
+            )
+
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
             found = extract_ddl(path, content)
             if found is None:
                 unreadable.append(path)
+            elif is_rollback_migration(path):
+                # A rollback (down) migration is not part of the schema the
+                # migrations build: neither its tables nor its keys are read.
+                rollbacks.append(path)
+                ddl_read.extend(found)
             else:
-                ddl.extend(found)
+                ddl_read.extend(found)
+                changes_of[path] = extract_schema_changes(path, content)
+                column_changes, alters_unparsed = extract_column_changes(path, content)
+                folder = posixpath.dirname(path)
+                drizzle = (root / folder / "meta" / "_journal.json").is_file()
+                key = folder if drizzle else migration_set(path)
+                table_sets[key].append(
+                    (path, found, changes_of[path][0] + column_changes)
+                )
+                for line, altered in alters_unparsed:
+                    columns_unknown.add((key, altered))
+                    columns_unparsed.append((path, line))
+                if drizzle:
+                    # drizzle-kit's own record of the schema after the last
+                    # migration gives the keys (below), not each migration.
+                    drizzle_folders.setdefault(folder, []).append((path, content))
+                    continue
+                if prisma_migrations(path):
+                    foreign_keys_superseded["prisma"] += 1
+                    continue
+                read_keys(path, content)
+        for folder, migrations in sorted(drizzle_folders.items()):
+            snapshot, keys = drizzle_foreign_keys(root, folder)
+            if snapshot is not None:
+                drizzle_keys.extend(keys)
+                continue
+            # Without the last snapshot the state is unknown: each migration
+            # is replayed as any migration set is, and the warning says so.
+            drizzle_unread.append(keys)
+            for path, content in migrations:
+                read_keys(path, content, folder)
+        tables_dropped = tables_renamed = 0
+        for key, files in sorted(table_sets.items()):
+            tables, dropped, renamed = replay_tables(files)
+            if (key, None) in columns_unknown:
+                tables = [replace(t, columns_read=False) for t in tables]
+            tables = [
+                replace(t, columns_read=False)
+                if (key, t.name) in columns_unknown
+                else t
+                for t in tables
+            ]
+            ddl.extend(tables)
+            tables_dropped += dropped
+            tables_renamed += renamed
+        for _, files in sorted(migration_sets.items()):
+            keys, dropped, unmatched = replay_foreign_keys(files)
+            foreign_keys.extend(keys)
+            foreign_keys_dropped += dropped
+            foreign_key_drops_unmatched.extend(unmatched)
         sources, changed, partial_scripts = [], [], []
         for coverage in result.coverage:
             if (
@@ -1144,6 +1410,10 @@ class DataContractTool(AnalysisTool):
 
         definitions = {d.id: d for d in result.definitions}
         tables, nodes, relationships, symbols = {}, [], [], {}
+        column_nodes = {}
+        # {table qualified name: its columns}, for tables whose columns
+        # are all known.
+        table_columns = {}
 
         def table(path, name):
             key = (scope(path), name)
@@ -1184,13 +1454,13 @@ class DataContractTool(AnalysisTool):
                 )
             return [d.kind, "Symbol"], name
 
-        def link(kind, source, target, rule, extra):
+        def link(kind, source, target, rule, extra, labels=("DbTable", "Contract")):
             relationships.append(
                 RelationshipData(
                     kind,
                     source[0],
                     {"qualified_name": source[1], "repo_url": repo_url},
-                    ["DbTable", "Contract"],
+                    list(labels),
                     {"qualified_name": target, "repo_url": repo_url},
                     {**extra, **_evidence(rule)},
                 )
@@ -1198,7 +1468,9 @@ class DataContractTool(AnalysisTool):
 
         repository_name = f"{repo_url}::repository"
         for path in sorted(
-            {d.file for d in ddl}
+            {d.file for d in ddl_read}
+            | {d.file for d in ddl}
+            | {file for d in ddl if d.columns_read for _, file, _ in d.columns}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
             | {c.file for c in doctrine_mapped}
@@ -1240,6 +1512,83 @@ class DataContractTool(AnalysisTool):
                 DDL_RULE,
                 {"line": item.line, **({"schema": item.schema} if item.schema else {})},
             )
+            if not item.columns_read:
+                continue
+            owner = table(item.file, item.name)
+            tables[(scope(item.file), item.name)].properties["columns_read"] = True
+            table_columns.setdefault(owner, tuple(c for c, _, _ in item.columns))
+            for column, file, line in item.columns:
+                name = f"{owner}::column::{column}"
+                column_nodes.setdefault(
+                    name,
+                    NodeData(
+                        ["DbColumn", "Contract"],
+                        {
+                            "qualified_name": name,
+                            "repo_url": repo_url,
+                            "name": f"{item.name}.{column}",
+                            "display_name": f"{item.name}.{column}",
+                            "table": item.name,
+                            "column": column,
+                            "protocol": "sql",
+                            "scope": scope(item.file),
+                        },
+                    ),
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_COLUMN",
+                        ["DbTable", "Contract"],
+                        {"qualified_name": owner, "repo_url": repo_url},
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        _evidence(TABLE_COLUMN_RULE),
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "DECLARES",
+                        ["File"],
+                        {
+                            "qualified_name": f"{repo_url}::{file}::file",
+                            "repo_url": repo_url,
+                        },
+                        ["DbColumn", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {"line": line, **_evidence(DDL_COLUMN_RULE)},
+                    )
+                )
+
+        def foreign_key(file, line, owner, referenced, columns, to, on_delete, rule):
+            link(
+                "REFERENCES_TABLE",
+                (["DbTable", "Contract"], table(file, table_key(owner))),
+                table(file, table_key(referenced)),
+                rule,
+                {
+                    "file_path": file,
+                    "line": line,
+                    "columns": list(columns),
+                    "referenced_columns": list(to),
+                    **({"on_delete": on_delete} if on_delete else {}),
+                },
+            )
+
+        for keys, rule in (
+            (foreign_keys, SQL_FOREIGN_KEY_RULE),
+            (drizzle_keys, DRIZZLE_FOREIGN_KEY_RULE),
+        ):
+            for key in sorted(set(keys), key=lambda k: (k.file, k.line, k.table)):
+                foreign_key(
+                    key.file,
+                    key.line,
+                    key.table,
+                    key.references,
+                    key.columns,
+                    key.referenced_columns,
+                    key.on_delete,
+                    rule,
+                )
         mapped = {}
         for mapping in mappings:
             if len(entities.get(mapping.entity, ())) != 1:
@@ -1276,6 +1625,7 @@ class DataContractTool(AnalysisTool):
                         "column": repository.column,
                     },
                 )
+        references = ScipReferences(result, scip_indexes, root)
         # Django models, their tables and the manager calls that use them.
         labels = {}
         for file, content, tree in python_trees:
@@ -1290,7 +1640,7 @@ class DataContractTool(AnalysisTool):
             accesses.extend(found[1])
         model_tables, m2m = resolve_django(models, labels)
         by_id = {m.model_id: m for m in models}
-        django_targets = {}
+        django_by_model = {}
         for model_id, (name, how) in sorted(model_tables.items()):
             model = by_id[model_id]
             target = table(model.file, name)
@@ -1302,7 +1652,7 @@ class DataContractTool(AnalysisTool):
                     DJANGO_TABLE_RULE if how == "explicit" else DJANGO_DEFAULT_RULE,
                     {"line": model.line, "column": model.column},
                 )
-            django_targets.setdefault(model.name, []).append(target)
+            django_by_model[model_id] = target
         for model_id, field, name in m2m:
             model = by_id[model_id]
             link(
@@ -1336,13 +1686,48 @@ class DataContractTool(AnalysisTool):
                 )
             return ["File"], name
 
-        django_counts = {"linked": 0, "not_a_model": 0}
+        # A manager call's model is the class a scip-python index resolves
+        # its written name to; a file no index covers is not read.
+        django_trees = {file: (content, tree) for file, content, tree in python_trees}
+        django_by_label = {}
+        for model_id, target in django_by_model.items():
+            model = by_id[model_id]
+            label = model.app_label or django_app(model.file, labels)[1]
+            django_by_label.setdefault((label, model.name), set()).add(target)
+        django_counts = {
+            "linked_scip": 0,
+            "historical": 0,
+            "not_a_model": 0,
+            "scip_no_reference": 0,
+            "no_scip_index": 0,
+        }
+        django_unindexed = set()
         for access in accesses:
-            targets = django_targets.get(access.model, [])
+            declared = references.declarations(
+                access.file, access.line, access.column, access.model
+            )
+            if declared is None:
+                if references.covers(access.file):
+                    django_counts["scip_no_reference"] += 1
+                else:
+                    django_counts["no_scip_index"] += 1
+                    django_unindexed.add(access.file)
+                continue
+            targets = sorted(
+                {django_by_model[d.id] for d in declared if d.id in django_by_model},
+                key=str,
+            )
+            historical = None
+            if not targets:
+                historical = django_historical_model(
+                    references, django_trees, access.file, access.line, access.column
+                )
+                targets = sorted(django_by_label.get(historical, ()), key=str)
             if len(targets) != 1:
                 django_counts["not_a_model"] += 1
                 continue
-            django_counts["linked"] += 1
+            django_counts["historical" if historical else "linked_scip"] += 1
+            tool, receipt = references.tool(access.file)
             source = code(access.file, access.caller_id)
             for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
                 if used:
@@ -1350,19 +1735,21 @@ class DataContractTool(AnalysisTool):
                         kind,
                         source,
                         targets[0],
-                        DJANGO_ACCESS_RULE,
+                        DJANGO_HISTORICAL_RULE if historical else DJANGO_ACCESS_RULE,
                         {
                             "model": access.model,
                             "line": access.line,
                             "column": access.column,
+                            "indexer": tool,
+                            "receipt": receipt,
                         },
                     )
         # SQLAlchemy mapped classes, Table() declarations and their uses.
         # Where a SCIP index covers a file, a written model name links to the
         # class the index resolves it to; elsewhere to the one mapped class
         # of the repository with that name.
-        references = ScipReferences(result, scip_indexes, root)
         sa_mappings, sa_tables, sa_accesses, sa_classes = [], [], [], []
+        sa_trees = {file: (content, tree) for file, content, tree in python_trees}
         for file, content, tree in python_trees:
             found = extract_sqlalchemy(tree, content, file, result.definitions)
             sa_mappings.extend(found[0])
@@ -1397,8 +1784,69 @@ class DataContractTool(AnalysisTool):
             "linked_scip": 0,
             "not_a_mapped_class": 0,
             "scip_not_a_mapped_class": 0,
+            "instance_no_scip_index": 0,
+            "instance_method_unresolved": 0,
+            "instance_not_session": 0,
+            "instance_type_unknown": 0,
         }
         for access in sa_accesses:
+            if access.how == "instance":
+                called = references.symbols(
+                    access.file, access.method_line, access.method_column
+                )
+                if called is None:
+                    sa_counts["instance_no_scip_index"] += 1
+                    continue
+                if all(c.startswith("local ") for c in called):
+                    # The indexer resolved the method to nothing outside the
+                    # file: the session's package was not installed for it.
+                    sa_counts["instance_method_unresolved"] += 1
+                    continue
+                matches = [SESSION_METHOD_SYMBOL.fullmatch(c) for c in called]
+                if not any(
+                    m is not None and m.group(1) == access.method for m in matches
+                ):
+                    sa_counts["instance_not_session"] += 1
+                    continue
+                declared = references.value_classes(
+                    access.file, access.model_line, access.model_column
+                )
+                if declared is None:
+                    # A parameter or annotated variable: its declared type.
+                    declared = annotated_classes(
+                        references,
+                        sa_trees,
+                        access.file,
+                        access.model_line,
+                        access.model_column,
+                    )
+                if declared is None:
+                    sa_counts["instance_type_unknown"] += 1
+                    continue
+                targets = sorted(
+                    {sa_by_model[d.id] for d in declared if d.id in sa_by_model},
+                    key=str,
+                )
+                if len(targets) != 1:
+                    sa_counts["scip_not_a_mapped_class"] += 1
+                    continue
+                sa_counts["linked_scip"] += 1
+                tool, receipt = references.tool(access.file)
+                link(
+                    "WRITES" if access.writes else "READS",
+                    code(access.file, access.caller_id),
+                    targets[0],
+                    SA_SCIP_RULES["instance"],
+                    {
+                        "model": access.model,
+                        "method": access.method,
+                        "line": access.model_line,
+                        "column": access.model_column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                )
+                continue
             declared = references.declarations(
                 access.file, access.model_line, access.model_column, access.model
             )
@@ -1449,7 +1897,17 @@ class DataContractTool(AnalysisTool):
                 entity_tables.setdefault(mapping.entity_name, set()).add(
                     mapped.get(mapping.entity)
                 )
-        sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
+        sql_counts = {
+            "statements": 0,
+            "not_fixed": 0,
+            "unknown_entity": 0,
+            # Statements by reader: sqlglot, or the token reader for SQL with
+            # text the code does not fix and JPQL (tokens) or SQL sqlglot
+            # rejects in every dialect (tokens_not_parsed).
+            "sqlglot": 0,
+            "tokens": 0,
+            "tokens_not_parsed": 0,
+        }
         # Go: the type checker's facts. The tree-sitter rules read SQL calls
         # only in files it did not check and at calls it could not type, and
         # TableName literals in files importing a SQL package everywhere.
@@ -1505,14 +1963,58 @@ class DataContractTool(AnalysisTool):
             + [
                 item
                 for file, content, tree in script_trees
-                for item in extract_script_sql(tree, content, file, result.definitions)
+                for item in extract_script_sql(
+                    tree, content, file, result.definitions, references
+                )
             ]
         )
+        column_counts = Counter()
+
+        def statement_column_links(file, statement, source, rule, place):
+            """READS_COLUMN and WRITES_COLUMN edges of a statement whose
+            tables' columns are known, resolved by sqlglot's optimizer;
+            returns the tables every column reference of which resolved."""
+            schema = {}
+            for name in (*statement.reads, *statement.writes):
+                owner = table(file, name)
+                if owner in table_columns:
+                    schema[name] = table_columns[owner]
+            if not schema:
+                return frozenset()
+            found = statement_columns(statement, schema)
+            if found is None:
+                return frozenset()
+            uses, complete = found
+            column_counts["statements"] += 1
+            column_counts["tables_resolved"] += len(complete)
+            column_counts["tables_unresolved"] += len(set(schema) - complete)
+            for use in uses:
+                column_counts["uses"] += 1
+                link(
+                    "WRITES_COLUMN" if use.writes else "READS_COLUMN",
+                    source,
+                    f"{table(file, use.table)}::column::{use.column}",
+                    rule,
+                    dict(place),
+                    labels=("DbColumn", "Contract"),
+                )
+            return complete
+
         for item in uses:
             sql_counts["statements"] += 1
             if item.statement is None:
                 sql_counts["not_fixed"] += 1
                 continue
+            sql_counts[item.statement.reader] += 1
+            source = code(item.file, item.owner_id)
+            place = {"line": item.line, "column": item.column}
+            complete = (
+                ()
+                if item.jpql
+                else statement_column_links(
+                    item.file, item.statement, source, SQL_RULES[item.how], place
+                )
+            )
             for kind, names in (
                 ("READS", item.statement.reads),
                 ("WRITES", item.statement.writes),
@@ -1526,13 +2028,9 @@ class DataContractTool(AnalysisTool):
                         target, extra = next(iter(targets)), {"entity": name}
                     else:
                         target, extra = table(item.file, name), {}
-                    link(
-                        kind,
-                        code(item.file, item.owner_id),
-                        target,
-                        SQL_RULES[item.how],
-                        {**extra, "line": item.line, "column": item.column},
-                    )
+                        if name in complete:
+                            extra["columns_resolved"] = True
+                    link(kind, source, target, SQL_RULES[item.how], {**extra, **place})
         # MyBatis mapper XML: the namespace names the mapper interface.
         mapper_methods = {}
         for d in result.definitions:
@@ -1630,27 +2128,46 @@ class DataContractTool(AnalysisTool):
                 {"line": item.line, "column": item.column},
             )
         # A configured NamingStrategy changes every default name.
-        gorm_defaults = 0
+        gorm_defaults, pending = 0, {}
         for model in sorted(
             [] if gorm_naming else gorm_models,
             key=lambda m: (m.file, m.line, m.column),
         ):
             key = (model.file.rpartition("/")[0], model.type_name)
-            if key in gorm_targets:
+            if key in gorm_targets or key in pending:
                 continue
             declared = owner(model.file, model.type_name)
-            if declared is None:
+            if declared is not None:
+                pending[key] = (declared, model.type_name)
+        # GORM's own NamingStrategy at the version each module selects.
+        by_module = {}
+        for key, (declared, type_name) in pending.items():
+            module = facts.module_of(declared.file)
+            by_module.setdefault(module, []).append((key, declared, type_name))
+        gorm_naming_unread = {}
+        for module, models in sorted(by_module.items(), key=lambda m: m[0] or ""):
+            if module is None:
+                gorm_naming_unread["."] = (
+                    f"{len(models)} models outside every Go module"
+                )
                 continue
-            gorm_defaults += 1
-            target = table(declared.file, gorm_table_name(model.type_name))
-            gorm_targets[key] = target
-            link(
-                "MAPS_TO",
-                symbol(declared.id),
-                target,
-                GORM_DEFAULT_RULE,
-                {"line": declared.line, "column": declared.column},
+            names, reason = gorm_table_names(
+                root, module, [type_name for _, _, type_name in models]
             )
+            if reason is not None:
+                gorm_naming_unread[module or "."] = reason
+                continue
+            for key, declared, type_name in models:
+                gorm_defaults += 1
+                target = table(declared.file, table_key(names[type_name]))
+                gorm_targets[key] = target
+                link(
+                    "MAPS_TO",
+                    symbol(declared.id),
+                    target,
+                    GORM_DEFAULT_RULE,
+                    {"line": declared.line, "column": declared.column},
+                )
         modules = sorted(
             (
                 (c.name, c.manifest.rpartition("/")[0])
@@ -1707,12 +2224,34 @@ class DataContractTool(AnalysisTool):
                 PRISMA_MODEL_RULE,
                 {"line": model.line, "model": model.model},
             )
+            for referenced, columns, to, on_delete in model.foreign_keys:
+                foreign_key(
+                    model.file,
+                    model.line,
+                    model.table,
+                    referenced,
+                    columns,
+                    to,
+                    on_delete,
+                    PRISMA_FOREIGN_KEY_RULE,
+                )
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
+        # A caller whose own namespace has a schema the engine did not read
+        # is not linked to another namespace's model of the same name.
+        unread_scopes = {scope(path) for path in prisma_read.unread}
+        if unread_scopes:
+            orm_counts["prisma_schema_unread"] = 0
         for file, content, tree in script_trees:
             for use in extract_prisma_client(
                 tree, content, file, result.definitions, set(prisma_targets)
             ):
-                targets = _nearest(prisma_targets[use.model], scope(use.file))
+                use_scope = scope(use.file)
+                if use_scope in unread_scopes and all(
+                    s != use_scope for s, _ in prisma_targets[use.model]
+                ):
+                    orm_counts["prisma_schema_unread"] += 1
+                    continue
+                targets = _nearest(prisma_targets[use.model], use_scope)
                 if len(targets) != 1:
                     orm_counts["prisma_ambiguous"] += 1
                     continue
@@ -1737,9 +2276,23 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
-        typeorm_targets = {}
+        # An @Entity without a name: TypeORM's DefaultNamingStrategy at the
+        # release the project pins.
+        typeorm_names, typeorm_naming_unread = typeorm_table_names(
+            root,
+            sorted({(m.file, m.name) for m in typeorm_mappings if m.table is None}),
+        )
+        typeorm_mappings = [
+            m
+            if m.table is not None
+            else replace(m, table=table_key(typeorm_names[m.file, m.name]))
+            for m in typeorm_mappings
+            if m.table is not None or (m.file, m.name) in typeorm_names
+        ]
+        typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
+            typeorm_by_model[mapping.model_id] = target
             typeorm_targets.setdefault(mapping.name, set()).add(
                 (scope(mapping.file), target)
             )
@@ -1766,6 +2319,7 @@ class DataContractTool(AnalysisTool):
                 typeorm_targets.setdefault(child.name, set()).add(
                     (scope(child.file), target)
                 )
+                typeorm_by_model[child.model_id] = target
                 link(
                     "MAPS_TO",
                     symbol(child.model_id),
@@ -1784,7 +2338,24 @@ class DataContractTool(AnalysisTool):
         # A wrapper call names no entity more often than not: count those
         # apart so the TypeORM API's own misses stay visible.
         orm_counts.update(typeorm_wrapper_not_an_entity=0)
+        # In files a scip-typescript index covers, TypeORM's own repository
+        # and entity manager calls are read through the index (below), and
+        # the decorator-level name rule is not used.
+        # Where the index records no symbol, or only a local one, at the
+        # getRepository or InjectRepository name, it could not type the call
+        # (its imports did not resolve, as in a package importing its own
+        # unbuilt dist): the index read nothing there, and the run counts
+        # it (typeorm_index_unresolved).
+        orm_counts.update(typeorm_name_rule_replaced=0, typeorm_index_unresolved=0)
         for use in typeorm_uses:
+            if not use.wrapper and references.covers(use.file):
+                called = references.symbols(
+                    use.file, use.callee_line, use.callee_column
+                )
+                if any(not c.startswith("local ") for c in called or ()):
+                    orm_counts["typeorm_name_rule_replaced"] += 1
+                    continue
+                orm_counts["typeorm_index_unresolved"] += 1
             targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
             if len(targets) != 1:
                 orm_counts[
@@ -1804,6 +2375,87 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_WRAPPER_RULE if use.wrapper else TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        typeorm_scip_counts = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "not_typeorm": 0,
+            "entity_unknown": 0,
+            "not_an_entity": 0,
+            "builders": 0,
+            "relation_builders": 0,
+        }
+        if typeorm_mappings or typeorm_children:
+            ts_trees = {file: (content, tree) for file, content, tree in script_trees}
+            for file, content, tree in script_trees:
+                for call in extract_typeorm_calls(
+                    tree, content, file, result.definitions
+                ):
+                    if call.method == "createQueryBuilder":
+                        status, builder = typeorm_builder(references, ts_trees, call)
+                        if status != "resolved":
+                            typeorm_scip_counts[status] += 1
+                            continue
+                        if builder.table is not None:
+                            targets = [table(call.file, table_key(builder.table))]
+                        else:
+                            targets = sorted(
+                                {
+                                    typeorm_by_model[e.id]
+                                    for e in builder.entities
+                                    if e.id in typeorm_by_model
+                                },
+                                key=str,
+                            )
+                        if len(targets) != 1:
+                            typeorm_scip_counts["not_an_entity"] += 1
+                            continue
+                        typeorm_scip_counts["linked"] += 1
+                        typeorm_scip_counts["builders"] += 1
+                        tool, receipt = references.tool(call.file)
+                        link(
+                            "WRITES" if builder.writes else "READS",
+                            code(call.file, call.caller_id),
+                            targets[0],
+                            TYPEORM_SCIP_RULE,
+                            {
+                                "method": call.method,
+                                "line": call.line,
+                                "column": call.column,
+                                "indexer": tool,
+                                "receipt": receipt,
+                            },
+                        )
+                        continue
+                    status, entities = typeorm_call_entities(references, ts_trees, call)
+                    if status != "resolved":
+                        typeorm_scip_counts[status] += 1
+                        continue
+                    targets = sorted(
+                        {
+                            typeorm_by_model[e.id]
+                            for e in entities
+                            if e.id in typeorm_by_model
+                        },
+                        key=str,
+                    )
+                    if len(targets) != 1:
+                        typeorm_scip_counts["not_an_entity"] += 1
+                        continue
+                    typeorm_scip_counts["linked"] += 1
+                    tool, receipt = references.tool(call.file)
+                    link(
+                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        code(call.file, call.caller_id),
+                        targets[0],
+                        TYPEORM_SCIP_RULE,
+                        {
+                            "method": call.method,
+                            "line": call.line,
+                            "column": call.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                    )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
         for path in _sql_files(root, include, exclude, ".json"):
@@ -2456,8 +3108,240 @@ class DataContractTool(AnalysisTool):
                 found |= exported_table(resolve_import(file, source), name, seen)
             return found - {"?"} if found - {"?"} else found
 
-        drizzle_access = {"linked": 0, "not_a_table": 0}
+        # In files a scip-typescript index covers, a use is read through the
+        # index: its method must resolve to drizzle-orm and its table name to
+        # a table variable's definition. The name rule below runs only where
+        # the index records no symbol, or only a local one, at the method
+        # (it could not type the call: drizzle_scip index_unresolved).
+        table_at = {
+            (item.file, item.line, item.column): table(file, item.table)
+            for file, variables in drizzle_tables.items()
+            for items in variables.values()
+            for item in items
+            if item.table != PLACEHOLDER
+        }
+        # The column each property of a table's columns object maps to, by
+        # where its key is written, and each table's columns by key.
+        keys_at = {}
+        drizzle_columns = Counter()
+        parsed_scripts = {file: (content, tree) for file, content, tree in script_trees}
+
+        def helper_name(file, callee):
+            """The name a helper builder function gives its column, where
+            the index resolves the call to its declaration."""
+            names = set()
+            for site_file, line, column in (
+                references.definition_sites(file, *callee) or ()
+            ):
+                if site_file in parsed_scripts:
+                    content, tree = parsed_scripts[site_file]
+                    names.add(drizzle_helper_name(tree, content, line, column))
+            return next(iter(names)) if len(names) == 1 else None
+
+        # (file, line, column) of a column key -> {table: column}: a key
+        # of a shared object spread into several tables maps one column of
+        # each.
+        shared = defaultdict(dict)
+
+        def spread_columns(file, spreads):
+            """(columns as (file, key, written, line, column, callee),
+            complete) of the objects ``spreads`` name, through the index."""
+            found, complete, pending, seen = (
+                [],
+                True,
+                [(file, s) for s in spreads],
+                set(),
+            )
+            while pending:
+                at_file, (line, column) = pending.pop()
+                sites = references.definition_sites(at_file, line, column) or ()
+                read = False
+                for site in sites:
+                    if site in seen or site[0] not in parsed_scripts:
+                        continue
+                    seen.add(site)
+                    content, tree = parsed_scripts[site[0]]
+                    columns, whole, more = drizzle_spread_columns(
+                        tree, content, site[1], site[2]
+                    )
+                    if not columns and not more:
+                        continue
+                    read = True
+                    complete = complete and whole
+                    found.extend((site[0], *c) for c in columns)
+                    pending.extend((site[0], m) for m in more)
+                complete = complete and read
+            return found, complete
+
+        for file, variables in drizzle_tables.items():
+            for items in variables.values():
+                for item in items:
+                    if item.table == PLACEHOLDER:
+                        continue
+                    owner = table(file, item.table)
+                    known = table_columns.get(owner)
+                    spread, spread_whole = spread_columns(file, item.spreads)
+                    entries = [(file, *c) for c in item.columns] + spread
+                    if item.spreads:
+                        drizzle_columns["spread_columns"] += len(spread)
+                    by_key = {}
+                    for at, key, written, line, column, callee in entries:
+                        if written is None and callee is not None:
+                            written = helper_name(at, callee)
+                            if written is not None:
+                                drizzle_columns["helper_names"] += 1
+                        name = written if written is not None else key
+                        if known is None:
+                            drizzle_columns["table_columns_unknown"] += 1
+                            continue
+                        if name not in known:
+                            # Named another way (a casing option, a
+                            # column the migrations do not create).
+                            drizzle_columns["not_a_table_column"] += 1
+                            continue
+                        drizzle_columns["columns"] += 1
+                        target = f"{owner}::column::{name}"
+                        shared[(at, line, column)][owner] = target
+                        by_key[key] = target
+                    keys_at[(item.file, item.line, item.column)] = (
+                        by_key,
+                        item.columns_complete
+                        and spread_whole
+                        and known is not None
+                        and len(by_key) == len(entries),
+                    )
+        column_at = dict(shared)
+        drizzle_scip = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "index_unresolved": 0,
+            "not_drizzle": 0,
+            "not_a_table": 0,
+        }
+        by_name_rule = []
         for use in drizzle_uses:
+            called = references.symbols(use.file, use.line, use.column)
+            if called is None:
+                drizzle_scip["no_scip_index"] += 1
+                by_name_rule.append(use)
+                continue
+            if all(c.startswith("local ") for c in called):
+                drizzle_scip["index_unresolved"] += 1
+                by_name_rule.append(use)
+                continue
+            if not any(" npm drizzle-orm " in c for c in called):
+                drizzle_scip["not_drizzle"] += 1
+                continue
+            sites = references.definition_sites(use.file, use.ref_line, use.ref_column)
+            targets = {table_at[s] for s in sites if s in table_at}
+            if len(targets) != 1:
+                drizzle_scip["not_a_table"] += 1
+                continue
+            drizzle_scip["linked"] += 1
+            tool, receipt = references.tool(use.file)
+            site = next((s for s in sites if s in table_at), None)
+            by_key, whole = keys_at.get(site, ({}, False))
+            place = {"line": use.line, "column": use.column}
+            resolved = whole and use.keys_complete
+            for key, line, column in use.keys:
+                target = by_key.get(key)
+                if target is None:
+                    resolved = False
+                    drizzle_columns["key_not_a_column"] += 1
+                    continue
+                drizzle_columns["keys"] += 1
+                link(
+                    "WRITES_COLUMN" if use.writes else "READS_COLUMN",
+                    code(use.file, use.caller_id),
+                    target,
+                    DRIZZLE_COLUMN_KEY_RULE,
+                    {"key": key, "line": line, "column": column},
+                    labels=("DbColumn", "Contract"),
+                )
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        code(use.file, use.caller_id),
+                        next(iter(targets)),
+                        DRIZZLE_SCIP_RULE,
+                        {
+                            "variable": use.ref.name,
+                            **place,
+                            "indexer": tool,
+                            "receipt": receipt,
+                            **({"columns_resolved": True} if resolved else {}),
+                        },
+                    )
+        # Reads of a column property, wherever the index resolves one: the
+        # table's own property (users.email) or a selected row's.
+        unattributed = set()
+
+        def receiver_table(file, line, column):
+            """The table whose variable the object of the property access at
+            (line, column) of ``file`` resolves to, or None."""
+            if file not in parsed_scripts:
+                return None
+            _, tree = parsed_scripts[file]
+            node = tree.root_node.descendant_for_point_range(
+                (line - 1, column), (line - 1, column)
+            )
+            access = node.parent if node is not None else None
+            if access is None or access.type != "member_expression":
+                return None
+            target = access.child_by_field_name("object")
+            if target is None or target.type not in ("identifier", "member_expression"):
+                return None
+            if target.type == "member_expression":
+                target = target.child_by_field_name("property")
+            sites = (
+                references.definition_sites(
+                    file, target.start_point.row + 1, target.start_point.column
+                )
+                or ()
+            )
+            owners_found = {table_at[s] for s in sites if s in table_at}
+            return next(iter(owners_found)) if len(owners_found) == 1 else None
+
+        if column_at:
+            owners = defaultdict(list)
+            for d in result.definitions:
+                owners[d.file].append(d)
+            for file, line, column, site in references.references_to(column_at):
+                holders = column_at[site]
+                if len(holders) == 1:
+                    target = next(iter(holders.values()))
+                else:
+                    # A key shared by several tables' columns: the table is
+                    # the receiver's (``agentCronJobs.updatedAt``).
+                    target = holders.get(receiver_table(file, line, column))
+                if target is None:
+                    # A row's shared property: its table is not known, so
+                    # the column's readers are not all known either.
+                    drizzle_columns["reads_unattributed"] += 1
+                    for unknown in holders.values():
+                        unattributed.add(unknown)
+                    continue
+                drizzle_columns["reads"] += 1
+                tool, receipt = references.tool(file)
+                link(
+                    "READS_COLUMN",
+                    code(file, _owner_at(owners[file], file, line, column)),
+                    target,
+                    DRIZZLE_COLUMN_READ_RULE,
+                    {
+                        "line": line,
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+        for name in unattributed:
+            if name in column_nodes:
+                column_nodes[name].properties["reads_unattributed"] = True
+        drizzle_access = {"linked": 0, "not_a_table": 0}
+        for use in by_name_rule:
             ref = use.ref
             if ref.how == "local":
                 targets = exported_table(use.file, ref.name)
@@ -2567,17 +3451,54 @@ class DataContractTool(AnalysisTool):
             + files
             + sorted(symbols.values(), key=lambda n: n.properties["qualified_name"])
             + sorted(tables.values(), key=lambda n: n.properties["qualified_name"])
+            + [column_nodes[name] for name in sorted(column_nodes)]
         )
         status = (
             "partial"
-            if unreadable or kysely_unindexed or result.status != "succeeded"
+            if unreadable
+            or kysely_unindexed
+            or gorm_naming_unread
+            or typeorm_naming_unread
+            or django_unindexed
+            or prisma_read.unread
+            or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"gorm_naming_unread: {module}: {reason}, so its models without a "
+            "TableName method get no table"
+            for module, reason in sorted(gorm_naming_unread.items())
+        ]
+        warnings += [
+            f"typeorm_naming_unread: {path}: {reason}, so its @Entity classes "
+            "without a name get no table"
+            for path, reason in sorted(typeorm_naming_unread.items())
+        ]
+        warnings += [
+            f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
+            "this statement, so its foreign keys are not read"
+            for path, line in sorted(foreign_keys_unparsed)
+        ]
+        warnings += [
+            f"drizzle_snapshot_unread: {reason}, so the foreign keys of each "
+            "migration are read instead, including keys later migrations drop"
+            for reason in drizzle_unread
+        ]
+        warnings += [
+            f"prisma_schema_unread: {path}: {reason}"
+            for path, reason in sorted(prisma_read.unread.items())
+        ]
         if kysely_unindexed:
             warnings.append(
                 f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
                 "have no scip-typescript index, so their Kysely queries are not "
+                "read; run deepthought index-scip and pass the index"
+            )
+        if django_unindexed:
+            warnings.append(
+                f"no_scip_index: {len(django_unindexed)} files calling Django "
+                "managers have no scip-python index, so their queries are not "
                 "read; run deepthought index-scip and pass the index"
             )
         # A limit stops the source walk: the files after it are unread, so
@@ -2615,7 +3536,17 @@ class DataContractTool(AnalysisTool):
                     "model_tokens": 0,
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
-                    "ddl_statements": len(ddl),
+                    "ddl_statements": len(ddl_read),
+                    "ddl_tables_dropped": tables_dropped,
+                    "ddl_tables_renamed": tables_renamed,
+                    "ddl_columns": sum(
+                        len(d.columns) for d in set(ddl) if d.columns_read
+                    ),
+                    "ddl_tables_columns_unknown": sum(
+                        1 for d in set(ddl) if not d.columns_read
+                    ),
+                    "ddl_alter_unparsed": len(columns_unparsed),
+                    "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),
@@ -2626,27 +3557,58 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
                     "sql_text": sql_counts,
+                    "sql_columns": dict(column_counts),
                     "mybatis_mapper_statements": mybatis_counts,
                     "entity_manager_resolution": entity_counts,
                     "go_type_facts": {
                         "modules": dict(Counter(facts.modules.values())),
                         "toolchains": dict(Counter(facts.toolchains.values())),
+                        "downloads": dict(
+                            Counter(
+                                s.partition(":")[0] for s in facts.downloads.values()
+                            )
+                        ),
                         "files_checked": len(facts.checked) - len(facts.partial),
                         "files_partly_checked": len(facts.partial),
                         "files_not_checked": dict(Counter(facts.uncovered.values())),
                         "calls": len(facts.calls),
                         "table_names": len(facts.table_names),
+                        **(
+                            {"gopath_packages": gofacts.gopath_report(facts)}
+                            if facts.gopath
+                            else {}
+                        ),
                     },
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,
+                    "gorm_naming_unread": len(gorm_naming_unread),
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
+                    "foreign_keys": {
+                        "sql": len(set(foreign_keys)),
+                        "prisma": sum(len(m.foreign_keys) for m in prisma),
+                        "sql_not_parsed": len(foreign_keys_unparsed),
+                        "sql_dropped": foreign_keys_dropped,
+                        "sql_drops_naming_no_key": len(foreign_key_drops_unmatched),
+                        "sql_rollback_files": len(rollbacks),
+                        "drizzle_snapshot": len(set(drizzle_keys)),
+                        "drizzle_snapshot_unread": len(drizzle_unread),
+                        "prisma_migration_files_superseded": foreign_keys_superseded[
+                            "prisma"
+                        ],
+                    },
+                    "prisma_schema": {
+                        "engines": dict(sorted(prisma_read.engines.items())),
+                        "unread": len(prisma_read.unread),
+                    },
                     "typeorm_entities": len(typeorm_mappings),
+                    "typeorm_naming_unread": len(typeorm_naming_unread),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,
                     "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
+                    "typeorm_scip": typeorm_scip_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
@@ -2668,6 +3630,8 @@ class DataContractTool(AnalysisTool):
                     "eloquent_access_resolution": eloquent_counts,
                     "drizzle_tables": drizzle_counts,
                     "drizzle_access_resolution": drizzle_access,
+                    "drizzle_scip": drizzle_scip,
+                    "drizzle_columns": dict(drizzle_columns),
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

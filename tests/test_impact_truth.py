@@ -286,6 +286,67 @@ class NestedFunctionTests(unittest.TestCase):
         self.assertEqual((plain["confirmed"], plain["extra"]), (1, 1))
         self.assertEqual((folded["confirmed"], folded["extra"]), (1, 0))
 
+    def test_test_cases_are_judged_where_the_oracle_can_rule(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "a.ts").write_text("export function base() {\n  return 1\n}\n", "utf-8")
+        (repo / "a.test.ts").write_text(
+            "import { base } from './a'\n"
+            "describe('suite', () => {\n"
+            "  const helper = () => base()\n"
+            "  it('uses helper', () => {\n"
+            "    helper()\n"
+            "  })\n"
+            "  it.each([[() => base()]])('row %#', (f) => {\n"
+            "    f()\n"
+            "  })\n"
+            "})\n"
+            "describe('wrapped', () => {\n"
+            "  wrap(() => base())\n"
+            "})\n",
+            "utf-8",
+        )
+        from deepthought.ts_modules import with_compiler_modules
+
+        # TypeScript imports are the compiler's.
+        result = with_compiler_modules(
+            deepthought.analyze_repository(
+                repo, repository_id="t", languages=("typescript",)
+            ),
+            repo,
+        )
+        # The oracle labels test cases by their call (`it.each(rows)("x")`)
+        # and keeps the callback inside describe("wrapped") as its own node.
+        nodes = {
+            ("a.ts", 1): "base",
+            ("a.test.ts", 2): 'describe("suite")',
+            ("a.test.ts", 4): 'it("uses helper")',
+            ("a.test.ts", 7): 'it.each([[()=>base()]])("row %#")',
+            ("a.test.ts", 11): 'describe("wrapped")',
+            ("a.test.ts", 12): "wrap(…)",
+        }
+        truth = {
+            ("a.ts", 1, "base"): {
+                ("a.ts", 1, "base"): 0,
+                ("a.test.ts", 2, 'describe("suite")'): 1,
+                ("a.test.ts", 12, "wrap(…)"): 1,
+            }
+        }
+        report, samples = impact_truth.score(
+            result, truth, fold_nested=True, nodes=nodes
+        )
+        # describe("suite") matches by line; the it reached only through
+        # the local helper, the it.each reached only through its rows and
+        # describe("wrapped") around an oracle dependent are unjudged.
+        self.assertEqual(
+            (report["confirmed"], report["extra"], report["unjudged"]), (1, 0, 3)
+        )
+        self.assertEqual(
+            samples["missed"], [["a.ts", 1, "a.test.ts", 12, "wrap(…)", 1]]
+        )
+
 
 class FunctionValueTests(unittest.TestCase):
     def test_initializers_that_hold_a_function(self):
@@ -310,6 +371,24 @@ class FunctionValueTests(unittest.TestCase):
         self.assertEqual(
             impact_truth._TERM.search("src/`c.ts`/C#fetch.").group(1), "fetch"
         )
+
+    def test_span_of_a_function_value_without_an_index_range(self):
+        # scip-typescript gives a class field holding an arrow function no
+        # enclosing range; the oracle reads the initializer's extent.
+        def lines(text):
+            return impact_truth.initializer_lines(text)
+
+        self.assertEqual(lines(" = async (\n  a?: X,\n) => {\n  f(a < b)\n}\nx = 1"), 4)
+        self.assertEqual(lines(" = (a) => a + 1\nnext = 2"), 0)
+        self.assertEqual(lines(" = function (x) {\n  return '}'\n}"), 2)
+        self.assertEqual(lines(": Map<A, B> = (h: H): Hono<E, S> => {\n  // }\n}\n"), 2)
+        self.assertEqual(
+            lines(" = <T extends R = 302>(\n  l: string,\n): T<u, T> => {\n}"), 3
+        )
+        # Not function values: a call, an IIFE, a field with no initializer.
+        self.assertIsNone(lines(" = f(1, () => 2)"))
+        self.assertIsNone(lines(" = (() => {\n  return 1\n})()"))
+        self.assertIsNone(lines(": string\n  b = () => 1"))
 
 
 if __name__ == "__main__":

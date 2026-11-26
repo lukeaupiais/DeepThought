@@ -11,12 +11,14 @@ from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from typescript_ready import needs_typescript
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -92,6 +94,36 @@ class GroundTruthTest(unittest.TestCase):
         truth = ({("a.ts", 3, "run"): {("a.ts", 2, "callable")}}, {"a.ts"})
         report, _ = ground_truth.score(result, truth)
         self.assertEqual((report["confirmed"], report["missed"]), (1, 0))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_typescript")
+        and (
+            os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT")
+            or shutil.which("scip-typescript")
+        ),
+        "The TypeScript grammar and the pinned scip-typescript",
+    )
+    def test_a_call_bound_to_a_declaration_file_is_judged_apart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "t.d.ts").write_text("export declare function f(): void;\n")
+            Path(directory, "a.ts").write_text("import { f } from './t';\nf();\n")
+            result = ground_truth.analyze(Path(directory), ("typescript",))
+        # Where the oracle names no call, the declaration is no claim about
+        # what runs, and it is never confirmed, even where the oracle names it.
+        for expected in ({}, {("a.ts", 2, "f"): {("t.d.ts", 1, "callable")}}):
+            report, _ = ground_truth.score(result, (expected, {"a.ts"}))
+            self.assertEqual(
+                (
+                    report["confirmed"],
+                    report["contradicted"],
+                    report["declaration_file"],
+                ),
+                (0, 0, 1),
+            )
+        # A link the oracle names other targets for is contradicted.
+        truth = ({("a.ts", 2, "f"): {("lib.js", 1, "callable")}}, {"a.ts"})
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual((report["confirmed"], report["contradicted"]), (0, 1))
 
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}
@@ -492,7 +524,7 @@ class ImportTruthTests(unittest.TestCase):
     def test_score_imports(self):
         truth = ground_truth.derive_imports(self.root, self.index, "python")
         result = ground_truth.analyze(self.root, ["python"])
-        report, samples = ground_truth.score_imports(result, truth)
+        report, samples = ground_truth.score_imports(result, truth, self.root)
         self.assertEqual(report["expected"], 2)
         self.assertEqual(report["contradicted"], 0)
         self.assertEqual(report["recall"], 1.0)
@@ -503,9 +535,35 @@ class ImportTruthTests(unittest.TestCase):
             {**truth[0], ("pkg/a.py", 1, "import"): {("pkg/__init__.py", 0, "module")}},
             truth[1],
         )
-        report, samples = ground_truth.score_imports(result, wrong)
+        report, samples = ground_truth.score_imports(result, wrong, self.root)
         self.assertEqual(report["contradicted"], 1)
         self.assertEqual(samples["missed"], [["pkg/a.py", 1]])
+
+
+class ScriptImportScoreTests(unittest.TestCase):
+    def test_script_imports_are_scored_as_the_compiler_resolves_them(self):
+        from deepthought.ts_modules import TypeScriptUnavailable, locate_typescript
+
+        try:
+            locate_typescript()
+        except TypeScriptUnavailable:
+            self.skipTest("Install node and the pinned scip-typescript")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.js").write_text('import { f } from "./lib";\nf();\n')
+            (root / "lib.d.ts").write_text("export declare function f(): void;\n")
+            (root / "lib.js").write_text("export function f() {}\n")
+            result = ground_truth.analyze(root, ["javascript", "typescript"])
+            indexed = {"a.js", "lib.d.ts", "lib.js"}
+            # The compiler takes the declaration file; the .js beside it is
+            # what a JavaScript resolver would take.
+            for target, confirmed in (("lib.d.ts", 1), ("lib.js", 0)):
+                truth = ({("a.js", 1, "import"): {(target, 0, "module")}}, indexed)
+                report, _ = ground_truth.score_imports(result, truth, root)
+                self.assertEqual(
+                    (report["confirmed"], report["contradicted"]),
+                    (confirmed, 1 - confirmed),
+                )
 
 
 class CorpusFilesTest(unittest.TestCase):
@@ -580,6 +638,58 @@ class RequirementTests(unittest.TestCase):
                 ["tree_sitter_python"],
             )
 
+    def test_missing_indexer_of_a_scip_table_corpus_is_reported(self):
+        from unittest import mock
+
+        manifest = {
+            "corpora": [],
+            "tables": [
+                {"name": "orm", "language": "python-orm"},
+                {"name": "rails", "language": "ruby"},
+            ],
+        }
+        with (
+            mock.patch("importlib.util.find_spec", return_value=object()),
+            mock.patch("deepthought.indexers.locate", return_value=None),
+        ):
+            missing = ground_truth.missing_requirements(manifest)
+            self.assertEqual(len(missing), 1)
+            self.assertTrue(missing[0].startswith("scip-python "), missing)
+            self.assertEqual(ground_truth.missing_requirements(manifest, {"rails"}), [])
+
+    def test_only_scip_table_corpora_are_indexed(self):
+        # No indexer runs for a corpus whose rules read no SCIP index, or
+        # without a cache to build the indexes in.
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "ruby"}, "/w", "/cache"), ()
+        )
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "python-orm"}, "/w", None), ()
+        )
+
+    def test_missing_indexer_of_a_calls_corpus_is_reported_with_scip(self):
+        from unittest import mock
+
+        manifest = {
+            "corpora": [
+                {"name": "go", "languages": ["go"]},
+                {"name": "rust", "languages": ["rust"]},
+            ]
+        }
+        with (
+            mock.patch("importlib.util.find_spec", return_value=object()),
+            mock.patch("deepthought.indexers.locate", return_value=None),
+        ):
+            # Without --scip the parser alone is scored: no indexer needed.
+            self.assertEqual(ground_truth.missing_requirements(manifest), [])
+            missing = ground_truth.missing_requirements(manifest, scip=True)
+            self.assertEqual(len(missing), 1)
+            self.assertTrue(missing[0].startswith("scip-go "), missing)
+            # A language the engine indexes with no SCIP indexer needs none.
+            self.assertEqual(
+                ground_truth.missing_requirements(manifest, {"rust"}, scip=True), []
+            )
+
     def test_check_refuses_to_score_without_them(self):
         from unittest import mock
 
@@ -591,6 +701,31 @@ class RequirementTests(unittest.TestCase):
         ):
             self.assertEqual(ground_truth.main(["check", "--corpus", "click"]), 2)
         self.assertIn("not installed: yaml", stderr.getvalue())
+
+
+class ScipRegressionTests(unittest.TestCase):
+    def test_scip_calls_and_their_impact_are_compared(self):
+        base = {
+            "expected": 3,
+            "confirmed": 3,
+            "contradicted": 0,
+            "impact": {"seeds": 1, "expected": 2, "confirmed": 2, "extra": 0},
+        }
+        worse = {
+            "expected": 3,
+            "confirmed": 2,
+            "contradicted": 1,
+            "impact": {"seeds": 1, "expected": 2, "confirmed": 1, "extra": 0},
+        }
+        self.assertEqual(ground_truth.scip_regressions(base, base), [])
+        self.assertEqual(
+            ground_truth.scip_regressions(worse, base),
+            [
+                "contradicted 0 -> 1",
+                "confirmed 3 -> 2",
+                "impact: confirmed 2 -> 1",
+            ],
+        )
 
 
 class DeclarationRegressionTests(unittest.TestCase):
@@ -631,6 +766,7 @@ class UnknownCorpusTests(unittest.TestCase):
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter_typescript"), "the TypeScript grammar"
 )
+@needs_typescript
 class RouteTruthTests(unittest.TestCase):
     FILES = {
         "package.json": '{"name": "app"}',

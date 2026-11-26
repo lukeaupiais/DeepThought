@@ -8,6 +8,7 @@ from hashlib import sha256
 from importlib.metadata import version
 import json
 import os
+import re
 from pathlib import Path
 import stat
 
@@ -210,6 +211,10 @@ def ingest_scip(
                         location[3],
                         native,
                         encoding,
+                        value_type=_python_value_type(
+                            index.metadata.tool_info.name, native, info
+                        ),
+                        implements=_implements(index.metadata.tool_info.name, info),
                     )
                 )
             digest = sha256(doc.SerializeToString(deterministic=True)).hexdigest()
@@ -254,3 +259,31 @@ def ingest_scip(
         references=tuple(references),
         capabilities=("definitions", "references"),
     )
+
+
+# scip-python documents a local variable with the type pyright infers for
+# it, as one fenced block holding the type's qualified name.
+_PYTHON_VALUE_TYPE = re.compile(r"```python\n([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)\n```")
+
+
+def _implements(tool, info):
+    """For scip-go, the symbols ``info`` records an ``is_implementation``
+    relationship to, sorted; else None (other indexers' ingestion output
+    keeps its identity)."""
+    if tool != "scip-go" or info is None:
+        return None
+    found = sorted(
+        {r.symbol for r in info.relationships if r.is_implementation and r.symbol}
+    )
+    return tuple(found) or None
+
+
+def _python_value_type(tool, native, info):
+    """The qualified type scip-python documents for a local variable, or
+    None (another indexer or symbol, an unknown or union type)."""
+    if tool != "scip-python" or not native.startswith("local ") or info is None:
+        return None
+    if len(info.documentation) != 1:
+        return None
+    match = _PYTHON_VALUE_TYPE.fullmatch(info.documentation[0].strip())
+    return match.group(1) if match else None

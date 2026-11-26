@@ -11,9 +11,10 @@ import math
 import re
 import time
 from hashlib import sha256
+from pathlib import Path
 
 from .components import PACKAGE_KINDS
-from .source_roles import ROLE_PATTERNS, exclusion_pattern
+from .source_roles import GENERATED_ROLE, ROLE_PATTERNS, exclusion_pattern
 
 # A query that is one identifier also finds members named by it.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
@@ -22,11 +23,56 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
-    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
+    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
+    "|REQUESTS|CONSUMES|READS"
+    "|REFERENCES_TABLE|CARRIES|READS_COLUMN|USES_TYPE|REFERENCES_FUNCTION"
+    "|READS_FIELD|WRITES_FIELD"
 )
-_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
+# What provides a contract: handles a route, publishes to a destination,
+# writes, maps or declares a table or column.
+_PROVIDES = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN|MAPS_TO|DECLARES"
+# A contract's messages, for ``contract`` actions: the declarations named
+# like protoc's request and response types that the signature of each
+# client's stub method names (SIGNATURE_USES, from SCIP), found through the
+# call at the line each REQUESTS edge records. They are ``known`` when the
+# Go type checker gave the contract its ``message_types``, or when every
+# client's stub names one and every provider's signature names one.
+_CONTRACT_MESSAGES = (
+    "CALL { WITH root "
+    "WITH root, [x IN [root.request_message, root.response_message] "
+    "WHERE x IS NOT NULL | last(split(x, '.'))] AS names "
+    "OPTIONAL MATCH (client)-[r:REQUESTS]->(root) "
+    "WHERE client.repo_url=$repo_url AND client.snapshot_id=$snapshot_id "
+    "OPTIONAL MATCH (client)-[c:CALLS]->(:Symbol)-[:SIGNATURE_USES]->(m:Symbol) "
+    "WHERE r IS NOT NULL AND c.line = r.line "
+    "AND c.name = last(split(r.request, '.')) "
+    "AND last(split(m.name, '.')) IN names "
+    "WITH r, collect(DISTINCT m) AS found "
+    "RETURN collect(CASE WHEN r IS NULL THEN null ELSE found END) AS clients } "
+    "WITH root, parts, clients, "
+    "reduce(acc = [], found IN clients | acc + found) AS messages "
+    "WITH root, parts, messages, root.message_types IS NOT NULL "
+    # A column's readers and writers are its column edges, all known.
+    "OR root:DbColumn OR ("
+    "size(messages) > 0 AND all(found IN clients WHERE size(found) > 0) "
+    "AND all(p IN parts WHERE any(m IN messages WHERE (p)-[:SIGNATURE_USES]->(m)))"
+    ") AS known "
+)
+# What each dependent must do about a change (``action``), from the change's
+# kind: a declaration's ``signature`` (its parameters or results) or
+# ``behaviour`` (its body only), or a ``contract`` (its messages).
+_IMPACT_ACTIONS = {
+    None: "",
+    "signature": "CASE nearest WHEN 1 THEN 'must_change' ELSE 'retest' END AS action, ",
+    "behaviour": "'retest' AS action, ",
+    "contract": "CASE WHEN carried = 1 THEN 'must_change' "
+    "WHEN known THEN 'retest' "
+    "ELSE 'unknown' END AS action, ",
+}
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
@@ -35,8 +81,99 @@ CONTRACT_KINDS = (
 )
 
 
+# Every stored node also carries this label, which holds the identity
+# constraint and the index that edge writes and snapshot reads match on
+# (storage/graph/schema.py). It says nothing about the node, so answers
+# leave it out of the labels they list.
+INTERNAL_LABEL = "GraphNode"
+
+
+def _labels(variable):
+    """Cypher for a node's labels without the internal one."""
+    return f"[label IN labels({variable}) WHERE label <> '{INTERNAL_LABEL}']"
+
+
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+
+
+# Whether a generator wrote the dependent's file: its File node carries
+# generated_by (see generated_files).
+_GENERATED_FILE = (
+    "EXISTS { MATCH (generated:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+    "WHERE generated.path = coalesce(dependent.file_path, dependent.path) "
+    "AND generated.generated_by IS NOT NULL }"
+)
+
+
+# A declaration given by place rather than name: "path/to/file.py:42".
+_PLACE = re.compile(r"(?P<file>[^:]+):(?P<line>[1-9][0-9]*)")
+
+
+# At most this many distinct files are checked per answer, and listed.
+_FRESHNESS_PATHS = 500
+_FRESHNESS_LISTED = 20
+_PATH_KEYS = frozenset({"file_path", "path", "file"})
+# A workspace file whose real path is outside the workspace (a symlink out
+# of it) is not read: it is left out of the check.
+_OUTSIDE = object()
+
+
+def _path_key(key):
+    """file_path, path or file, also as a raw query's unaliased column
+    (``f.path``, ``s.file_path``)."""
+    return isinstance(key, str) and key.rsplit(".", 1)[-1] in _PATH_KEYS
+
+
+def _named_paths(value):
+    """Relative file paths an answer names under file_path, path or file
+    keys, at any depth."""
+    found = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if _path_key(key) and isinstance(item, str):
+                if item and not item.startswith("/") and ".." not in item.split("/"):
+                    found.add(item)
+            else:
+                found |= _named_paths(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= _named_paths(item)
+    return found
+
+
+def _cypher_code(query):
+    """Return query with string literals, quoted names and comments blanked.
+
+    Each blanked character becomes a space, so keyword checks see only the
+    query's own code. An unterminated literal or comment is refused."""
+    out = []
+    i, n = 0, len(query)
+    while i < n:
+        c = query[i]
+        if c in "'\"`":
+            j = i + 1
+            while j < n and query[j] != c:
+                j += 2 if query[j] == "\\" and c != "`" else 1
+            if j >= n:
+                raise ValueError("Unterminated quoted text in Cypher query")
+            out.append(" " * (j + 1 - i))
+            i = j + 1
+        elif query.startswith("//", i):
+            j = query.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif query.startswith("/*", i):
+            j = query.find("*/", i + 2)
+            if j < 0:
+                raise ValueError("Unterminated comment in Cypher query")
+            out.append(" " * (j + 2 - i))
+            i = j + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _text(value, name):
@@ -56,6 +193,30 @@ def _bounds(limit, max_output_bytes, timeout):
         or not 0 < timeout <= 30
     ):
         raise ValueError("timeout must be finite, positive and at most 30 seconds")
+
+
+TOP_LEVEL = "(top level of file)"
+# Each source role with the pattern a whole path matches, for Cypher.
+_ROLES = [
+    {"name": name, "pattern": ROLE_PATTERNS[name]} for name in sorted(ROLE_PATTERNS)
+]
+
+
+def _declaration(variable):
+    """A Cypher map naming the declaration ``variable`` binds: its qualified
+    name, name, kind, file, line span and signature. A File stands for the
+    code outside every declaration (module-level calls, anonymous
+    callbacks): it is named ``(top level of file)``, with no line span, and
+    ``top_level`` is true."""
+    v = variable
+    return (
+        f"{v} {{.qualified_name,"
+        f"name:CASE WHEN {v}:File THEN '{TOP_LEVEL}' ELSE {v}.name END,"
+        f"kind:CASE WHEN {v}:File THEN 'File' ELSE {v}.kind END,"
+        f"file_path:coalesce({v}.file_path,{v}.path),"
+        f".start_line,.end_line,"
+        f".signature,top_level:{v}:File}}"
+    )
 
 
 def _evidence_filter(evidence_types):
@@ -102,7 +263,7 @@ def _value(value):
             properties.pop(key, None)
         return {
             "element_id": value.element_id,
-            "labels": sorted(value.labels),
+            "labels": sorted(set(value.labels) - {INTERNAL_LABEL}),
             "properties": properties,
         }
     if isinstance(value, Relationship):
@@ -117,8 +278,13 @@ def _value(value):
             "properties": decode_properties(dict(value)),
         }
     if isinstance(value, Path):
+        nodes = [_value(n) for n in value.nodes]
+        # A path's steps are named, not described: the declaration it
+        # answers with carries its signature.
+        for node in nodes:
+            node["properties"].pop("signature", None)
         return {
-            "nodes": [_value(n) for n in value.nodes],
+            "nodes": nodes,
             "relationships": [_value(r) for r in value.relationships],
         }
     if isinstance(value, dict):
@@ -134,6 +300,43 @@ def _value(value):
     raise ValueError("Unsupported non-JSON query value: " + type(value).__name__)
 
 
+# Storage keys of an EdgeCoverage node, not facts of the record.
+_COVERAGE_STORAGE = {"qualified_name", "repo_url", "snapshot_id"}
+
+
+# Raw rows a text reply is rendered from; its own budget is on the text.
+_RAW_TEXT_BYTES = 4_000_000
+
+
+def _check_cypher(query, parameters, allow_database_scope):
+    """Reject anything but one parameterized read query (defense in depth)."""
+    _text(query, "query")
+    if allow_database_scope is not True:
+        raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
+    if not isinstance(parameters, dict) or any(
+        not isinstance(k, str) for k in parameters
+    ):
+        raise ValueError("Cypher parameters must be a string-keyed dictionary")
+    _json(parameters)
+    if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
+        raise ValueError("Scope and fetch_limit parameters are reserved")
+    if len(query.encode()) > 16384:
+        raise ValueError("Cypher text exceeds 16384 bytes")
+    # Keywords are looked for in the query's code only: a quoted name such as
+    # "use", "Start" or "delete.go" is data, not a clause.
+    code = _cypher_code(query)
+    if not re.match(r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", code, re.I):
+        raise ValueError("Only a single read query is accepted")
+    if re.search(
+        r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
+        code,
+        re.I,
+    ):
+        raise ValueError(
+            "Procedures, updates, administration and multiple statements are disabled"
+        )
+
+
 class GraphQueryService:
     """Single query implementation shared by programmatic and agent callers.
 
@@ -144,10 +347,15 @@ class GraphQueryService:
     additionally enforce read-only access; routing mode alone is not security.
     """
 
-    def __init__(self, driver, database="neo4j", *, observer=None):
+    def __init__(self, driver, database="neo4j", *, observer=None, workspace=None):
         self.driver = driver
         self.database = _text(database, "database")
         self.observer = observer
+        # The working copy the snapshot was taken from, if the caller names
+        # one: each answer then says which of the files it names have
+        # changed there since (``freshness``).
+        self.workspace = None if workspace is None else Path(workspace)
+        self._digests = {}
 
     @staticmethod
     async def _marker(tx, repo_url, snapshot_id):
@@ -160,6 +368,44 @@ class GraphQueryService:
         if marker is None:
             raise ValueError("Selected repository snapshot is missing or incomplete")
         return marker
+
+    async def _anchor(self, subject, repo_url, snapshot_id, timeout):
+        """The qualified name a query is about. A qualified name is kept; a
+        place, ``file:line``, names the parsed declaration whose name is on
+        that line, or else the innermost one around it (never an indexer's
+        definition node, which also covers parameters and locals). Several declared
+        on that line are ambiguous: a ValueError lists them."""
+        place = _PLACE.fullmatch(subject)
+        if place is None:
+            return subject
+        found = await self._read(
+            "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:$file}) "
+            "WHERE d.start_line <= $line AND $line <= coalesce(d.end_line, d.start_line) "
+            # Parsed declarations only: an indexer's definitions (its
+            # parameters and locals among them) carry source_definition_id.
+            "AND d.source_definition_id IS NULL "
+            # Declarations named on the line start last of all around it.
+            "WITH d, d.start_line = $line AS named "
+            "ORDER BY d.start_line DESC, d.end_line, d.qualified_name "
+            "RETURN d.qualified_name AS qualified_name, named LIMIT $fetch_limit",
+            {"file": place["file"], "line": int(place["line"])},
+            repo_url,
+            snapshot_id,
+            limit=100,
+            timeout=timeout,
+        )
+        items = found["items"]
+        if not items:
+            raise ValueError("no declaration at " + subject)
+        named = [item["qualified_name"] for item in items if item["named"]]
+        if len(named) > 1:
+            raise ValueError(
+                "ambiguous place "
+                + subject
+                + ": several declarations are named on that line: "
+                + ", ".join(named)
+            )
+        return items[0]["qualified_name"]
 
     async def _read(
         self,
@@ -175,11 +421,19 @@ class GraphQueryService:
         repository_scope=False,
         required_capability=None,
         metric=None,
+        bare=False,
+        observe=True,
+        raw_output_bytes=None,
+        freshness=True,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
             _text(snapshot_id, "snapshot_id")
         _bounds(limit, max_output_bytes, timeout)
+        if raw_output_bytes is not None:
+            # Text results are budgeted after rendering; the raw rows they are
+            # rendered from may be larger than any JSON reply.
+            max_output_bytes = raw_output_bytes
         started = time.monotonic()
         parameters = dict(parameters)
         parameters.update(
@@ -241,6 +495,14 @@ class GraphQueryService:
                 if repository_scope:
                     # Several snapshots; their own analysis facts are per item.
                     del response["capabilities"], response["analysis_status"]
+                if bare:
+                    # The snapshot's facts are read once (describe_snapshot),
+                    # not repeated with every answer.
+                    # A snapshot that is not wholly analyzed says so still.
+                    kept = ("status", "items", "returned", "truncated")
+                    if response["analysis_status"] != "succeeded":
+                        kept += ("analysis_status",)
+                    response = {key: response[key] for key in kept}
                 async for record in result:
                     if len(response["items"]) >= limit:
                         response["truncated"] = True
@@ -254,11 +516,24 @@ class GraphQueryService:
                         response["returned"] -= 1
                         response["truncated"] = True
                         break
+                if self.workspace is not None and not repository_scope and freshness:
+                    response["freshness"] = await self._freshness(
+                        tx, repo_url, snapshot_id, response["items"]
+                    )
+                    # The note may push the answer over budget: drop whole
+                    # items, as the loop above does.
+                    while (
+                        response["items"]
+                        and len(_json(response).encode()) + 1 > max_output_bytes
+                    ):
+                        response["items"].pop()
+                        response["returned"] -= 1
+                        response["truncated"] = True
                 if len(_json(response).encode()) > max_output_bytes:
                     raise ValueError("Query metadata exceeds the output byte budget")
                 # Optional evidence hook shared by CLI, MCP and embedded callers.
                 # Emit only after a real Neo4j read; no raw query or parameters.
-                if self.observer is not None:
+                if self.observer is not None and observe:
                     encoded = _json(response).encode()
                     event = {
                         "backend": "neo4j",
@@ -280,6 +555,73 @@ class GraphQueryService:
                 if event is not None:
                     event["wall_seconds"] = time.monotonic() - started
                     self.observer(event)
+
+    def _workspace_digest(self, path):
+        """sha256 of a workspace file's bytes, as the analysis records it in
+        File.file_sha256; None when it is gone, ``_OUTSIDE`` when its real
+        path leaves the workspace. Cached by size and mtime, so an edit that
+        keeps both (``cp -p``, an archive restore) reads as unchanged."""
+        target = self.workspace / path
+        try:
+            stat = target.stat()
+            real = target.resolve(strict=True)
+        except OSError:
+            return None
+        if not real.is_relative_to(self.workspace.resolve()):
+            return _OUTSIDE
+        key = (path, stat.st_size, stat.st_mtime_ns)
+        if key not in self._digests:
+            try:
+                self._digests[key] = sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                return None
+        return self._digests[key]
+
+    async def _freshness(self, tx, repo_url, snapshot_id, items):
+        """Whether the files an answer names still hold the bytes the
+        snapshot analyzed, in the workspace this service was given.
+
+        ``status`` is ``current`` (every named file is unchanged),
+        ``changed`` (``changed_files`` were edited since and ``missing_files``
+        are gone: their lines may have moved) or ``unverified`` (no
+        workspace was given, or the answer names no analyzed file)."""
+        paths = sorted(_named_paths(items))
+        if self.workspace is None or not paths:
+            return {"status": "unverified"}
+        result = await tx.run(
+            "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE f.path IN $paths AND f.file_sha256 IS NOT NULL "
+            "RETURN f.path AS path, f.file_sha256 AS digest",
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+            paths=paths[:_FRESHNESS_PATHS],
+        )
+        recorded = {record["path"]: record["digest"] async for record in result}
+        if not recorded:
+            return {"status": "unverified"}
+        changed, missing, checked = [], [], 0
+        for path, digest in sorted(recorded.items()):
+            current = self._workspace_digest(path)
+            if current is _OUTSIDE:
+                continue
+            checked += 1
+            if current is None:
+                missing.append(path)
+            elif current != digest:
+                changed.append(path)
+        if not checked:
+            return {"status": "unverified"}
+        freshness = {
+            "status": "changed" if changed or missing else "current",
+            "files_checked": checked,
+        }
+        if changed:
+            freshness["changed_files"] = changed[:_FRESHNESS_LISTED]
+        if missing:
+            freshness["missing_files"] = missing[:_FRESHNESS_LISTED]
+        if len(changed) > _FRESHNESS_LISTED or len(missing) > _FRESHNESS_LISTED:
+            freshness["files_listed_truncated"] = True
+        return freshness
 
     async def list_snapshots(
         self,
@@ -344,7 +686,7 @@ class GraphQueryService:
     )
     _NODE = (
         "n {.qualified_name,.name,.kind,.file_path,.path,.start_line,.end_line,"
-        "labels:labels(n)}"
+        "labels:" + _labels("n") + "}"
     )
 
     async def diff_snapshots(
@@ -453,7 +795,11 @@ class GraphQueryService:
                         "AND NOT k STARTS WITH '_dt_' "
                         "| {key:k,base:o[k],head:null}] AS properties,"
                         "CASE WHEN size(labels(n))<>size(labels(o)) OR any(l IN labels(n) "
-                        "WHERE NOT l IN labels(o)) THEN {base:labels(o),head:labels(n)} "
+                        "WHERE NOT l IN labels(o)) THEN {base:"
+                        + _labels("o")
+                        + ",head:"
+                        + _labels("n")
+                        + "} "
                         "END AS labels "
                     )
                     + "ORDER BY n.qualified_name LIMIT $fetch_limit"
@@ -534,7 +880,8 @@ class GraphQueryService:
                 WITH node,score,$member IS NOT NULL
                     AND (node.name = $query OR node.name ENDS WITH $member) AS name_match
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element,
                     score,name_match
                 ORDER BY name_match DESC,score DESC,element.file_path,element.start_line,
                     element.qualified_name
@@ -543,7 +890,8 @@ class GraphQueryService:
             statement = """MATCH (node:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
                 WHERE $file_path IS NULL OR node.file_path=$file_path
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element
                 ORDER BY element.file_path,element.start_line,element.qualified_name
                 LIMIT $fetch_limit"""
         return await self._read(
@@ -746,6 +1094,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "function_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
@@ -756,9 +1105,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -782,6 +1133,7 @@ class GraphQueryService:
         *,
         snapshot_id,
         file_path=None,
+        target=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
@@ -789,23 +1141,48 @@ class GraphQueryService:
         """Every call site that calls ``name`` (the last name of its callee,
         ``param`` for ``c.req.param()``): linked ones by their CALLS edge and
         target, the others with the reason no rule linked them, and how many
-        there are of each."""
+        there are of each. Each names its ``caller``, the function, method or
+        file around it (qualified name, name, kind and line span), and the
+        ``source_roles`` of its file (``test``, ``example``).
+
+        ``target`` (a qualified name or a ``file:line`` place) keeps the
+        calls linked to that one declaration and the ambiguous ones that
+        list it among their candidates; same-named calls of anything else
+        are left out. A call of a Go interface method that DISPATCHES_TO the
+        target is kept too, with the interface method as ``via``. Unresolved
+        calls of the name could be calls of it, so they stay in the counts,
+        not the items."""
         _text(name, "name")
         if file_path is not None:
             _text(file_path, "file_path")
         _bounds(limit, max_output_bytes, timeout)
-        parameters = {"name": name, "file_path": file_path}
+        if target is not None:
+            _text(target, "target")
+            target = await self._anchor(target, repo_url, snapshot_id, timeout)
+        parameters = {"name": name, "file_path": file_path, "target": target}
         linked = """MATCH (caller)-[r:CALLS {name:$name}]->(target)
             WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
               AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
-              AND ($file_path IS NULL OR caller.file_path=$file_path)"""
+              AND ($file_path IS NULL OR caller.file_path=$file_path)
+              AND ($target IS NULL OR target.qualified_name=$target
+                OR EXISTS { (target)-[:DISPATCHES_TO]->(:Symbol {repo_url:$repo_url,
+                    snapshot_id:$snapshot_id,qualified_name:$target}) })"""
         unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
-            WHERE $file_path IS NULL OR call.file_path=$file_path"""
+            WHERE ($file_path IS NULL OR call.file_path=$file_path)
+              AND ($target IS NULL OR $target IN coalesce(call.candidates, [])KEPT)
+            OPTIONAL MATCH (caller)-[:HAS_UNRESOLVED_CALL]->(call)"""
+        # The function, method or file around the call, and whether its file
+        # is a test or an example.
+        enclosing = (
+            _declaration("caller") + " AS caller,"
+            "[role IN $roles WHERE coalesce(caller.file_path, caller.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,"
+        )
         counts = await self._read(
             "CALL () { "
             + linked
             + " RETURN 'linked' AS status,count(r) AS calls UNION ALL "
-            + unlinked
+            + unlinked.replace("KEPT", " OR call.status='unresolved'")
             + " RETURN call.status AS status,count(call) AS calls } "
             "RETURN status,sum(calls) AS calls ORDER BY status",
             parameters,
@@ -819,17 +1196,24 @@ class GraphQueryService:
             "CALL () { "
             + linked
             + " RETURN 'linked' AS status,r.callee AS callee,caller.file_path AS file_path,"
-            "r.line AS line,r.column AS column,null AS reason,null AS resolver,"
-            "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
-            + unlinked
+            "r.line AS line,r.column AS column,"
+            + enclosing
+            + "null AS reason,null AS resolver,"
+            "target.qualified_name AS target,"
+            # A call of an interface method reaches the target through it.
+            "CASE WHEN target.qualified_name <> $target THEN target.qualified_name END AS via,"
+            "[] AS candidates,r AS relationship UNION ALL "
+            + unlinked.replace("KEPT", "")
             + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
-            "call.line AS line,call.column AS column,call.reason AS reason,"
-            "call.resolver AS resolver,null AS target,"
+            "call.line AS line,call.column AS column,"
+            + enclosing
+            + "call.reason AS reason,"
+            "call.resolver AS resolver,null AS target,null AS via,"
             "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
-            "RETURN status,callee,file_path,line,column,reason,resolver,target,candidates,"
-            "relationship "
+            "RETURN status,callee,file_path,line,column,caller,source_roles,reason,"
+            "resolver,target,via,candidates,relationship "
             "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
-            parameters,
+            parameters | {"roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -868,6 +1252,7 @@ class GraphQueryService:
         timeout=5,
         offset=0,
         exclude_roles=None,
+        change="signature",
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -875,20 +1260,37 @@ class GraphQueryService:
         Dependents are reached backwards over CALLS, INHERITS_FROM,
         IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
         a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
-        HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
+        interface's callers), USES_FIXTURE (a test to its pytest fixtures),
+        USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
+        CONSUMES, READS, REFERENCES_TABLE (a table with a foreign key to a
+        changed table), CARRIES (a route or message destination whose
+        request, response or message is a changed type, so its clients must
+        change with it), and the SCIP uses USES_TYPE, REFERENCES_FUNCTION,
+        READS_FIELD and WRITES_FIELD (a type contains its fields, so a
+        changed type reaches their readers and writers) edges, and forwards
+        over HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
-        readers of that table) depend on the route. At most ``max_depth`` hops. Each dependent is listed
+        readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
 
         Each dependent is ``direct`` (depth 1: it uses the change itself, so
         it may need an edit) or ``transitive`` (deeper: its behaviour may
         change, so it needs re-testing), and lists its ``source_roles``
-        (``test``, ``example``; see ``source_roles``). ``exclude_roles``
+        (``test``, ``example``, and ``generated`` from the file's
+        ``generated_by``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
+
+        Each dependent also has an ``action`` for the kind of ``change``:
+        ``signature`` (default; the declaration's parameters or results:
+        ``must_change`` at one hop, ``retest`` deeper) or ``behaviour`` (its
+        body only: every dependent is ``retest``).
         """
+        if change not in ("signature", "behaviour"):
+            raise ValueError("change must be signature or behaviour")
+        _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -906,6 +1308,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action=change,
         )
 
     async def search_contracts(
@@ -941,7 +1344,11 @@ class GraphQueryService:
             "RETURN c.qualified_name AS qualified_name, "
             "[label IN labels(c) WHERE label IN $kinds][0] AS kind, "
             "coalesce(c.display_name, c.name) AS name, c.file_path AS file_path, "
-            "providers, clients "
+            "providers, clients, "
+            # gRPC: protoc's message types, and the Go types (see impact).
+            "c.request_message AS request_message, "
+            "c.response_message AS response_message, "
+            "c.message_types AS message_types "
             "ORDER BY kind, name, qualified_name LIMIT $fetch_limit",
             {"query": query, "kind": kind, "kinds": list(CONTRACT_KINDS)},
             repo_url,
@@ -972,10 +1379,29 @@ class GraphQueryService:
         (or files) that HANDLE the route, PUBLISH to the destination, WRITE,
         map (MAPS_TO) or DECLARE the table, listed under ``providers``.
         Dependents are then found as ``get_impact`` finds them: the callers
-        that REQUEST the route, the consumers and readers, and their callers
-        in turn, also across services. ``offset``, ``exclude_roles`` and the
+        that REQUEST the route, the consumers and readers, the tables whose
+        foreign keys reference the table, and their callers in turn, also
+        across services. ``offset``, ``exclude_roles`` and the
         output are as for ``get_impact``; ``max_output_bytes`` is at least
         2048.
+
+        Each dependent has an ``action`` for a change of the contract's
+        messages: ``must_change`` when it uses the contract itself (one hop:
+        a client, or a provider's caller) or reaches it only through
+        declarations whose parameter or result types carry the contract's
+        messages (CARRIES_MESSAGE edges, from the Go type checker for gRPC
+        methods); otherwise ``retest`` when those types are known for the
+        contract (its ``message_types``), and ``unknown`` when they are not.
+        A caller of a wrapper that hides the messages only re-tests.
+
+        For a database column (``DbColumn``) the providers are the files
+        that declare it and the code that writes it (WRITES_COLUMN); the code
+        that reads it (READS_COLUMN) must change and their callers re-test,
+        since a statement's columns are resolved against the table's known
+        columns. Code that reads or writes the column's table where the
+        statement's columns did not all resolve, and ORM classes mapped to
+        the table, are listed under ``unresolved_users`` (absent when there
+        are none): whether they use the column is not known.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -985,13 +1411,50 @@ class GraphQueryService:
         found = await self._read(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "MATCH (provider)-[r:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
-            "WITH provider, collect(DISTINCT type(r)) AS relations "
-            "RETURN provider.qualified_name AS qualified_name, "
-            "coalesce(provider.name, provider.path) AS name, "
-            "coalesce(provider.file_path, provider.path) AS file_path, "
-            "provider.start_line AS start_line, relations "
+            "WITH provider, collect(DISTINCT type(r)) AS relations, "
+            "collect(DISTINCT r.line) AS lines "
+            # The declaration (or top level of a file) that provides it, as
+            # call sites name their caller, with the lines of its edges.
+            "RETURN " + _declaration("provider") + " AS provider, relations, "
+            "[line IN lines WHERE line IS NOT NULL] AS lines, "
+            "[role IN $roles WHERE coalesce(provider.file_path, provider.path, '') "
+            "=~ role.pattern | role.name] AS source_roles "
+            "ORDER BY provider.file_path, provider.start_line, provider.qualified_name",
+            {"subject": qualified_name, "roles": _ROLES},
+            repo_url,
+            snapshot_id,
+            limit=10,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        providers = [
+            item["provider"]
+            | {
+                "relations": item["relations"],
+                "lines": sorted(item["lines"]),
+                "source_roles": item["source_roles"],
+            }
+            for item in found["items"]
+        ]
+        # A column's table may be read or written, or mapped by an ORM
+        # class, where the columns are not known: those users are listed,
+        # not judged.
+        unknown = await self._read(
+            "MATCH (root:DbColumn {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) "
+            "MATCH (table:DbTable)-[:HAS_COLUMN]->(root) "
+            "MATCH (user)-[r:READS|WRITES|MAPS_TO]->(table) "
+            "WHERE user.repo_url=$repo_url AND user.snapshot_id=$snapshot_id "
+            # Some reads of the column could not be told from reads of
+            # another table's column of the same shared ORM property.
+            "AND (r.columns_resolved IS NULL OR root.reads_unattributed) "
+            "WITH user, collect(DISTINCT type(r)) AS relations "
+            "RETURN user.qualified_name AS qualified_name, "
+            "coalesce(user.name, user.path) AS name, "
+            "coalesce(user.file_path, user.path) AS file_path, "
+            "user.start_line AS start_line, relations "
             "ORDER BY file_path, start_line, qualified_name",
             {"subject": qualified_name},
             repo_url,
@@ -1000,14 +1463,16 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
-        providers = found["items"]
-        # The providers share the output budget with the dependents.
-        while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
-            providers.pop()
+        unresolved = unknown["items"]
+        # Providers and unresolved users share the budget with the dependents.
+        while (providers or unresolved) and max_output_bytes - len(
+            _json([providers, unresolved]).encode()
+        ) < 1200:
+            (unresolved or providers).pop()
         response = await self._impact(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "OPTIONAL MATCH (provider)-[:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "OPTIONAL MATCH (provider)-[:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT provider) AS parts ",
             _IMPACT_BACKWARD,
@@ -1017,16 +1482,22 @@ class GraphQueryService:
             max_depth,
             evidence_types,
             limit,
-            max_output_bytes - len(_json(providers).encode()) - 64,
+            max_output_bytes - len(_json([providers, unresolved]).encode()) - 128,
             timeout,
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action="contract",
         )
         response["providers"] = providers
         response["providers_truncated"] = found["truncated"] or len(providers) < len(
             found["items"]
         )
+        if unknown["items"] or unknown["truncated"]:
+            response["unresolved_users"] = unresolved
+            response["unresolved_users_truncated"] = unknown["truncated"] or len(
+                unresolved
+            ) < len(unknown["items"])
         return response
 
     async def get_file_impact(
@@ -1116,9 +1587,24 @@ class GraphQueryService:
         offset=0,
         reverse=None,
         exclude_roles=None,
+        action=None,
     ):
         _text(subject, "subject")
-        exclude = exclusion_pattern(exclude_roles)
+        # "generated" is read from the dependent's File (generated_by, by
+        # Linguist's rules), not from its path like the other roles.
+        exclude_generated = isinstance(
+            exclude_roles, (list, tuple, set, frozenset)
+        ) and (GENERATED_ROLE in exclude_roles)
+        path_roles = (
+            [r for r in exclude_roles if r != GENERATED_ROLE]
+            if exclude_generated
+            else exclude_roles
+        )
+        exclude = (
+            None
+            if exclude_generated and not path_roles
+            else exclusion_pattern(path_roles)
+        )
         if type(offset) is not int or not 0 <= offset <= 100_000:
             raise ValueError("offset must be an integer from 0 to 100000")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
@@ -1136,40 +1622,70 @@ class GraphQueryService:
             )
         statement = (
             (
-                seeds + "WITH [root] + parts AS changed "
+                seeds
+                + (
+                    _CONTRACT_MESSAGES
+                    if action == "contract"
+                    else "WITH root, parts, [] AS messages, false AS known "
+                )
+                + "WITH root, messages, known, [root] + parts AS changed "
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
                 "AND ($exclude IS NULL OR NOT "
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
+                "AND NOT ($exclude_generated AND GENERATED) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
-                "WITH dependent, target, path, "
+                # A column's dependents are found through its own edges; a
+                # path through its table says nothing about the column.
+                "AND (NOT root:DbColumn OR none(n IN nodes(path) WHERE n:DbTable)) "
+                # Columns are not code: a writer's other columns (reached
+                # forwards over WRITES_COLUMN) are neither dependents nor
+                # a way to their readers.
+                "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
+                "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
-                "WITH dependent, target, path, CASE "
+                "WITH root, messages, known, dependent, target, path, CASE "
                 "WHEN 'name_matched' IN kinds THEN 2 "
-                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
+                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness, "
+                # A path through declarations that each carry the changed
+                # contract's messages (CARRIES_MESSAGE) hands the dependent
+                # those messages: it builds or reads them.
+                "all(n IN nodes(path)[1..] WHERE n = root OR "
+                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) } OR "
+                "any(m IN messages WHERE (n)-[:SIGNATURE_USES]->(m))) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest "
+                "WITH root, known, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried, "
+                # The lines of every edge the dependent starts toward the
+                # change, on any path.
+                "collect(DISTINCT relationships(path)[0].line) AS lines "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
-                ".file_path,.start_line,"
-                "labels:labels(dependent)} AS element, "
+                ".file_path,.start_line,.end_line,.signature,top_level:dependent:File,"
+                "labels:" + _labels("dependent") + "} AS element, "
+                "[line IN lines WHERE line IS NOT NULL] AS lines, "
                 "length(best.path) AS depth, "
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
+                "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
-                "=~ role.pattern | role.name] AS source_roles, "
+                "=~ role.pattern | role.name] + "
+                "CASE WHEN GENERATED THEN ['generated'] ELSE [] END AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
-                "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
+                "evidence_type:r.evidence_type,rule_id:r.rule_id,line:r.line,"
+                "from:[n IN [startNode(r)] | " + _declaration("n") + "][0],"
+                "to:[n IN [endNode(r)] | " + _declaration("n") + "][0]}] AS edges "
                 "ORDER BY CASE nearest WHEN 1 THEN 0 ELSE 1 END, depth, best.weakness, "
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
             )
+            .replace("ACTION", _IMPACT_ACTIONS[action])
+            .replace("GENERATED", _GENERATED_FILE)
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1181,10 +1697,8 @@ class GraphQueryService:
                 "offset": offset,
                 "evidence": evidence,
                 "exclude": exclude,
-                "roles": [
-                    {"name": name, "pattern": ROLE_PATTERNS[name]}
-                    for name in sorted(ROLE_PATTERNS)
-                ],
+                "exclude_generated": exclude_generated,
+                "roles": _ROLES,
                 "reverse": (reverse or "").split("|") if reverse else [],
             },
             repo_url,
@@ -1195,6 +1709,8 @@ class GraphQueryService:
         )
         if not response["items"]:
             response["status"] = "unsupported_or_unobserved"
+        for item in response["items"]:
+            item["lines"] = sorted(item["lines"])
         if exclude_roles is not None:
             response["exclude_roles"] = sorted(set(exclude_roles))
         response["max_depth"] = max_depth
@@ -1211,7 +1727,7 @@ class GraphQueryService:
                 else ""
             )
             + " edges; each path's evidence is its weakest edge. Direct (one "
-            "hop): may need edits; transitive: re-test. Absence does "
+            "hop): may need edits; transitive: re-test. " + "Absence does "
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
         )
@@ -1269,6 +1785,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, limit, budget, timeout
     ):
         _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         pattern = (
             "(other:Symbol)-[r:CONTAINS]->(d)"
             if incoming
@@ -1340,6 +1857,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "type_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:INHERITS_FROM]->(t)"
@@ -1352,9 +1870,11 @@ class GraphQueryService:
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
             "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
-            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "RETURN " + _declaration("other") + " AS element,"
+            "[role IN $roles WHERE coalesce(other.file_path, other.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,r AS relationship "
             "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
-            {"qname": qname, "evidence": evidence},
+            {"qname": qname, "evidence": evidence, "roles": _ROLES},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -1898,7 +2418,7 @@ class GraphQueryService:
 
         summary = (
             "{.qualified_name,.name,.kind,.path,.file_path,.start_line,.end_line,"
-            "labels:labels(NODE)}"
+            "labels:" + _labels("NODE") + "}"
         )
         response = await self._read(
             "MATCH (source:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})"
@@ -2004,6 +2524,7 @@ class GraphQueryService:
         interface ``extends`` edges are followed too.
         """
         _text(class_qname, "class_qname")
+        class_qname = await self._anchor(class_qname, repo_url, snapshot_id, timeout)
         if type(max_depth) is not int or not 1 <= max_depth <= 10:
             raise ValueError("max_depth must be an integer from 1 to 10")
         statement = """MATCH (c:Symbol {qualified_name:$qname,repo_url:$repo_url,snapshot_id:$snapshot_id})
@@ -2088,6 +2609,43 @@ class GraphQueryService:
             timeout=timeout,
         )
 
+    async def describe_snapshot(
+        self, repo_url, *, snapshot_id, max_output_bytes=16000, timeout=5
+    ):
+        """The snapshot's own facts, which raw Cypher answers leave out: its
+        repository and ID, capabilities, analysis status, content hash, the
+        tool that published it, when, the commits it came from, and its
+        ``coverage``: for each language and edge family, whether a
+        deterministic resolver linked it (``EdgeCoverage`` nodes)."""
+        response = await self._read(
+            """MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,
+                status:'complete'})
+            OPTIONAL MATCH (c:EdgeCoverage {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WITH s,c ORDER BY c.family,c.protocol,c.language
+            WITH s,collect(properties(c)) AS coverage
+            RETURN s.content_hash AS content_hash,s.tool_name AS tool_name,
+                s.completed_at AS completed_at,
+                coalesce(s.source_commits,[]) AS commits,coverage""",
+            {},
+            repo_url,
+            snapshot_id,
+            limit=1,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        from .storage.graph.encoding import decode_properties
+
+        for item in response["items"]:
+            item["coverage"] = [
+                {
+                    key: value
+                    for key, value in sorted(decode_properties(record).items())
+                    if key not in _COVERAGE_STORAGE
+                }
+                for record in item["coverage"]
+            ]
+        return response
+
     async def get_unknown_symbols(
         self, repo_url, *, snapshot_id, limit=20, max_output_bytes=16000, timeout=5
     ):
@@ -2163,36 +2721,16 @@ class GraphQueryService:
     ):
         """Execute bounded parameterized reads in a dedicated snapshot database.
 
+        The answer holds only ``status``, ``items``, ``returned`` and
+        ``truncated``; ``describe_snapshot`` gives the snapshot's own facts.
+
         This is deliberately explicit opt-in: arbitrary Cypher is database-scoped,
         not automatically rewritten for repository/tenant isolation. Database read
         privileges/read-only configuration remain required for untrusted callers.
         The conservative lexical restrictions are defense in depth; the server's
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
-        _text(query, "query")
-        if allow_database_scope is not True:
-            raise ValueError("Raw Cypher requires explicit allow_database_scope=True")
-        if not isinstance(parameters, dict) or any(
-            not isinstance(k, str) for k in parameters
-        ):
-            raise ValueError("Cypher parameters must be a string-keyed dictionary")
-        _json(parameters)
-        if set(parameters) & {"repo_url", "snapshot_id", "fetch_limit"}:
-            raise ValueError("Scope and fetch_limit parameters are reserved")
-        if len(query.encode()) > 16384:
-            raise ValueError("Cypher text exceeds 16384 bytes")
-        if not re.match(
-            r"\s*(MATCH|OPTIONAL\s+MATCH|RETURN|WITH|UNWIND)\b", query, re.I
-        ):
-            raise ValueError("Only a single read query is accepted")
-        if re.search(
-            r"\b(CALL|LOAD|CSV|CREATE|MERGE|SET|DELETE|REMOVE|DROP|ALTER|GRANT|DENY|REVOKE|FOREACH|SHOW|USE|START|STOP|TERMINATE)\b|;",
-            query,
-            re.I,
-        ):
-            raise ValueError(
-                "Procedures, updates, administration and multiple statements are disabled"
-            )
+        _check_cypher(query, parameters, allow_database_scope)
         return await self._read(
             query,
             parameters,
@@ -2202,4 +2740,125 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
             database_scope=True,
+            bare=True,
         )
+
+    async def query_cypher_text(
+        self,
+        query,
+        parameters,
+        repo_url,
+        *,
+        snapshot_id,
+        allow_database_scope=False,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """``query_cypher`` written as short sentences (see ``result_text``).
+
+        The same rows are read; links whose end items the query did not return
+        have those items looked up, and the snapshot's EdgeCoverage records
+        give the closing coverage line. Neither lookup is journaled as a query.
+        With a workspace, freshness covers the files of the rows and of the
+        looked-up link ends, since the sentences name both.
+        The byte budget applies to the text: whole lines past it are cut and
+        the reply says so.
+        """
+        from .result_text import render
+
+        _check_cypher(query, parameters, allow_database_scope)
+        response = await self._read(
+            query,
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            database_scope=True,
+            raw_output_bytes=_RAW_TEXT_BYTES,
+            freshness=False,
+        )
+        known, wanted = set(), set()
+
+        def visit(value):
+            if isinstance(value, dict):
+                if "labels" in value and "element_id" in value:
+                    known.add(value["element_id"])
+                if {"type", "source", "target"} <= set(value):
+                    wanted.update((value["source"], value["target"]))
+                for v in value.values():
+                    visit(v)
+            elif isinstance(value, list):
+                for v in value:
+                    visit(v)
+
+        visit(response["items"])
+        missing = sorted(wanted - known)
+        nodes = {}
+        for offset in range(0, len(missing), 100):
+            page = await self._read(
+                "MATCH (n) WHERE elementId(n) IN $ids RETURN n",
+                {"ids": missing[offset : offset + 100]},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
+            )
+            nodes.update((r["n"]["element_id"], r["n"]) for r in page["items"])
+        coverage = []
+        for page_number in range(10):
+            page = await self._read(
+                "MATCH (e:EdgeCoverage) RETURN e.family AS family, e.protocol AS protocol,"
+                " e.language AS language, e.status AS status, e.reason AS reason,"
+                " e.unresolved_reasons AS unresolved_reasons"
+                " ORDER BY family, protocol, language SKIP $skip LIMIT $fetch_limit",
+                {"skip": page_number * 100},
+                repo_url,
+                snapshot_id,
+                limit=100,
+                timeout=timeout,
+                database_scope=True,
+                observe=False,
+                raw_output_bytes=_RAW_TEXT_BYTES,
+                freshness=False,
+            )
+            coverage.extend(page["items"])
+            if not page["truncated"]:
+                break
+        if self.workspace is not None:
+            # The files the sentences name: the rows' own and those of the
+            # link ends looked up above.
+            async with self.driver.session(
+                database=self.database, default_access_mode="READ"
+            ) as session:
+                tx = await session.begin_transaction(timeout=timeout)
+                try:
+                    response["freshness"] = await self._freshness(
+                        tx,
+                        repo_url,
+                        snapshot_id,
+                        [response["items"], list(nodes.values())],
+                    )
+                finally:
+                    await tx.rollback()
+        text = render(
+            response, nodes=nodes, coverage=coverage, query=query, limit=limit
+        )
+        if len(text.encode()) > max_output_bytes:
+            lines = text.split("\n")
+            kept, size = [], 0
+            note = "... {} more lines cut at the {}-byte budget: narrow the query."
+            for line in lines:
+                size += len(line.encode()) + 1
+                if size + len(note.encode()) + 16 > max_output_bytes:
+                    break
+                kept.append(line)
+            kept.append(note.format(len(lines) - len(kept), max_output_bytes))
+            text = "\n".join(kept)
+        return text

@@ -1,7 +1,7 @@
 """Portable artifacts; lines are one-based, columns retain declared encoding."""
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import PurePosixPath, PureWindowsPath
 
 
@@ -64,6 +64,10 @@ class Definition:
     # JavaScript and TypeScript declarations their module exports as
     # ``default``: True. None elsewhere.
     default_export: bool | None = None
+    # SCIP local variables an index from scip-python documents with one
+    # inferred type: that type's qualified name (``app.models.User``), as
+    # the indexer writes it. None elsewhere.
+    value_type: str | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
@@ -119,6 +123,11 @@ class Definition:
     # ``io.Reader``; a union or ``~T`` constraint as written, without spaces).
     # None elsewhere, or when there is none.
     embeds: tuple[str, ...] | None = None
+    # SCIP definitions: the symbols the indexer records this symbol as
+    # implementing (``is_implementation`` relationships: an interface a type
+    # implements, the interface method a method implements). None elsewhere,
+    # or when there is none.
+    implements: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.underlying_type is not None and (
@@ -163,6 +172,12 @@ class Definition:
             or not all(isinstance(name, str) and name for name in self.embeds)
         ):
             raise ValueError("embeds must be a tuple of nonempty strings")
+        if self.implements is not None and (
+            type(self.implements) is not tuple
+            or not self.implements
+            or not all(isinstance(name, str) and name for name in self.implements)
+        ):
+            raise ValueError("implements must be a tuple of nonempty strings")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -249,10 +264,13 @@ class Reference:
 # or an extern crate. "script_config", "path_alias" and "package_entry": a
 # tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
 # files a package.json names; module resolution reads them. "include": a C
-# `#include "path"`.
+# `#include "path"`. "require" and "dynamic_import": a JavaScript
+# `require("x")` or a JavaScript or TypeScript `import("x")` call.
 IMPORT_KINDS = frozenset(
     {
         "import",
+        "require",
+        "dynamic_import",
         "from_import",
         "export_from",
         "module",
@@ -792,6 +810,11 @@ class AnalysisResult:
     supertypes: tuple[Supertype, ...] = ()
     packages: tuple[PackageClause, ...] = ()
     impls: tuple[ImplBlock, ...] = ()
+    # What the TypeScript compiler says about the JavaScript and TypeScript
+    # modules (``deepthought.ts_modules.CompilerModules``). Derived from the
+    # whole workspace rather than parsed from one file, so it is not part of
+    # the artifact.
+    compiler_modules: object = field(default=None, compare=False, repr=False)
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -873,7 +896,8 @@ class AnalysisResult:
             )
 
     def to_dict(self) -> dict:
-        data = json.loads(json.dumps(asdict(self)))
+        data = json.loads(json.dumps(asdict(replace(self, compiler_modules=None))))
+        del data["compiler_modules"]
         # Arity is recorded for Java only; other facts keep their serialized
         # identity.
         for item in data["definitions"]:
@@ -909,6 +933,8 @@ class AnalysisResult:
                 del item["signature"]
             if item["embeds"] is None:
                 del item["embeds"]
+            if item["implements"] is None:
+                del item["implements"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -1145,6 +1171,9 @@ class AnalysisResult:
                         "embeds": tuple(item["embeds"])
                         if isinstance(item.get("embeds"), list)
                         else item.get("embeds"),
+                        "implements": tuple(item["implements"])
+                        if isinstance(item.get("implements"), list)
+                        else item.get("implements"),
                     }
                 )
                 for item in data["definitions"]
