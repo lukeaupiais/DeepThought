@@ -163,7 +163,19 @@ class GraphTransportIntegrationTests(unittest.TestCase):
         self.assertIn("analysis_status", described)
         (item,) = described["items"]
         self.assertEqual(
-            sorted(item), ["commits", "completed_at", "content_hash", "tool_name"]
+            sorted(item),
+            ["commits", "completed_at", "content_hash", "coverage", "tool_name"],
+        )
+        # The fixture's one Python file has no call or import.
+        self.assertEqual(
+            [
+                (c["family"], c["language"], c["status"], c["resolver"])
+                for c in item["coverage"]
+            ],
+            [
+                ("CALLS", "python", "no_sites", []),
+                ("IMPORTS", "python", "no_sites", []),
+            ],
         )
         self.assertTrue(item["content_hash"])
 

@@ -102,6 +102,21 @@ class GraphQueryIntegrationTests(unittest.TestCase):
             node(
                 "imported", ["Import"], name="typing", nested={"a": [1, 2]}, empty=None
             ),
+            *(
+                node(
+                    f"coverage-{family}-{language}",
+                    ["EdgeCoverage"],
+                    family=family,
+                    language=language,
+                    status=status,
+                    resolver=resolver,
+                )
+                for family, language, status, resolver in (
+                    ("IMPORTS", "python", "not_linked", ["tree-sitter@1"]),
+                    ("CALLS", "python", "linked", ["scip-python@0.6.8"]),
+                    ("CALLS", "go", "no_sites", []),
+                )
+            ),
         ]
         byname = {n.properties["qualified_name"]: n for n in nodes}
 
@@ -237,7 +252,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(path["items"][0]["depth"], 1)
             stats = await service.get_repository_stats(repo, snapshot_id=snapshot)
-            self.assertEqual(stats["items"][0]["nodes"], 7)
+            self.assertEqual(stats["items"][0]["nodes"], 10)
             exists = await service.node_exists(
                 "method", repo, snapshot_id=snapshot, node_type="Method"
             )
@@ -254,6 +269,30 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 (repo, snapshot, ["definitions", "calls"]),
             )
             self.assertEqual(described["returned"], 1)
+            # Coverage records by family and language, without storage keys.
+            self.assertEqual(
+                described["items"][0]["coverage"],
+                [
+                    {
+                        "family": "CALLS",
+                        "language": "go",
+                        "resolver": [],
+                        "status": "no_sites",
+                    },
+                    {
+                        "family": "CALLS",
+                        "language": "python",
+                        "resolver": ["scip-python@0.6.8"],
+                        "status": "linked",
+                    },
+                    {
+                        "family": "IMPORTS",
+                        "language": "python",
+                        "resolver": ["tree-sitter@1"],
+                        "status": "not_linked",
+                    },
+                ],
+            )
             with self.assertRaises(ValueError):
                 await service.describe_snapshot(repo, snapshot_id="missing")
             # Raw Cypher tests require an exclusively owned single-snapshot database.
