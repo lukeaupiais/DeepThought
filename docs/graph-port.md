@@ -29,7 +29,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
 | libs/analysis/.../parsers/utils/base/core.py `create_containment_relationships` (parent `CONTAINS` child by `parent_qname`) | deepthought.analysis_tools.tree_sitter + GraphQueryService.get_members/get_owner | Declaration -> CONTAINS -> nested declaration from parse-tree spans under a registered `resolved` rule (see below) |
-| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
+| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.scip_bases + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM from the SCIP reference at each base (`resolved`), else by the call name-binding rules (`name_matched`); `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
@@ -912,9 +912,29 @@ classes and TypeScript/JavaScript `extends` entries are `extends`, a TypeScript
 class's `implements` entries are `implements`. Only plain or dotted names are
 recorded, without type arguments (`Generic[T]` and `Base<T>` name `Generic`
 and `Base`); keyword arguments such as `metaclass=`, splats and call
-expressions such as mixins are not. `deepthought.inheritance.resolve_supertypes`
-applies the call name-binding rules, so every INHERITS_FROM edge is
-`name_matched`:
+expressions such as mixins are not.
+
+In files a SCIP index covers (Python through scip-python, TypeScript and
+JavaScript through scip-typescript), `deepthought.scip_bases` takes the base
+from the reference the indexer records at the base's last name, as the
+compiler or type checker binds it through imports, package re-exports and
+aliases:
+
+| Rule | Links |
+|---|---|
+| `scip.python-base` | a Python base to the one repository class scip-python references there |
+| `scip.typescript-base` | an `extends` or `implements` entry to the one repository class or interface scip-typescript references there |
+
+Both are `resolved` and carry the indexer as `producer` and its receipt. A
+base the index references outside the repository (installed packages,
+TypeScript's own library) gets no edge and counts as `scip_external`, even
+when a repository class has the same name. In Python, a declaration of
+another name is taken only where an import of the file binds the written name
+to it, since scip-python follows `from m import *` re-exports to wrong
+symbols. Where the index records no reference at the base, or names a
+repository declaration these rules do not take, and in files no index covers,
+`deepthought.inheritance.resolve_supertypes` applies the call name-binding
+rules, whose INHERITS_FROM edges are `name_matched`:
 
 | Rule | Links |
 |---|---|
@@ -930,7 +950,8 @@ QUALIFIED_NAME` (MCP getBaseTypes and getSubtypes) return direct edges with an
 optional evidence filter, and `get_class_hierarchy` follows them through
 classes and interfaces. The original tool emitted the same relation for names
 its symbol resolver found; it is now limited to these rules and marked with
-its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
+its evidence. The SCIP tool's IMPLEMENTS edges add indirect supertypes and
+overridden members.
 Rust impl blocks and supertraits give `resolved` INHERITS_FROM edges of their
 own (see "Rust impls").
 

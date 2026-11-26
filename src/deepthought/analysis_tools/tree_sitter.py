@@ -23,6 +23,7 @@ from ..generated_files import generated_files
 from .. import scip_calls
 from ..signature_types import signature_types
 from ..scip_calls import ScipReferences, bind_calls
+from .. import scip_bases
 from ..edge_coverage import edge_coverage
 from ..fastapi_dependencies import dependency_uses
 from ..pytest_fixtures import FixtureUse
@@ -645,6 +646,26 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[scip_bases.SCIP_PYTHON_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_PYTHON_BASE,
+        "resolved",
+        "scip-python records, at the last name of a base written in a Python "
+        "class statement, a reference to the symbol of exactly one class "
+        "declared in the analyzed files: the base as Python's import and name "
+        "lookup bind it.",
+    )
+)
+BASE_RULES[scip_bases.SCIP_TYPESCRIPT_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_TYPESCRIPT_BASE,
+        "resolved",
+        "scip-typescript records, at the last name of an extends or implements "
+        "entry of a TypeScript or JavaScript class or interface, a reference "
+        "to the symbol of exactly one class or interface declared in the "
+        "analyzed files: the base as the TypeScript compiler binds it.",
+    )
+)
 BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_SUPERTRAIT,
@@ -1306,7 +1327,10 @@ class TreeSitterTool(AnalysisTool):
             )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
-        for resolution in base_rules.resolve_supertypes(result):
+        for base_binding in scip_bases.bind_supertypes(
+            result, base_rules.resolve_supertypes(result), references
+        ):
+            resolution = base_binding.resolution
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
@@ -1330,6 +1354,7 @@ class TreeSitterTool(AnalysisTool):
                         "heritage": item.kind,
                         "line": item.line,
                         "column": item.column,
+                        **_produced(base_binding.producer),
                         **_evidence(BASE_RULES[resolution.rule_id]),
                     },
                 )
