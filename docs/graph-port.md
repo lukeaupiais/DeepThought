@@ -3908,6 +3908,35 @@ reference for count in `payload_types_unresolved`, and nothing is guessed.
 The `graph` command hands the indexes it ingested once to the
 `service-contracts` and `data-contracts` tools as well as `tree-sitter`.
 
+#### Field types
+
+A carried type's fields carry their own types, transitively: the route or
+destination CARRIES each type a field of a carried type holds, with the
+same `direction` and `body_key`, `via` listing the fields followed from
+the directly carried type and `via_field` the last of them. A field is
+written `Owner.field`; a base the type extends, embeds or implements is
+written `Owner(Base)`, its fields being the owner's. The edge's
+`file_path` and `line` are the field's. The chain is followed breadth
+first, so the shortest one is recorded, up to six fields deep; a type
+already carried, directly or through another chain, is not added again,
+which also ends cycles. Each field's type comes from the language's own
+tool:
+
+| Edge | Rule | Evidence | Fires on |
+|---|---|---|---|
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.go-field-type` | resolved | an exported or embedded field of a carried struct (not tagged `json:"-"`) whose type holds this type of the module, through pointers, slices, arrays, maps, channels, type arguments, inline structs and named non-struct types (`type Labels []Label` carries `Labels` and `Label`); `json:"-,"` names a field "-", which is written; `gofacts` prints each package-level struct's fields from go/types |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.ts-field-type` | resolved | a property or constructor parameter property (not static) of a carried class, interface or object type alias, written with a type naming this declaration, read as handler types are; or a class or interface it extends or implements |
+| HttpRoute or MessageDestination -[:CARRIES {via, via_field}]-> Symbol | `service-contracts.python-field-type` | resolved | an attribute a carried class annotates in its body (not a `ClassVar`) whose annotation names this class, through the scip-python index as for handler annotations; or a class of the repository it derives from |
+
+Types declared in a library (`time.Time`, `datetime`, a type in
+`node_modules`) are not followed. A field the Go type checker types as an
+interface, a TypeScript property typed `any` or naming nothing the
+compiler resolves, and a Python annotation name with no index reference
+count in `payload_field_types_unresolved`, next to `payload_field_types`
+(the edges added). A Python annotation written as a string (a forward
+reference) is not read. A field read from a type outside the analyzed
+languages (Go, TypeScript and JavaScript, Python) is not followed.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:

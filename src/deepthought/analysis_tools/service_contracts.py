@@ -297,6 +297,45 @@ PYTHON_PAYLOAD_RULES = {
     ),
 }
 
+# A field of a carried type carries its own type: the edge from the same
+# route or destination is marked with the fields followed (``via``).
+FIELD_TYPE_RULES = {
+    "go": register_rule(
+        EvidenceRule(
+            "service-contracts.go-field-type",
+            "resolved",
+            "A type this route or message destination carries has an exported "
+            'or embedded field (not tagged json:"-") whose type holds this '
+            "type of the module, through pointers, slices, arrays, maps, "
+            "channels, type arguments and inline structs; the Go type checker "
+            "gives the field's type and its declaration.",
+        )
+    ),
+    "typescript": register_rule(
+        EvidenceRule(
+            "service-contracts.ts-field-type",
+            "resolved",
+            "A type this route or message destination carries (a class, an "
+            "interface or an object type alias) has a property, or a "
+            "constructor parameter property, written with a type that names "
+            "this declaration, or extends or implements it; the TypeScript "
+            "compiler resolves the names, through arrays, unions, type "
+            "arguments and inline object types.",
+        )
+    ),
+    "python": register_rule(
+        EvidenceRule(
+            "service-contracts.python-field-type",
+            "resolved",
+            "A class this route or message destination carries annotates an "
+            "attribute in its body (not a ClassVar) with a type that names "
+            "this class, or derives from it; a scip-python index resolves "
+            "each name, and subscripts are read through (list[T], "
+            "Optional[T], Annotated[T, ...] give T).",
+        )
+    ),
+}
+
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -1183,6 +1222,7 @@ NON_SITE_RULES = frozenset(
     | {rule.rule_id for rule in PYTHON_PAYLOAD_RULES.values()}
     | {rule.rule_id for rules in SENT_PAYLOAD_RULES.values() for rule in rules.values()}
     | {_GO_KAFKA_VALUE_RULE.rule_id}
+    | {rule.rule_id for rule in FIELD_TYPE_RULES.values()}
 )
 
 
@@ -1970,7 +2010,7 @@ def _go_messaging_facts(root, sources):
         and any(marker in content for marker in _GO_HTTP_PAYLOAD_IMPORTS)
     ]
     if not files and not handlers:
-        return {}, {}, {}
+        return {}, {}, {}, ()
     facts = go_facts.collect(
         root,
         sorted({*files, *handlers}),
@@ -1991,7 +2031,154 @@ def _go_messaging_facts(root, sources):
             reason = None
         found[file] = (calls[file], literals[file], reason)
     handler_calls = {file: calls[file] for file in handlers}
-    return found, go_facts.gopath_report(facts), handler_calls
+    return found, go_facts.gopath_report(facts), handler_calls, facts.structs
+
+
+_FIELD_DEPTH = 6
+
+
+def _carry_field_types(
+    roots,
+    edges,
+    definitions,
+    declaration,
+    go_structs,
+    ts_fields,
+    python_index,
+    symbol_node,
+    repo_url,
+    relationships,
+):
+    """Add a CARRIES edge from each route or destination to the types the
+    fields of the types it carries hold, transitively (breadth first, so
+    the shortest chain of fields is the one recorded, up to _FIELD_DEPTH
+    fields deep); a type it already carries is not added again, which also
+    cuts cycles. Library types have no declaration in the repository and
+    are not followed. Returns (edges added, field types not resolved)."""
+    go_by_name = defaultdict(list)
+    for struct in go_structs:
+        go_by_name[(struct.file, struct.name)].append(struct)
+    ts_by_name = defaultdict(list)
+    for (file, name, line), fields in (ts_fields or {}).items():
+        ts_by_name[(file, name)].append((line, fields))
+    python = []
+    memo = {}
+
+    def fields_of(definition):
+        """[(field or None, file, line, declaration ids, unresolved)], and
+        the language, of a type declaration."""
+        if definition.id in memo:
+            return memo[definition.id]
+        name = definition.symbol.rsplit(".", 1)[-1]
+
+        def within(line):
+            return definition.line <= line <= definition.end_line
+
+        found, language = [], None
+        if definition.file.endswith(".go"):
+            language = "go"
+            for struct in go_by_name.get((definition.file, name), ()):
+                if not within(struct.line):
+                    continue
+                for field in struct.fields:
+                    ids = [declaration(f, n, line) for f, line, n in field.types]
+                    found.append(
+                        (
+                            field.name,
+                            definition.file,
+                            field.line,
+                            [i for i in ids if i is not None],
+                            int(field.interface),
+                        )
+                    )
+        elif definition.file.endswith((".py", ".pyi")):
+            language = "python"
+            if not python:
+                python.append(python_index())
+            references, trees = python[0]
+            if definition.file in trees:
+                for field, line, classes, unresolved in python_payloads.class_fields(
+                    references, trees, definition
+                ):
+                    found.append(
+                        (
+                            field,
+                            definition.file,
+                            line,
+                            [c.id for c in classes],
+                            unresolved,
+                        )
+                    )
+        else:
+            language = "typescript"
+            for line, fields in ts_by_name.get((definition.file, name), ()):
+                if not within(line):
+                    continue
+                for field, at, types, unresolved in fields:
+                    ids = [declaration(f, n, at_line) for f, n, at_line, _ in types]
+                    found.append(
+                        (
+                            field,
+                            definition.file,
+                            at,
+                            [i for i in ids if i is not None],
+                            unresolved,
+                        )
+                    )
+        memo[definition.id] = (found, language)
+        return memo[definition.id]
+
+    added, unresolved_total = 0, 0
+    counted = set()
+    for labels, name, direction, root_id, key in roots:
+        queue = [(root_id, ())]
+        while queue:
+            current, via = queue.pop(0)
+            definition = definitions.get(current)
+            if definition is None or len(via) >= _FIELD_DEPTH:
+                continue
+            fields, language = fields_of(definition)
+            owner = definition.symbol.rsplit(".", 1)[-1]
+            for field, file, line, ids, unresolved in fields:
+                if unresolved and (current, field, line) not in counted:
+                    counted.add((current, field, line))
+                    unresolved_total += unresolved
+                for target_id in ids:
+                    target = definitions.get(target_id)
+                    if target is None:
+                        continue
+                    hop = (
+                        f"{owner}.{field}"
+                        if field is not None
+                        else f"{owner}({target.symbol.rsplit('.', 1)[-1]})"
+                    )
+                    edge = (name, target_id, direction, key)
+                    if edge in edges:
+                        continue
+                    edges.add(edge)
+                    path = (*via, hop)
+                    queue.append((target_id, path))
+                    target_labels, target_name = symbol_node(target_id)
+                    added += 1
+                    relationships.append(
+                        RelationshipData(
+                            "CARRIES",
+                            labels,
+                            {"qualified_name": name, "repo_url": repo_url},
+                            target_labels,
+                            {"qualified_name": target_name, "repo_url": repo_url},
+                            {
+                                "direction": direction,
+                                **({"body_key": key} if key else {}),
+                                "via_field": hop,
+                                "via": list(path),
+                                "file_path": file,
+                                "line": line,
+                                **_evidence(FIELD_TYPE_RULES[language]),
+                            },
+                        )
+                    )
+    return added, unresolved_total
 
 
 def _declaration_node(tree, definition):
@@ -2523,7 +2710,12 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
-        go_messaging, go_gopath, go_handler_calls = _go_messaging_facts(root, sources)
+        (
+            go_messaging,
+            go_gopath,
+            go_handler_calls,
+            go_structs,
+        ) = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -3084,11 +3276,14 @@ class ServiceContractTool(AnalysisTool):
         carried_edges = set()
         payload_unresolved = 0
 
+        carried_roots = []
+
         def carry(labels, name, file, line, direction, definition_id, rule, key=None):
             nonlocal carried
             if (name, definition_id, direction, key) in carried_edges:
                 return
             carried_edges.add((name, definition_id, direction, key))
+            carried_roots.append((labels, name, direction, definition_id, key))
             target_labels, target = symbol_node(definition_id)
             carried += 1
             relationships.append(
@@ -3695,6 +3890,25 @@ class ServiceContractTool(AnalysisTool):
                 )
             )
         nodes.extend(topics[name] for name in sorted(topics))
+        field_carried, field_unresolved = _carry_field_types(
+            carried_roots,
+            carried_edges,
+            definitions,
+            declaration,
+            go_structs,
+            None if scripts is None else scripts.compiler.fields,
+            lambda: (
+                ScipReferences(result, scip_indexes, root),
+                {
+                    c.file: (content, tree)
+                    for c, content, tree in sources
+                    if c.language == "python"
+                },
+            ),
+            symbol_node,
+            repo_url,
+            relationships,
+        )
         unread_counts = {}
         for item in unread:
             key = f"{item.kind}:{item.reason}"
@@ -3811,6 +4025,8 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "payload_types": carried,
                 "payload_types_unresolved": payload_unresolved,
+                "payload_field_types": field_carried,
+                "payload_field_types_unresolved": field_unresolved,
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 **({"go_gopath_packages": go_gopath} if go_gopath else {}),
