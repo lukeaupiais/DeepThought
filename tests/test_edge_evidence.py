@@ -166,7 +166,8 @@ class TreeSitterEvidenceTests(unittest.TestCase):
             {
                 ("CONTAINS", "tree-sitter.repository-contains-file"): files,
                 ("DEFINES", "tree-sitter.file-defines-declaration"): symbols,
-                ("IMPORTS", "tree-sitter.python-absolute-module-path"): 3,
+                # scip-python resolves the absolute imports as Python would.
+                ("IMPORTS", "scip.python-import-module"): 3,
                 ("CALLS", "scip.call-occurrence"): 3,
                 # `value: Widget` and `-> Widget` name the class.
                 ("USES_TYPE", "scip.use-type"): 2,
