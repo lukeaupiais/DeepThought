@@ -39,9 +39,7 @@ FILES = {
         "}\n"
     ),
     "src/base.repository.ts": (
-        "export class BaseRepository {\n"
-        "  save(id: string): void {}\n"
-        "}\n"
+        "export class BaseRepository {\n  save(id: string): void {}\n}\n"
     ),
     "src/user.repository.ts": (
         "import { IUserRepository } from './tokens';\n"
