@@ -213,6 +213,31 @@ class GoTableName:
 
 
 @dataclass(frozen=True)
+class GoModelField:
+    name: str
+    embedded: bool
+    tag: str  # the raw struct tag
+    line: int
+    column: int  # 0-based
+    # How GORM's schema parser takes its type: "value", "struct", "many" or
+    # "other" (gormKind in gofacts).
+    kind: str
+    type: tuple[str, str] | None  # (import path, type name), when named
+
+
+@dataclass(frozen=True)
+class GoModel:
+    """A named struct type a file declares, with all its fields, as GORM's
+    schema parser would read it ("model" in gofacts)."""
+
+    file: str
+    line: int
+    column: int  # 0-based, where its name is written
+    type: tuple[str, str]  # (import path, type name)
+    fields: tuple[GoModelField, ...]
+
+
+@dataclass(frozen=True)
 class GopathPackage:
     """How a package outside every module was checked: as a module of its own
     whose imports resolved to their latest versions when it was analyzed
@@ -236,9 +261,13 @@ class GoFacts:
     # assigned from a variable, field or parameter.
     aliases: list[tuple] = field(default_factory=list)
     constructors: list[GoNew] = field(default_factory=list)
+    # (function reference, returned reference) of the module's functions
+    # that return a library-typed variable (a router they build).
+    returns: list[tuple] = field(default_factory=list)
     structs: list[GoStruct] = field(default_factory=list)
     proto_files: list[GoProtoFile] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
+    models: list[GoModel] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -767,6 +796,13 @@ def _read(text, directory, members, facts):
                 continue
             seen.add(key)
             facts.aliases.append((ref(item["assigned"]), ref(item["operand"])))
+        elif kind == "return":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "return")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.returns.append((ref(item["callee"]), ref(item["operand"])))
         elif kind == "new":
             file = relative(item["file"])
             key = (file, item["line"], item["column"], "new")
@@ -836,6 +872,32 @@ def _read(text, directory, members, facts):
                             bool(f.get("interface")),
                         )
                         for f in item.get("fields") or ()
+                    ),
+                )
+            )
+        elif kind == "model":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "model")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.models.append(
+                GoModel(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    tuple(
+                        GoModelField(
+                            f["name"],
+                            bool(f.get("embedded")),
+                            f.get("tag", ""),
+                            f["line"],
+                            f["column"] - 1,
+                            f["kind"],
+                            _type(f.get("type")),
+                        )
+                        for f in item.get("model_fields") or ()
                     ),
                 )
             )

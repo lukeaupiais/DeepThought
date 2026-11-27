@@ -736,6 +736,17 @@ classes mapped to the table are listed under `unresolved_users` (absent when
 there are none): whether they use the column is not known. Foreign keys that
 name the column are not yet followed column by column.
 
+A column also reaches the payloads that hold it. The class or struct whose
+field is the column `MAPS_COLUMN` it (the declaring class: an abstract
+Django model, a SQLModel base, a GORM struct a model embeds). A type that
+an HTTP route or message destination `CARRIES` and that is, or extends,
+such a class is in the change set, but only as a payload: the route or
+destination is a dependent at one hop and `must_change`, its clients
+(`REQUESTS`, `CONSUMES`) `must_change` too, and their callers re-test. The
+type's other users (code that constructs or converts it) are not reached
+through it. A payload that holds the model as a field (`data:
+list[ItemPublic]`) rather than extending it is not followed yet.
+
 For gRPC methods in any language an index covers, the messages also come
 from SCIP: the GrpcMethod node has protoc's `request_message` and
 `response_message`, and each client's stub call (the CALLS edge from the
@@ -1025,7 +1036,10 @@ project of its own, as `docker compose -f FILE` reads it. `extends`,
 `include`, all profiles and `${VARIABLE}` interpolation from the project's
 `.env` are the loader's; the process environment is never read, and text
 no variable sets is unknown (an image keeps it as `{?}`, and an image
-whose name is unknown is not recorded). A file the loader rejects (for
+whose name is unknown is not recorded). A required variable
+(`${DOMAIN?message}`, `${DOMAIN:?message}`) that nothing sets is unknown
+text too, and listed under `missing`, rather than rejecting the file: the
+run that deploys it sets it. A file the loader rejects (for
 example a port that only an unset variable gives) is a diagnostic and
 declares nothing. A service's root is its build context; one that only
 names an `image`, builds from a remote URL or from a directory an unset
@@ -1508,6 +1522,47 @@ reads (see below).
 dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
+
+### Calls through parameters
+
+`def apply(f, x): return f(x)` called as `apply(double, 3)` runs `double`.
+A call written as a parameter's name that no other rule links gets a CALLS
+edge to each function, method or class passed to that parameter (rule
+`python.call-parameter-value`, evidence type `resolved`, `dispatch:
+parameter`; `src/deepthought/python_value_calls.py`, facts read by
+`python_parameter_calls.py` with Python's `ast`).
+
+- A call that the index or pyright links to a parsed function binds its
+  arguments as Python does: positional arguments in order, after `self` or
+  `cls` for a method called through an instance or for a class method
+  (not for one called through its class, nor for a `staticmethod`), to
+  `__init__` for a class called, keyword arguments by name, and nothing
+  after a `*` or `**` argument.
+- An argument is a value of its parameter when the SCIP index resolves its
+  name (or the last name of a dotted name) to a parsed function, method or
+  class. A decorator written as a name gets the function it decorates.
+- A caller that passes its own parameter on as a bare name (`def
+  forward(g): apply(g)`) passes every value of that parameter, to any
+  depth.
+- The calls of a parameter are the calls written as its bare name in the
+  function's body, including in nested functions and lambdas, unless one
+  of them binds the name again. A parameter that the body rebinds anywhere
+  (`f = f or default`) takes part in nothing.
+
+No maintained tool answers this for Python. pyright and scip-python
+resolve names, not values flowing into a parameter, and the points-to call
+graph tools do not run on current Python (PyCG was archived in 2023 and
+fails on 3.13; pytype was retired in 2024). The binding is therefore this
+rule's, over names the index resolves. Not followed: values stored and read
+back (`self.steps.append(step)`, then `for step in self.steps: step()`),
+values taken from containers or returned from calls, and arguments passed
+through `*args` or `**kwargs`. The tool metadata counts
+`python_parameter_calls` (`sites`, `edges`).
+
+The caller and callee queries (`getFunctionCallers`, `getFunctionCalls`)
+also return the REFERENCES_FUNCTION edges of a function passed as a value
+(a handler given to a router, a callback, a middleware, a table entry), in
+every language, and each row's relationship type says which it is.
 
 ### Python versions
 
@@ -3429,7 +3484,27 @@ which only client requests are read:
   join their `prefix` option and the paths they are mounted at with `use`,
   including `router.routes()` mounts and exports; the index decides what
   is a koa-router `Router`. Plain JavaScript gets these symbols through
-  the DefinitelyTyped packages acquired before indexing. Django routes are
+  the DefinitelyTyped packages acquired before indexing. Hono routes (rule
+  `hono-route`) are `get`/`post`/.../`all` calls the index resolves to
+  Hono's methods, under the app's `basePath` and the paths it is mounted
+  at with `route(path, app)`, which the index resolves the same way; an
+  app built as one chain of calls (`new Hono().get(...).post(...)`) is the
+  app the chain is bound to, and one mounted in place is at the root. Fastify routes
+  (`service_contracts/fastify.py`, rule `fastify-route`) are
+  `get`/`post`/.../`all` and `route({method, url, handler})` calls on an
+  instance the index resolves the method to Fastify's `FastifyInstance`
+  for, or that is the first parameter of a plugin function the repository
+  registers (`register(plugin, {prefix})`, inline, local or imported) or
+  `@fastify/autoload` loads; Fastify always calls a plugin with the
+  instance. Prefixes follow encapsulation: a plugin's routes take the
+  prefixes of the plugin registering it plus its `prefix` option, a
+  `fastify-plugin` wrapper takes none, and autoload, read as its
+  `find-plugins` loads a directory (its `index` file, else every script but
+  `autohooks`), adds the directory path below `dir` (unless
+  `dirNameRoutePrefix: false`), a literal `autoPrefix` export in its place,
+  and `options.prefix`. A prefix the code does not fix leaves the base
+  unknown; a `dir` other than `path.join(__dirname | import.meta.dirname,
+  "...")` is `autoload_dir_not_literal`. Django routes are
   URLconf entries (`service_contracts/django_urls.py`, rule
   `django-urlconf-route`): from a module's `urlpatterns` (with `+=` and
   `+` and the module's own lists), a call the scip-python index resolves
@@ -3442,9 +3517,17 @@ which only client requests are read:
   optional parts dropped), and any other construct is `path_not_literal`.
   A URLconf no other includes is at `/`; one included at a pattern the code
   does not fix keeps an unknown base. A view the index does not resolve to
-  the repository (`admin.site.urls`) is `view_not_resolved`; Django REST
-  framework routers (`include(router.urls)`) are not read yet
-  (`include_not_resolved`). Express `get`/`post`/.../`all` calls on an app or Router
+  the repository (`admin.site.urls`) is `view_not_resolved`. Django REST
+  framework routers (`service_contracts/drf_routers.py`, rule
+  `drf-router-route`) are read where a URLconf includes `router.urls` of a
+  value whose `register` the index resolves to DRF's: each registered
+  ViewSet has the routes `SimpleRouter` generates for its actions
+  (`{prefix}/` GET list and POST create, `{prefix}/{lookup}/` GET retrieve,
+  PUT update, PATCH partial_update, DELETE destroy, and each `@action` with
+  its `detail`, `methods` and `url_path`), the actions read from the class,
+  its repository bases and the DRF ViewSet and mixin classes the index
+  resolves among them. A ViewSet with any other base is
+  `viewset_base_not_resolved`. Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
@@ -3495,10 +3578,14 @@ which only client requests are read:
   route variables and a trailing `*` matches the rest. The handler is the
   module function or method the handler argument names (`h.List`), or the
   one a call there calls when that call passes no function value: a handler
-  factory such as `p.Create()` anchors to `Create`, while a wrapper such as
-  `http.HandlerFunc(List)` is not followed. Not read: a mounted router
-  that is the result of a call (`r.Mount("/api", apiRouter())`), whose
-  routes then miss the prefix, and Fiber's optional `:id?` and `+`
+  factory such as `p.Create()` anchors to `Create`, while a call given a
+  function or a func-typed value (a middleware such as `auth(token)`) is
+  not followed. A conversion to a func type (`http.HandlerFunc(List)`) is
+  its function, also through a variable assigned only that conversion and
+  through that variable's `ServeHTTP` method value (`token.ServeHTTP`).
+  A router mounted from a call of a module function
+  (`r.Mount("/api", apiRouter())`) is the variable the function returns,
+  so its routes take the mount's prefix. Not read: Fiber's optional `:id?` and `+`
   parameters, which are kept as written.
   Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
@@ -4254,8 +4341,8 @@ CARRIES backwards):
 | --- | --- | --- | --- |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common`; for `@Body('key')` the edge's `body_key` is that property of the body |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
-| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler (a declared function or method, or a func literal written as the route's handler argument, found by the position of its first parameter that the type checker gives) decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request` |
-| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter` |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.go-request-body-type` | resolved | the type of the argument a Go route handler (a declared function or method, or a func literal written as the route's handler argument, found by the position of its first parameter that the type checker gives) decodes the body into: gin's `Context.Bind`, `ShouldBind`, `BindJSON` or `ShouldBindJSON`, echo's `Context.Bind`, fiber's `Ctx.BodyParser` or, in Fiber v3, `Ctx.Bind().Body` (and `JSON`, `XML`, `Form`, `MultipartForm`, `MsgPack`, `CBOR`), or `Decoder.Decode` of `encoding/json` on `json.NewDecoder(r.Body)` with `r` the handler's `*http.Request`, or go-chi/render's `Bind`, `Decode` (on the handler's request) or `DecodeJSON` (on its `Body`); `Bind` takes a `Binder`, and the argument's static type is the body |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.go-response-body-type` | resolved | the type of the value a Go route handler encodes as the response: gin's `Context.JSON` (and `IndentedJSON`, `PureJSON`, `SecureJSON`, `AsciiJSON`), echo's `Context.JSON` or `JSONPretty`, fiber's `Ctx.JSON`, or `Encoder.Encode` on `json.NewEncoder(w)` with `w` the handler's `http.ResponseWriter`, or go-chi/render's `JSON`, `Render` or `Respond` on the handler's response writer (`Render` takes a `Renderer`, and the argument's static type is the body) |
 | HttpRoute -[:CARRIES {direction: request\|response, via}]-> Symbol | `service-contracts.go-request-body-type-in-helper`, `service-contracts.go-response-body-type-in-helper` | resolved | the same body types, read in a function of the module the handler passes its request context to (gin's `*Context`, echo's `Context`, fiber's `*Ctx` or `Ctx`): the type checker gives the call, the callee and the parameter that receives the context, followed up to four calls deep; `via` lists the functions (`file::symbol`), outermost first. net/http's `*Request` and `ResponseWriter` are followed the same way. A value a helper takes as an interface parameter (`writeJSON(w, v any)`) has the static type of the argument each call gives it, also through further helpers; a value whose static type at the call is itself an interface stays unresolved. A helper call behind a type assertion (`if p, ok := v.(*Problem); ok`, or a type switch case naming one type) is not followed for a caller whose value has another named type |
 | HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.fastapi-body-type` | resolved | the type of a FastAPI path operation's body parameter: one marked `Body`, `Form` or `File` of FastAPI, or unmarked, not in the path, and naming a model class (a base of `pydantic` or `sqlmodel`, or a dataclass); with more than one body, or `Body(embed=True)`, `body_key` is the parameter's name or literal `alias` |
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
@@ -5667,6 +5754,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-scip-manager-call` | resolved | a `Model.objects...` call chain (the model may be module-qualified, `models.Post.objects`) with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, where a scip-python index resolves the written `Model` to a Django model class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial. Instance `save()`/`delete()` (and `save(update_fields=...)`), custom and related managers (`post.comments`), many-to-many `through` models (`Post.tags.through.objects`), querysets and `Q()` objects held in variables or built by helpers, and raw SQL are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-historical-manager-call` | pattern_matched | the same call chain where the index resolves `Model` to a variable assigned `<registry>.get_model("label", "Model")` (or `"label.Model"`), as data migrations take historical models from the migration state: the model of that app label and class name. Why not a tool: the migration state's registry is built at run time and no index types it; `get_model`'s arguments name the model |
+| Symbol -[:MAPS_COLUMN]-> DbColumn | the column rule of the ORM (`data-contracts.django-column`, `-sqlalchemy-column`, `-gorm-column`, ...) | as that rule | the class or struct whose field (`field`, at `line`) is the column: the class declaring the field, which may be an abstract model, a mixin or an embedded struct that several tables share. A field declared outside the repository, or not at all (Django's implicit `id`), has none. Column impact reaches the routes and messages that carry the class or a class extending it |
 | DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.django-column` | resolved | a field of a Django model, or of an abstract model it extends, assigned a Django field class (`django.db.models` or `django.contrib`; a project's own `...Field` class counts as Django's `Field`). Its column is what Django's own `Field.get_attname_column()` gives (`db_column`, else the attname: `author_id` for a `ForeignKey` named `author`), run by `deepthought.django_naming` (`djangonames/names.py`) with the Django release the project declares (lockfile pin, else the requirement pip resolves), installed from wheels with `pip install --only-binary :all: --target` into the cache; only Django is imported. A model without a `primary_key=True` field (and no concrete parent) gets Django's implicit `id`. `ManyToManyField`, `GenericForeignKey` and `GenericRelation` hold no column of the table. Fields a model inherits from an installed package's abstract model (django-taggit's `TagBase.name`) are not read. Columns are declared, as Django migrations are Python, unless SQL migrations give the table's columns, which they then map to. A project declaring no Django gets no columns and a `django_naming_unread` warning. Counted in `django_columns` |
 | Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-scip-column-access` | resolved | an attribute the scip-python index resolves to a model field (`django-column`): an assignment to it (`post.title = ...`) writes the column, an augmented assignment (`post.views += 1`) reads and writes it, any other access reads it; a relation field reads its foreign key column. Attributes reached through a relation (`post.author.name`) read the related column only where the index resolves them. A field an abstract model declares for several tables is not attributed (`reads_unattributed` on its columns) |
 | Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-column-key` | pattern_matched | the lookups and field names of a manager call chain (`django-scip-manager-call`) or of a `Model(...)` constructor the index resolves to a model. Keyword lookups of `filter`, `exclude`, `get` and of `Q()`, and field names of `values`, `values_list`, `only`, `defer`, `order_by`, `distinct`, `select_related`, `prefetch_related`, `earliest`, `latest`, `F()` and aggregates (`Count`, `Sum`...) read; a path follows relations (`author__name` reads `author_id` and the author's column) and reverse relations by `related_query_name`, else `related_name`, else the model name (`Count("post")` reads `post.author_id`; a `+` name has none); `pk` is the primary key and `author_id` the foreign key. Keywords of `update` and `create`, the `defaults` of `get_or_create`, `bulk_update`'s field names and a constructor's keywords write; the lookups of `get_or_create` and `update_or_create` both read and write (they filter, and create a row with them). scip-python does not resolve keyword lookups or field-name strings, so they are read against the model's fields. The chain's READS/WRITES edge carries `columns_resolved: true` when every argument was read (no `**kwargs`, variables or unknown methods) and the chain returns no whole rows (`values`, `values_list`, `only`, `count`, `exists`, `aggregate`, `update`, `delete`, `create`) |
@@ -5689,8 +5777,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-mapper-xml` | pattern_matched | a `<select>`, `<insert>`, `<update>` or `<delete>` of a MyBatis mapper XML file (root `<mapper namespace>`), with every dynamic branch (`<if>`, `<choose>`, `<foreach>`, `<where>`, `<set>`, `<trim>`) kept, `<sql>` fragments of the same mapper included and `<selectKey>` left out; `#{}` is a bind marker and `${}` text the code does not fix; the edge starts at the mapper interface method that the namespace and id name, else at the XML file |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-annotation` | pattern_matched | a mapper method's `@Select`, `@Insert`, `@Update` or `@Delete` (`org.apache.ibatis.annotations`), array strings joined with spaces and a `<script>` value read as mapper XML |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` or `new(T)` (T of the file's package or another, `new(models.User)`) to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.gorm-column` | resolved | a field of a GORM model struct (one mapped by `gorm-table-name`, `-table-name-types` or `-default-table-name`), or of a struct it embeds, that GORM's schema parser stores. The Go type checker (gofacts' `struct` facts) gives each field's name, tag, embedding and type: a data type is a bool, number or string kind, `[]byte`, `time.Time` (or a type defined on it), or a type with a `Value` or `GormDataType` method; a `type:` or `serializer:` tag makes any field a column; other structs and slices of structs are relations. GORM's own `schema.ParseTagSetting` and `NamingStrategy{}.ColumnName`, built at the gorm.io/gorm version the module selects (`gorm_naming`, `gormnames/main.go`), give the column (`column:` tag, else the default name), `embedded` and `embeddedPrefix` (the prefix is put before every embedded column) and ignored fields (`-`, `-:all`). Unexported fields hold no column; `gorm.Model` gives `id`, `created_at`, `updated_at`, `deleted_at`. A NamingStrategy that is not a `schema.NamingStrategy{...}` literal, or that sets `NoLowerCase` or `NameReplacer`, leaves every column unread (`naming_strategy_configured`); table settings such as `SingularTable` do not. Columns are declared unless SQL migrations give the table's columns, which they then map to. Counted in `gorm_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.gorm-scip-column-access` | resolved | a field selector (`u.Name`) or composite literal key (`User{Name: x}`) the scip-go index resolves to a column field (`gorm-column`): an assignment (`=`) writes, `++`, `--` and `op=` read and write, and any other selector reads. A literal key writes, except in a literal passed to `Where`, `Not`, `Or` or `Having`, or after the destination of `First`, `Last`, `Take`, `Find`, `Delete` or `FirstOrInit` (inline conditions), where it reads; after the destination of `FirstOrCreate` it reads and writes. A field of a struct several models embed (`gorm.Model`'s fields, a shared base) is not attributed (`reads_unattributed`). `_test.go` files are not read |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.gorm-column-key` | pattern_matched | a column a `*gorm.DB` call (gofacts: the method GORM declares on `DB`) names in a string, in a chain whose model `gorm-call` gives (every call of a chain starts where the chain does; a chain with several models gives none). The SQL fragments of `Where`, `Or`, `Not`, `Having` (`SELECT 1 FROM t WHERE ...`), `Select`, `Pluck`, `Distinct` (`SELECT ... FROM t`), `Group` and `Order`, with the string values the Go type checker folds, are parsed by sqlglot and their columns resolved by its optimizer against the model table's columns: they read, and `Select` in a chain that writes names written columns. `Update` and `UpdateColumn`'s column and the string keys of a `map[string]...` literal passed to `Updates`, `UpdateColumns` or `Create` write; those of one passed to `Where`, `Not`, `Or`, `First`, `Last`, `Take` or `Find` read. Chains continued through a variable (`tx := db.Model(&u); tx.Where(...)`) and `Joins` fragments are not read (`chain_model_unknown`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local whose value is followed through the function's statements (`=`, `:=`, `+=`, `if`/`switch`/`select` branches; each path's text kept), `+` joins (other operands unfixed) or sqlx's `Rebind`; one of its texts starts with a reading or writing verb, and the call links the tables of every such text |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
@@ -5776,11 +5867,11 @@ contract paths are folded through. In Python only the call's own argument is rea
 not variables holding SQL, and driver parameter markers (`%s`, `%(name)s`)
 never name a table. Fixed SQL text is parsed by sqlglot (a required
 dependency), trying the PostgreSQL, MySQL, SQLite, T-SQL and Oracle dialects
-and then the generic one; JPA's `?1` markers are read as `?`. The targets of
+and then the generic one; JPA's `?1` markers and named parameters (sqlc's `@name`, T-SQL's `@p`, MySQL's `@var`; not `@@x`) are read as `?`. The targets of
 `INSERT`, `UPDATE`, `DELETE` (with its `USING` tables, aliases resolved),
 `MERGE` and `TRUNCATE` are written and every other table the parse names is
 read. Common table expressions, `dual`, catalog names, functions in `FROM`
-and the `FOR UPDATE OF` lock list are not tables. The hand-written token
+and the `FOR UPDATE OF` lock list are not tables. A CTE name hides a table only where SQL makes the CTE visible: in the CTEs after it and the statement it belongs to, and in its own body only under `RECURSIVE` (`WITH t AS (UPDATE t ... RETURNING *) SELECT * FROM t` writes and reads the table `t`). sqlglot's scope builder builds no scopes for data-modifying CTEs, so this rule is applied by `_visible_ctes`. The hand-written token
 reader is kept only where no parser can read the text: SQL holding a part the
 code does not fix (that name is dropped), JPQL, and statements sqlglot cannot
 parse (PostgreSQL 18's `RETURNING WITH`, SQLite's `VARYING CHARACTER`). The

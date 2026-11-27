@@ -103,8 +103,16 @@ def _combine(outputs, repo_url, snapshot_id, config):
             output.metadata.custom_metrics.get("analysis_status") != "succeeded"
             or output.metadata.errors
         ):
+            # Name the tool and why, so the run can be fixed.
             raise ValueError(
-                "Only successful complete analysis may be published; no contribution was imported"
+                "Only successful complete analysis may be published; no contribution "
+                f"was imported: {output.metadata.tool_name} "
+                f"{output.metadata.custom_metrics.get('analysis_status')!r}"
+                + (
+                    ": " + "; ".join(map(str, output.metadata.errors[:5]))
+                    if output.metadata.errors
+                    else ""
+                )
             )
         source = output.metadata.custom_metrics.get("snapshot_id")
         if not isinstance(source, str) or not source.strip():

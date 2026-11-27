@@ -34,6 +34,7 @@ from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.django_urls import django_routes
+from ..service_contracts.fastify import FastifyPlugins
 from ..service_contracts.deployed import (
     Deployments,
     command_line,
@@ -461,6 +462,39 @@ ROUTE_RULES = {
             "index resolves to a FastAPI app or APIRouter another module binds; "
             "the router's own prefix and the prefixes it is included with are "
             "joined.",
+        )
+    ),
+    "hono-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.hono-route",
+            "pattern_matched",
+            "A call the scip-typescript index resolves to a Hono route method "
+            "(get, post, put, patch, delete, options, all) with a handler "
+            "argument declares this path, joined with the app's basePath and "
+            "the paths it is mounted at with route.",
+        )
+    ),
+    "fastify": register_rule(
+        EvidenceRule(
+            "service-contracts.fastify-route",
+            "pattern_matched",
+            "A route method (get, post, ..., all, route) called on a Fastify "
+            "instance, which the scip-typescript index resolves the method to or "
+            "which is the first parameter of a plugin the repository registers "
+            "or @fastify/autoload loads, declares this path under the prefixes "
+            "the plugin is registered with.",
+        )
+    ),
+    "django-rest-framework": register_rule(
+        EvidenceRule(
+            "service-contracts.drf-router-route",
+            "pattern_matched",
+            "A ViewSet registered on a router the scip-python index resolves to "
+            "Django REST framework's has the routes SimpleRouter generates for "
+            "its actions (list, create, retrieve, update, partial_update, "
+            "destroy and @action methods), read from its class and the DRF "
+            "classes among its bases; the patterns of the URLconf entries "
+            "including router.urls are joined.",
         )
     ),
     "django": register_rule(
@@ -2056,10 +2090,22 @@ _SCRIPT_ROUTE_METHODS = (
         ),
         "koa-router",
     ),
+    (
+        re.compile(
+            r"^scip-typescript npm hono \S+ \S*`hono-base\.d\.ts`/Hono#"
+            r"(get|post|put|patch|delete|options|all)\.$"
+        ),
+        "hono",
+    ),
 )
 _SCRIPT_ROUTER_CONSTRUCTORS = re.compile(
-    r"^scip-typescript npm (?:@types/koa-router|@types/koa__router|koa-router|"
-    r"@koa/router) \S+ \S*Router#`<constructor>`\(\)\.$"
+    r"^scip-typescript npm (?:(?:@types/koa-router|@types/koa__router|koa-router|"
+    r"@koa/router) \S+ \S*Router|hono \S+ \S*Hono)#`<constructor>`\(\)\.$"
+)
+# Methods that mount one router under a path in another, besides ``use``:
+# Hono's ``app.route(path, subApp)``.
+_SCRIPT_MOUNT_METHODS = re.compile(
+    r"^scip-typescript npm hono \S+ \S*`hono-base\.d\.ts`/Hono#route\(\)\.$"
 )
 
 
@@ -2159,6 +2205,14 @@ def _script_router_constructor(references, file):
     Router()``) to a koa-router Router constructor."""
 
     def is_router(value):
+        # A chain of calls on a new router is the router: Hono's
+        # ``new Hono().basePath("/api")`` and route methods return the app.
+        while (
+            value.type == "call_expression"
+            and value.child_by_field_name("function") is not None
+            and value.child_by_field_name("function").type == "member_expression"
+        ):
+            value = value.child_by_field_name("function").child_by_field_name("object")
         if value.type != "new_expression" or not references.covers(file):
             return False
         constructor = value.child_by_field_name("constructor")
@@ -2174,6 +2228,21 @@ def _script_router_constructor(references, file):
         )
 
     return is_router
+
+
+def _script_mount_method(references, file):
+    """``is_mount(property node)``: whether the index resolves a called
+    name to a method that mounts a router under a path (``_SCRIPT_MOUNT_METHODS``)."""
+
+    def is_mount(name):
+        return references.covers(file) and any(
+            _SCRIPT_MOUNT_METHODS.match(symbol)
+            for symbol in references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+        )
+
+    return is_mount
 
 
 def _python_router_resolver(references, routers):
@@ -2404,6 +2473,7 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
     b'"github.com/gin-gonic/gin"',
     b'"github.com/labstack/echo',
     b'"github.com/gofiber/fiber',
+    b'"github.com/go-chi/render"',
 )
 
 
@@ -2900,10 +2970,18 @@ def _express_mounts(sources, references=None):
             None
             if references is None
             else _script_router_constructor(references, coverage.file),
+            None
+            if references is None
+            else _script_mount_method(references, coverage.file),
         )
         for coverage, content, tree in sources
         if coverage.language in ("javascript", "typescript")
-        and (b"express" in content or b".use(" in content or b"Router" in content)
+        and (
+            b"express" in content
+            or b".use(" in content
+            or b"Router" in content
+            or b"Hono" in content
+        )
     }
     if not any(facts[2] for facts in found.values()):
         return {}
@@ -3516,6 +3594,7 @@ class ServiceContractTool(AnalysisTool):
         indexed = ScipReferences(result, scip_indexes, root)
         python_router_of = _python_router_resolver(indexed, python_routers_found)
         script_route_of = _script_route_resolver(indexed)
+        fastify = FastifyPlugins(sources, indexed, resolve_script_module)
         client_of = _client_resolver(indexed)
         composer = {}
         symfony_clients = {}
@@ -3711,6 +3790,7 @@ class ServiceContractTool(AnalysisTool):
                     mounts=python_mounts.get(coverage.file),
                     python_router_of=python_router_of,
                     script_route_of=script_route_of,
+                    fastify_route_of=fastify.route_of,
                     client_of=client_of,
                     go_routes=go_routes.get(coverage.file, {}),
                     externals=(
@@ -3855,6 +3935,10 @@ class ServiceContractTool(AnalysisTool):
         )
         routes.extend(found_django)
         unread.extend(unread_django)
+        unread.extend(
+            Unread(file, line, "route", reason)
+            for file, line, reason in sorted(set(fastify.unread))
+        )
 
         for path in sorted(
             p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)

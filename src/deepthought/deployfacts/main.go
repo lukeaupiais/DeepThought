@@ -28,6 +28,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -124,6 +125,24 @@ func relative(path string) string {
 	return path
 }
 
+// closingBrace is the index of the brace closing the "${" that “text“
+// starts with, or -1.
+func closingBrace(text string) int {
+	depth := 0
+	for i, c := range text {
+		switch c {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 func compose(r request) fact {
 	directory := filepath.Join(root, r.Directory)
 	environment := map[string]string{}
@@ -156,8 +175,24 @@ func compose(r request) fact {
 			}
 			// The loader's own substitution (defaults, :?, nesting), with a
 			// variable nothing sets written as Placeholder, not "".
-			replace := func(text string, mapping template.Mapping, cfg *template.Config) (string, error) {
+			var replace func(text string, mapping template.Mapping, cfg *template.Config) (string, error)
+			replace = func(text string, mapping template.Mapping, cfg *template.Config) (string, error) {
 				value, ok, err := template.DefaultReplacementAppliedFunc(text, mapping, cfg)
+				var required *template.MissingRequiredError
+				if errors.As(err, &required) {
+					// ${NAME?message} or ${NAME:?message}: the run that
+					// deploys it must set NAME; the checkout does not.
+					missing[required.Variable] = true
+					// The match runs on past the variable's closing brace
+					// (the loader substitutes that rest itself once the
+					// variable is set), so substitute it here.
+					rest := ""
+					if end := closingBrace(text); end >= 0 {
+						rest = text[end+1:]
+					}
+					tail, err := template.SubstituteWithOptions(rest, mapping, template.WithReplacementFunction(replace), template.WithoutLogging)
+					return Placeholder + tail, err
+				}
 				if err != nil || ok {
 					return value, err
 				}

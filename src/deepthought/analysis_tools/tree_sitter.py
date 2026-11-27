@@ -22,7 +22,7 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from ..generated_files import generated_files
-from .. import js_callgraph, scip_calls, ts_modules
+from .. import js_callgraph, python_value_calls, scip_calls, ts_modules
 from ..pyright_calls import PyrightDefinitions
 from ..signature_types import signature_types
 from ..scip_calls import ScipReferences, bind_calls
@@ -405,6 +405,20 @@ NEST_INJECTED_CALL_RULE = register_rule(
         "p's type names. The TypeScript compiler's checker resolves the "
         "token and the class; m is the method C declares or inherits through "
         "extends.",
+    )
+)
+PYTHON_CALL_PARAMETER_VALUE_RULE = register_rule(
+    EvidenceRule(
+        python_value_calls.PYTHON_CALL_PARAMETER_VALUE,
+        "resolved",
+        "A Python call written as a parameter's name that no other rule "
+        "links (def apply(f, x): return f(x)) links to each function, method "
+        "or class passed to that parameter: a call the index or pyright "
+        "links binds its arguments as Python does, an argument's name is "
+        "resolved by the SCIP index, and values a caller passes on through "
+        "its own parameters are followed. A parameter the body rebinds takes "
+        "part in nothing. No maintained points-to tool runs on current "
+        "Python, so the binding is this rule's.",
     )
 )
 JS_CALL_POINTS_TO_RULE = register_rule(
@@ -1869,6 +1883,45 @@ class TreeSitterTool(AnalysisTool):
                         },
                     )
                 )
+        # Python calls through a parameter: the functions callers pass to it.
+        parameter_values = python_value_calls.parameter_calls(
+            result,
+            facts["parameters"],
+            references,
+            {
+                r.call_id: r.target_id
+                for r in binding.resolutions
+                if r.status == "linked"
+            },
+            {r.call_id for r in binding.resolutions if r.status == "linked"},
+        )
+        for site_id, targets in parameter_values.items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "parameter",
+                            **_evidence(PYTHON_CALL_PARAMETER_VALUE_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1944,6 +1997,10 @@ class TreeSitterTool(AnalysisTool):
                     "sites": len(points_to["targets"]),
                     "edges": sum(len(t) for t in points_to["targets"].values()),
                     "error": points_to["error"],
+                },
+                "python_parameter_calls": {
+                    "sites": len(parameter_values),
+                    "edges": sum(len(t) for t in parameter_values.values()),
                 },
                 "nest_injected_calls": {
                     "sites": len(injected),

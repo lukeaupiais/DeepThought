@@ -29,6 +29,9 @@ _IMPACT_BACKWARD = (
     "|READS_FIELD|WRITES_FIELD"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
+# From a type to a column it holds: its field (MAPS_COLUMN), or the field of
+# a class it extends.
+_HOLDS_COLUMN = "-[:INHERITS_FROM*0..5]->(:Symbol)-[:MAPS_COLUMN]->"
 # What provides a contract: handles a route, publishes to a destination,
 # writes, maps or declares a table or column.
 _PROVIDES = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN|MAPS_TO|DECLARES"
@@ -244,6 +247,51 @@ def _query_strings(query, parameters):
         if key in used:
             visit(value)
     return list(dict.fromkeys(v for v in found if v and len(v) <= 300))
+
+
+# Links that only place a declaration (in its file, its syntax tree) rather
+# than use it; an empty answer's sentences leave them out.
+_PLACEMENT_LINKS = (
+    "DEFINES",
+    "CONTAINS",
+    "DECLARES",
+    "HAS_AST_DECLARATION",
+    "UNIFIED_EDGE",
+)
+
+
+def _query_lines(query, parameters):
+    """Line numbers a query looks for: what it compares with a declaration's
+    ``start_line`` or ``end_line`` (integer literals and parameters), and
+    integer parameters it uses whose name says line."""
+    try:
+        code = _cypher_code(query)
+    except ValueError:
+        code = query
+    bound = r"\w+\s*\.\s*(?:start_line|end_line)\b"
+    value = r"(?<![\w.])(\$\s*" + _IDENT + r"|\d{1,7})(?![\w.])"
+    op = r"\s*(?:<=|>=|<|>|=)\s*"
+    compared = re.findall(value + op + bound, code) + re.findall(
+        bound + op + value, code
+    )
+    used = set(re.findall(r"\$\s*(" + _IDENT + r")", code))
+    named = {v.lstrip("$ ") for v in compared if v.startswith("$")} | {
+        k for k in used if "line" in k.lower()
+    }
+    lines = [int(v) for v in compared if v.isdigit()]
+    lines += [
+        v
+        for k, v in (parameters or {}).items()
+        if k in named and isinstance(v, int) and not isinstance(v, bool)
+    ]
+    return list(dict.fromkeys(n for n in lines if n > 0))[:4]
+
+
+def _declaration_at(record):
+    where = f"{record['file']}:{record['start']}"
+    if record["end"] and record["end"] != record["start"]:
+        where += f"-{record['end']}"
+    return f"{record['name']} ({where})"
 
 
 async def _hinted(read):
@@ -1237,8 +1285,13 @@ class GraphQueryService:
         _text(qname, "function_qname")
         qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
+        # A function passed as a value (a handler, callback or middleware
+        # handed to a router, a table entry) is used where it is passed:
+        # REFERENCES_FUNCTION edges come with the calls.
         pattern = (
-            "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
+            "(other)-[r:CALLS|REFERENCES_FUNCTION]->(func)"
+            if incoming
+            else "(func)-[r:CALLS|REFERENCES_FUNCTION]->(other)"
         )
         response = await self._read(
             "MATCH (func:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$qname}) "
@@ -1261,7 +1314,10 @@ class GraphQueryService:
             response["status"] = "unsupported_or_unobserved"
         response["evidence_types"] = evidence
         response["semantics"] = (
-            "Observed CALLS edges only; absence does not prove that no calls exist."
+            "Observed CALLS edges, and REFERENCES_FUNCTION edges where the "
+            "function is passed as a value without being called there (each "
+            "relationship's type says which); absence does not prove that no "
+            "calls exist."
         )
         if len(_json(response).encode()) > budget:
             raise ValueError("Query response exceeds output byte budget")
@@ -1542,7 +1598,10 @@ class GraphQueryService:
         columns. Code that reads or writes the column's table where the
         statement's columns did not all resolve, and ORM classes mapped to
         the table, are listed under ``unresolved_users`` (absent when there
-        are none): whether they use the column is not known.
+        are none): whether they use the column is not known. A route or
+        message destination that CARRIES a type holding the column (its
+        field, or a field of a class it extends: MAPS_COLUMN) must change,
+        and so must its clients.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -1615,7 +1674,14 @@ class GraphQueryService:
             "qualified_name:$subject}) "
             "OPTIONAL MATCH (provider)-[:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
-            "WITH root, collect(DISTINCT provider) AS parts ",
+            "WITH root, collect(DISTINCT provider) AS parts "
+            # A column's payload types: the carried types whose field is
+            # the column, declared by them or by a class they extend.
+            "OPTIONAL MATCH (payload:Symbol)" + _HOLDS_COLUMN + "(root) "
+            "WHERE payload.repo_url=$repo_url AND payload.snapshot_id=$snapshot_id "
+            "AND EXISTS { ()-[:CARRIES]->(payload) } "
+            "WITH root, parts, collect(DISTINCT payload) AS payloads "
+            "WITH root, parts + payloads AS parts ",
             _IMPACT_BACKWARD,
             qualified_name,
             repo_url,
@@ -1785,6 +1851,11 @@ class GraphQueryService:
                 # forwards over WRITES_COLUMN) are neither dependents nor
                 # a way to their readers.
                 "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
+                # A payload type that holds the changed column is changed
+                # only as what routes and messages carry: its other users
+                # do not depend on the column.
+                "AND (type(last(relationships(path))) = 'CARRIES' OR NOT "
+                "EXISTS { (target)" + _HOLDS_COLUMN + "(root) }) "
                 "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
                 "WITH root, messages, known, dependent, target, path, CASE "
@@ -1795,6 +1866,11 @@ class GraphQueryService:
                 # those messages: it builds or reads them.
                 "all(n IN nodes(path)[1..] WHERE n = root OR "
                 "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) } OR "
+                # A route or message carrying a payload type that holds the
+                # changed column carries the column.
+                "EXISTS { (n)-[:CARRIES*0..1]->(:Symbol)"
+                + _HOLDS_COLUMN
+                + "(root) } OR "
                 "any(m IN messages WHERE (n)-[:SIGNATURE_USES]->(m))) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
@@ -2848,6 +2924,88 @@ class GraphQueryService:
             timeout=timeout,
         )
 
+    async def _anchor_declarations(self, tx, query, parameters, repo_url, snapshot_id):
+        """The declarations a query anchors on by file and line: for each
+        analyzed path and line number it looks for (``$file`` and ``$line``,
+        or literals), the innermost declaration in that file holding the
+        line, as ``{path, line, element_id, name, file, start, end}``; a
+        line outside every declaration has ``element_id`` None."""
+        paths = [v for v in _query_strings(query, parameters) if _is_path(v)][:4]
+        lines = _query_lines(query, parameters)
+        if not paths or not lines:
+            return []
+        result = await tx.run(
+            "UNWIND $paths AS p UNWIND $lines AS l "
+            "OPTIONAL MATCH (s:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE (s.file_path = p OR s.file_path ENDS WITH '/' + p) "
+            "AND s.start_line <= l AND l <= s.end_line "
+            "WITH p, l, s ORDER BY s.end_line - s.start_line "
+            "WITH p, l, collect(s)[0] AS s "
+            "OPTIONAL MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE s IS NULL AND (f.path = p OR f.path ENDS WITH '/' + p) "
+            "WITH p, l, s, collect(f.path)[0] AS file "
+            "WHERE s IS NOT NULL OR file IS NOT NULL "
+            "RETURN p AS path, l AS line, elementId(s) AS element_id, "
+            "s.name AS name, coalesce(s.file_path, file) AS file, "
+            "s.start_line AS start, s.end_line AS end",
+            paths=paths,
+            lines=lines,
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+        )
+        return [dict(r) async for r in result]
+
+    async def _links_into(self, tx, element_id, examples=3):
+        """Per relationship type, how many links end at one node and the
+        first few of them (source, its file and line, the link's line),
+        leaving out links that only place it (``_PLACEMENT_LINKS``)."""
+        result = await tx.run(
+            "MATCH (s) WHERE elementId(s) = $id "
+            "MATCH (src)-[r]->(s) WHERE NOT type(r) IN $placement "
+            "WITH type(r) AS kind, src, r "
+            "ORDER BY coalesce(src.file_path, src.path), r.line "
+            "WITH kind, count(r) AS links, collect({"
+            "name: coalesce(src.name, src.path), file: coalesce(src.file_path, src.path),"
+            " start: src.start_line, line: r.line})[0..$examples] AS first "
+            "RETURN kind, links, first ORDER BY kind = 'CALLS' DESC, links DESC, kind",
+            id=element_id,
+            placement=list(_PLACEMENT_LINKS),
+            examples=examples,
+        )
+        return [dict(r) async for r in result]
+
+    def _links_sentence(self, links):
+        """``_links_into`` as a sentence: each kind's count and examples."""
+        from .storage.graph.schema import RELATIONSHIP_SENTENCES
+
+        parts = []
+        for record in links:
+            verb = RELATIONSHIP_SENTENCES.get(record["kind"], record["kind"].lower())
+            shown = []
+            for src in record["first"]:
+                where = (
+                    src["file"]
+                    if src["start"] is None
+                    else (f"{src['file']}:{src['start']}")
+                )
+                text = (
+                    f"{src['name']} ({where})"
+                    if src["name"] != src["file"]
+                    else (f"{src['file']} (file)")
+                )
+                if src["line"] is not None:
+                    text += f" at line {src['line']}"
+                shown.append(text)
+            more = record["links"] - len(shown)
+            parts.append(
+                f"{record['links']} {record['kind']} link"
+                + ("" if record["links"] == 1 else "s")
+                + f" ({verb}): "
+                + "; ".join(shown)
+                + (f"; and {more} more" if more > 0 else "")
+            )
+        return parts
+
     async def _why_empty(self, query, parameters, repo_url, snapshot_id, timeout):
         """Sentences on why a query matched nothing, from the paths and code
         names it looks for. A path no analyzed file has is named (with
@@ -2963,7 +3121,8 @@ class GraphQueryService:
                         "OPTIONAL MATCH (caller)-[c:CALLS]->(callee) "
                         "WHERE callee IN declared "
                         "RETURN n, size(declared) AS count, first.file_path AS file, "
-                        "first.start_line AS line, count(c) AS callers",
+                        "first.start_line AS line, count(c) AS callers, "
+                        "elementId(first) AS first_id",
                         names=names,
                         **scope,
                     )
@@ -2977,17 +3136,63 @@ class GraphQueryService:
                                 else f"'{name}' has {count} declarations, the first"
                                 f" at {where}"
                             )
-                            reasons.append(
-                                f"{sentence}, with {record['callers']} call"
+                            sentence += (
+                                f", with {record['callers']} call"
                                 f"{'' if record['callers'] == 1 else 's'} to"
-                                f" {'it' if count == 1 else 'them'}."
+                                f" {'it' if count == 1 else 'them'}"
                             )
+                            if count == 1:
+                                other = [
+                                    r
+                                    for r in await self._links_into(
+                                        tx, record["first_id"]
+                                    )
+                                    if r["kind"] != "CALLS"
+                                ]
+                                if other:
+                                    sentence += "; other links into it: " + "; ".join(
+                                        self._links_sentence(other)
+                                    )
+                            reasons.append(sentence + ".")
                         elif re.search(r"[A-Z_.]", name):
                             missing += 1
                             reasons.append(
                                 f"Nothing named '{name}' is declared in the "
                                 "analyzed files."
                             )
+                # A declaration picked by file and line: name it, with every
+                # kind of link into it, since the query may ask for one kind
+                # (CALLS) while the code reaches it through another (a function
+                # passed as a value, an interface method, a type use).
+                for anchor in await self._anchor_declarations(
+                    tx, query, parameters, repo_url, snapshot_id
+                ):
+                    where = f"Line {anchor['line']} of {anchor['file']}"
+                    if anchor["element_id"] is None:
+                        reasons.append(
+                            f"{where} is outside every declaration (top level of"
+                            " the file)."
+                        )
+                        continue
+                    links = await self._links_into(tx, anchor["element_id"])
+                    sentence = f"{where} is inside {_declaration_at(anchor)}"
+                    if not links:
+                        reasons.append(sentence + ": nothing in the graph links to it.")
+                        continue
+                    reasons.append(
+                        sentence
+                        + ". Links into it, by type: "
+                        + "; ".join(self._links_sentence(links))
+                        + "."
+                    )
+                    if not any(r["kind"] == "CALLS" for r in links):
+                        kinds = ", ".join(r["kind"] for r in links)
+                        reasons.append(
+                            f"Nothing calls {anchor['name']} directly; code reaches it"
+                            f" through {kinds}: match those types"
+                            " (for example -[r:" + links[0]["kind"] + "]->) and follow"
+                            " the code that holds them."
+                        )
             finally:
                 await tx.rollback()
         if reasons and not missing:

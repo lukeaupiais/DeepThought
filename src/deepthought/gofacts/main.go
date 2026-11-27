@@ -23,6 +23,9 @@
 //     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
+//   - "model": every named struct type the file declares, with each field's
+//     name, tag, whether it is embedded, and how GORM's schema parser would
+//     take its type (see gormKind).
 //   - "error": a package that did not type-check completely; its facts are
 //     still printed where go/types could type them.
 //
@@ -126,6 +129,68 @@ type element struct {
 	argument
 }
 
+// modelField is one field of a "model" fact.
+type modelField struct {
+	Name     string     `json:"name"`
+	Embedded bool       `json:"embedded,omitempty"`
+	Tag      string     `json:"tag,omitempty"`
+	Line     int        `json:"line"`
+	Column   int        `json:"column"`
+	Kind     string     `json:"kind"`
+	Type     *namedType `json:"type,omitempty"`
+}
+
+// gormKind says how GORM's schema parser takes a field of type t (through
+// pointers): "value" when it gets a data type (a bool, number or string
+// kind, []byte, time.Time or a type converting to it, or a type with a
+// Value or GormDataType method); "struct" for another struct, an
+// embedded struct or a relation; "many" for a slice of structs, a relation;
+// "other" for anything else (no column unless a tag gives a type).
+func gormKind(t types.Type) string {
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
+	for _, name := range []string{"Value", "GormDataType"} {
+		if obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(t), false, nil, name); obj != nil {
+			if _, ok := obj.(*types.Func); ok {
+				return "value"
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		if u.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0 {
+			return "value"
+		}
+	case *types.Struct:
+		// time.Time, or a type defined on it (its fields are time's).
+		if u.NumFields() > 0 && u.Field(0).Pkg() != nil && u.Field(0).Pkg().Path() == "time" {
+			return "value"
+		}
+		return "struct"
+	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+		elem := u.Elem()
+		if p, ok := types.Unalias(elem).(*types.Pointer); ok {
+			elem = p.Elem()
+		}
+		if _, ok := elem.Underlying().(*types.Struct); ok {
+			return "many"
+		}
+	case *types.Array:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+	}
+	return "other"
+}
+
 type fact struct {
 	Kind      string        `json:"kind"`
 	File      string        `json:"file,omitempty"`
@@ -159,6 +224,8 @@ type fact struct {
 	NameLine    int          `json:"name_line,omitempty"`
 	NameColumn  int          `json:"name_column,omitempty"`
 	Types       []*namedType `json:"types,omitempty"`
+	// model: its fields.
+	ModelFields []modelField `json:"model_fields,omitempty"`
 	// "pass": the arguments given to interface parameters.
 	Typed []typedArgument `json:"typed,omitempty"`
 	// "pass": the type assertions the call runs behind.
@@ -459,6 +526,45 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	structs(file, info, emit, where)
 	protoFiles(file, info, emit, where, named)
 	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			obj, ok := info.Defs[ts.Name].(*types.TypeName)
+			if !ok || ts.TypeParams != nil {
+				continue
+			}
+			st, ok := obj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			out := fact{Kind: "model", Type: named(obj.Type())}
+			if out.Type == nil {
+				continue
+			}
+			out.File, out.Line, out.Column = where(ts.Name.Pos())
+			for i := 0; i < st.NumFields(); i++ {
+				v := st.Field(i)
+				_, line, column := where(v.Pos())
+				out.ModelFields = append(out.ModelFields, modelField{
+					Name:     v.Name(),
+					Embedded: v.Embedded(),
+					Tag:      st.Tag(i),
+					Line:     line,
+					Column:   column,
+					Kind:     gormKind(v.Type()),
+					Type:     named(v.Type()),
+				})
+			}
+			emit(out)
+		}
+	}
+	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok {
 			continue
@@ -579,12 +685,97 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	}
 	// The function an argument names; for a call that passes no function
 	// value, the function it calls, which returns the handler (a factory).
+	// The module function a conversion to a func type wraps
+	// (http.HandlerFunc(a.Token)), else nil.
+	converted := func(e ast.Expr) *types.Func {
+		call, ok := ast.Unparen(e).(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 || !info.Types[call.Fun].IsType() {
+			return nil
+		}
+		if _, ok := info.Types[call.Fun].Type.Underlying().(*types.Signature); !ok {
+			return nil
+		}
+		return called(call.Args[0])
+	}
+	// Variables assigned only such conversions of one function
+	// (token := http.HandlerFunc(a.Token)), to the function.
+	wrapping := map[types.Object]*types.Func{}
+	reassigned := map[types.Object]bool{}
+	bind := func(name ast.Expr, value ast.Expr) {
+		id, ok := ast.Unparen(name).(*ast.Ident)
+		if !ok {
+			return
+		}
+		obj := info.Defs[id]
+		if obj == nil {
+			obj = info.Uses[id]
+		}
+		if obj == nil {
+			return
+		}
+		fn := converted(value)
+		if previous, seen := wrapping[obj]; fn == nil || (seen && previous != fn) {
+			reassigned[obj] = true
+		}
+		wrapping[obj] = fn
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					bind(n.Lhs[i], n.Rhs[i])
+				}
+			} else {
+				for _, left := range n.Lhs {
+					bind(left, nil)
+				}
+			}
+		case *ast.ValueSpec:
+			for i, name := range n.Names {
+				if i < len(n.Values) {
+					bind(name, n.Values[i])
+				}
+			}
+		}
+		return true
+	})
+	wrapped := func(id *ast.Ident) *types.Func {
+		obj := info.Uses[id]
+		if obj == nil || reassigned[obj] {
+			return nil
+		}
+		return wrapping[obj]
+	}
 	function := func(arg ast.Expr) string {
 		arg = ast.Unparen(arg)
+		// A function converted to a handler type, directly, through a
+		// variable holding the conversion, or through that variable's
+		// ServeHTTP method value (token.ServeHTTP).
+		if fn := converted(arg); fn != nil {
+			return functionRef(fn)
+		}
+		if selector, ok := arg.(*ast.SelectorExpr); ok && selector.Sel.Name == "ServeHTTP" {
+			if id, ok := ast.Unparen(selector.X).(*ast.Ident); ok {
+				if fn := wrapped(id); fn != nil {
+					return functionRef(fn)
+				}
+			}
+		}
+		if id, ok := arg.(*ast.Ident); ok {
+			if fn := wrapped(id); fn != nil {
+				return functionRef(fn)
+			}
+		}
 		if call, ok := arg.(*ast.CallExpr); ok {
+			// A call given a function (or a value of a func type such as
+			// http.HandlerFunc) wraps it, as a middleware does: what runs
+			// is not known.
 			for _, inner := range call.Args {
-				if _, ok := info.TypeOf(inner).(*types.Signature); ok {
-					return ""
+				if t := info.TypeOf(inner); t != nil {
+					if _, ok := t.Underlying().(*types.Signature); ok {
+						return ""
+					}
 				}
 			}
 			arg = call.Fun
@@ -616,6 +807,39 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			return nil
 		}
 		return n
+	}
+	// "return": a library-typed variable a module function returns (a
+	// router it builds), so a router mounted from the call's result is
+	// that variable.
+	for _, decl := range file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		fn, _ := info.Defs[fd.Name].(*types.Func)
+		callee := functionRef(fn)
+		if callee == "" {
+			continue
+		}
+		ast.Inspect(fd.Body, func(node ast.Node) bool {
+			switch n := node.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.ReturnStmt:
+				if len(n.Results) == 0 || library(info.TypeOf(n.Results[0])) == nil {
+					return true
+				}
+				if _, ok := ast.Unparen(n.Results[0]).(*ast.Ident); !ok {
+					return true
+				}
+				if r := reference(n.Results[0]); r != "" {
+					out := fact{Kind: "return", Callee: callee, Operand: r}
+					out.File, out.Line, out.Column = where(n.Pos())
+					emit(out)
+				}
+			}
+			return true
+		})
 	}
 	// The variable or field each call's result is assigned to; and, as
 	// "alias" facts, a library-typed variable, field or parameter assigned
@@ -902,6 +1126,23 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 				return true
 			}
 		}
+		// go-chi/render's package functions that decode a request body
+		// into, or render a response from, their last argument.
+		if function, ok := info.Uses[selector.Sel].(*types.Func); ok {
+			if pkg := function.Pkg(); pkg != nil && pkg.Path() == "github.com/go-chi/render" && chiRender[function.Name()] {
+				f, line, column := where(call.Pos())
+				out := fact{Kind: "call", File: f, Line: line, Column: column, Method: function.Name(), Declared: pkg.Path()}
+				for _, arg := range call.Args {
+					a := argument{Ref: reference(arg), Type: named(info.TypeOf(arg))}
+					if t := info.TypeOf(arg); t != nil && types.IsInterface(t) {
+						a = argument{Ref: reference(arg), Interface: true}
+					}
+					out.Arguments = append(out.Arguments, a)
+				}
+				emit(out)
+				return true
+			}
+		}
 		selection := info.Selections[selector]
 		if selection == nil || selection.Kind() != types.MethodVal {
 			return true
@@ -947,6 +1188,13 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		emit(out)
 		return true
 	})
+}
+
+// chiRender names go-chi/render's functions whose last argument is the
+// request body decoded or the response rendered.
+var chiRender = map[string]bool{
+	"JSON": true, "Render": true, "Respond": true,
+	"Bind": true, "Decode": true, "DecodeJSON": true,
 }
 
 // Placeholder stands for text the code does not fix inside a string.

@@ -468,6 +468,32 @@ func (tb TypeBuilder) Build() Out { return Out{} }
 }
 
 
+STUBS["github.com/go-chi/render"] = {
+    "render.go": """package render
+
+import (
+\t"io"
+\t"net/http"
+)
+
+type Renderer interface {
+\tRender(w http.ResponseWriter, r *http.Request) error
+}
+type Binder interface {
+\tBind(r *http.Request) error
+}
+
+func JSON(w http.ResponseWriter, r *http.Request, v interface{})          {}
+func Respond(w http.ResponseWriter, r *http.Request, v interface{})       {}
+func Render(w http.ResponseWriter, r *http.Request, v Renderer) error     { return nil }
+func Status(r *http.Request, status int)                                  {}
+func Bind(r *http.Request, v Binder) error                                { return nil }
+func Decode(r *http.Request, v interface{}) error                         { return nil }
+func DecodeJSON(r io.Reader, v interface{}) error                         { return nil }
+""",
+}
+
+
 def stub_directory(path):
     return "gostubs/" + path.replace("/", "_")
 
