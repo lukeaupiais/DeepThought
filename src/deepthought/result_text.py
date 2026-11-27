@@ -488,10 +488,153 @@ def coverage_line(items, nodes, coverage, query):
     return "Coverage: " + "; ".join(phrases) + "."
 
 
-def render(response, *, nodes=None, coverage=None, query=None, limit=None):
+# Calls a resolver placed outside the repository: another declaration that
+# happens to share the name, not a gap.
+_EXTERNAL = ("scip_external", "pyright_external", "compiler_external_module")
+
+
+def _some(items, shown):
+    more = len(items) - shown
+    return ", ".join(items[:shown]) + (f" and {more} more" if more > 0 else "")
+
+
+def _plural(n, one, many):
+    return f"{n} {one if n == 1 else many}"
+
+
+def text_check_lines(checks):
+    """Sentences for ``GraphQueryService._text_check`` records: how every
+    line of the analyzed source naming the result's declaration is
+    accounted for, and which lines, if any, still need reading."""
+    lines = []
+    for c in checks or ():
+        name = c["name"]
+        if c.get("too_many"):
+            lines.append(
+                f"Text check of '{name}': more than {c['lines'] - 1} lines name it,"
+                " too common a word to account for line by line."
+            )
+            continue
+        where = (
+            f" (declared at {_some(c['declared_at'], 3)})"
+            if c.get("declared_at")
+            else ""
+        )
+        head = (
+            f"Text check of '{name}'{where}: "
+            + _plural(c["lines"], "line", "lines")
+            + " in "
+            + _plural(c["files"], "analyzed file", "analyzed files")
+            + (" names" if c["lines"] == 1 else " name")
+            + " it"
+        )
+        parts = []
+        if c.get("in_result"):
+            parts.append(
+                _plural(
+                    c["in_result"],
+                    "is a link in this result",
+                    "are links in this result",
+                )
+            )
+        if c.get("declaration"):
+            parts.append(
+                _plural(c["declaration"], "is its declaration", "are its declaration")
+            )
+        left = c.get("left_out") or []
+        if left:
+            said = []
+            for link in left:
+                verb = RELATIONSHIP_SENTENCES.get(link["kind"], link["kind"].lower())
+                source = link["source"]
+                if link["start"] is None:
+                    source = f"{link['file']} (file)"
+                else:
+                    source += f" ({link['file']}:{link['start']})"
+                said.append(f"{source} {verb} {name} at line {link['line']}")
+            what = (
+                "is a link the graph holds that this result leaves out"
+                if len(left) == 1
+                else "are links the graph holds that this result leaves out"
+            )
+            if not c.get("result_links"):
+                what = (
+                    "is a link the graph holds to it"
+                    if len(left) == 1
+                    else "are links the graph holds to it"
+                )
+            parts.append(f"{len(left)} {what}: " + _some(said, 6))
+        if c.get("import"):
+            parts.append(_plural(c["import"], "is an import", "are imports"))
+        unlinked = c.get("unlinked") or []
+        external = [u for u in unlinked if u["reason"] in _EXTERNAL]
+        gaps = [u for u in unlinked if u["reason"] not in _EXTERNAL]
+        if external:
+            parts.append(
+                _plural(len(external), "is a call", "are calls")
+                + " the compiler index resolved outside the repository"
+            )
+        if gaps:
+            parts.append(
+                _plural(len(gaps), "is a call", "are calls")
+                + " no resolver linked: "
+                + _some([f"{u['at']} ({u['reason']})" for u in gaps], 5)
+            )
+        others = c.get("other_targets") or []
+        if others:
+            parts.append(
+                _plural(len(others), "links", "link")
+                + f" another declaration named {name}"
+                + " ("
+                + _some(
+                    [f"{o['at']} to {o['target']} at {o['target_at']}" for o in others],
+                    3,
+                )
+                + ")"
+            )
+        if c.get("other_declaration"):
+            parts.append(
+                _plural(c["other_declaration"], "declares", "declare")
+                + f" another {name}"
+            )
+        if c.get("comment"):
+            parts.append(_plural(c["comment"], "is in a comment", "are in comments"))
+        strings = c.get("strings") or []
+        if strings:
+            parts.append(
+                _plural(len(strings), "is in a string", "are in strings")
+                + ": "
+                + _some(strings, 5)
+            )
+        missing = c.get("not_in_graph") or []
+        if missing:
+            parts.append(
+                _plural(len(missing), "is code", "are code")
+                + " the graph does not link: "
+                + _some(missing, 10)
+            )
+        text = head + (": " + "; ".join(parts) if parts else "") + "."
+        if missing or gaps or strings:
+            text += " Every other line is accounted for."
+        elif c["lines"]:
+            text += f" A text search for '{name}' finds nothing more than this."
+        if c.get("unchecked_files"):
+            text += (
+                " Not checked, edited since the graph was built: "
+                + _some(c["unchecked_files"], 5)
+                + "."
+            )
+        lines.append(text)
+    return lines
+
+
+def render(
+    response, *, nodes=None, coverage=None, query=None, limit=None, text_check=None
+):
     """Text for a ``query_cypher`` response. ``nodes`` maps element ids to
     nodes that links in the result point at but the query did not return;
-    ``coverage`` is the snapshot's EdgeCoverage records as plain dicts."""
+    ``coverage`` is the snapshot's EdgeCoverage records as plain dicts;
+    ``text_check`` is ``GraphQueryService._text_check``'s records."""
     items = response.get("items") or []
     renderer = _Renderer(items, nodes or {})
     count = len(items)
@@ -659,4 +802,5 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
     line = coverage_line(items, renderer.nodes, coverage, query)
     if line:
         lines.append(line)
+    lines.extend(text_check_lines(text_check))
     return "\n".join(lines)

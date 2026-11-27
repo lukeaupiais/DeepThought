@@ -6760,6 +6760,28 @@ budget applies to the text. `tools/check_result_text.py` runs
 queries in both forms on a dedicated database and reports any fact the text
 lost.
 
+With a working copy (`DEEPTHOUGHT_WORKSPACE`), a raw Cypher answer also says
+whether a text search would find more than it does (`text_check` in JSON, a
+`Text check of 'name'` line in text, `deepthought.text_check`). Its subject is
+the declaration the result's links and chains end at (one or two names), else
+the declaration the query anchors on by file and line, else declarations its
+strings name. Every line of the analyzed files that names it as a whole
+identifier, as the working copy holds them, is accounted for: a link in the
+result; the declaration itself (its header up to the name); a link the graph
+holds that the result leaves out, of any type (a function passed as a value,
+a type use, a call past the limit), named with its source and line; an import;
+a call no resolver linked, with its reason (calls a compiler index resolved
+outside the repository are counted apart); a link to another declaration of
+the same name; a comment or docstring; a string (listed, since code may look a
+name up by text); and what is left, code the graph does not link (listed).
+Whether a mention is code, a comment or a string comes from the file's
+tree-sitter syntax tree. A link recorded once for several sites in one
+declaration (`sites` > 1) accounts for every mention inside it. When nothing
+is listed to read, the line ends "A text search for 'name' finds nothing more
+than this"; otherwise "Every other line is accounted for". Files edited since
+analysis are not read and are named. The check stops on a name more than 400
+lines mention, and nothing is said without a working copy or a subject.
+
 ## Verification and validation
 
 Default tests never start/download databases or call models. Actual graph-port
