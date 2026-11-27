@@ -181,18 +181,28 @@ class GoRouters:
                 if parameter is not None:
                     self.scopes.setdefault(parameter, []).append((call, index))
         # Routers mounted under a prefix, by the reference of the variable
-        # or field they are held in.
+        # or field they are held in: one mounted directly, or the variable
+        # a module function returns when the mount is given its call
+        # (chi's r.Mount("/ui", web.Mount(...))).
+        returned = {}
+        for function, variable in facts.returns:
+            if function is not None and variable is not None:
+                returned.setdefault(function, set()).add(variable)
         self.mounted = {}
         for call in facts.calls:
             framework = self._framework(call)
             if (
-                framework is not None
-                and call.method in framework.mounts
-                and len(call.refs) > 1
-                and call.refs[1] is not None
-                and call.refs[1][0] == "o"
+                framework is None
+                or call.method not in framework.mounts
+                or len(call.refs) < 2
+                or call.refs[1] is None
             ):
+                continue
+            if call.refs[1][0] == "o":
                 self.mounted.setdefault(call.refs[1], []).append(call)
+            elif call.refs[1][0] == "c" and len(call.functions) > 1:
+                for variable in returned.get(call.functions[1], ()):
+                    self.mounted.setdefault(variable, []).append(call)
         self.constructed = set()
         for new in facts.constructors:
             if new.type is not None and new.type[0] in ROUTER_PACKAGES:

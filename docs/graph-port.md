@@ -3564,9 +3564,9 @@ which only client requests are read:
   not followed. A conversion to a func type (`http.HandlerFunc(List)`) is
   its function, also through a variable assigned only that conversion and
   through that variable's `ServeHTTP` method value (`token.ServeHTTP`).
-  Not read: a mounted router
-  that is the result of a call (`r.Mount("/api", apiRouter())`), whose
-  routes then miss the prefix, and Fiber's optional `:id?` and `+`
+  A router mounted from a call of a module function
+  (`r.Mount("/api", apiRouter())`) is the variable the function returns,
+  so its routes take the mount's prefix. Not read: Fiber's optional `:id?` and `+`
   parameters, which are kept as written.
   Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
