@@ -181,6 +181,13 @@ class _Renderer:
             for v in value.values():
                 self._collect(v)
 
+    sources = {}
+
+    def block(self, text):
+        """A multi-line value; a declaration's source is numbered by line."""
+        start = self.sources.get(text.rstrip("\n"))
+        return _numbered(text, start) if start is not None else text.rstrip("\n")
+
     def endpoint(self, element_id, short=False):
         node = self.nodes.get(element_id)
         return _item(node, short) if node else "(item not returned)"
@@ -312,7 +319,7 @@ class _Renderer:
                 elif isinstance(value, str) and "\n" in value:
                     # Source text and other multi-line values follow the
                     # row's other values as an indented block.
-                    blocks.append(f"{column}:\n" + value.rstrip("\n"))
+                    blocks.append(f"{column}:\n" + self.block(value))
                 else:
                     parts.append(f"{column} {text}")
         return parts + blocks
@@ -628,15 +635,83 @@ def text_check_lines(checks):
     return lines
 
 
+def _numbered(text, start):
+    """Source text with each line's number in its file, for editing."""
+    lines = text.rstrip("\n").split("\n")
+    width = len(str(start + len(lines) - 1))
+    return "\n".join(f"{start + i:>{width}}| {line}" for i, line in enumerate(lines))
+
+
+def _examples(record, outgoing):
+    shown = []
+    for other in record["first"]:
+        if other["start"] is None:
+            where = f"{other['file']} (file)" if other["file"] else None
+        else:
+            where = f"{other['file']}:{other['start']}"
+        text = str(other["name"]) if other["name"] is not None else "(unnamed)"
+        if where and other["name"] != other["file"]:
+            text += f" ({where})"
+        elif where:
+            text = where
+        if other["line"] is not None:
+            text += f" at line {other['line']}"
+        shown.append(text)
+    more = record["links"] - len(shown)
+    verb = RELATIONSHIP_SENTENCES.get(record["kind"], record["kind"].lower())
+    noun = _plural(record["links"], f"{record['kind']} link", f"{record['kind']} links")
+    head = (
+        f"{noun} from it (it {verb} these)"
+        if outgoing
+        else f"{noun} into it (each {verb} it)"
+    )
+    return head + ": " + "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
+
+
+def subject_lines(subjects):
+    """A line per declaration a result is about
+    (``GraphQueryService._result_subjects``): what links into it and what
+    it links to, each kind with a count and its first items and lines."""
+    lines = []
+    for subject in subjects or ():
+        where = (
+            f"{subject['file']}:{subject['start']}"
+            if subject.get("start") is not None
+            else subject.get("file")
+        )
+        parts = [_examples(r, False) for r in subject.get("into") or []]
+        parts += [_examples(r, True) for r in subject.get("out") or []]
+        lines.append(
+            f"Links of {subject['name']} ({where}): "
+            + (". ".join(parts) if parts else "none in the graph")
+            + "."
+        )
+    return lines
+
+
 def render(
-    response, *, nodes=None, coverage=None, query=None, limit=None, text_check=None
+    response,
+    *,
+    nodes=None,
+    coverage=None,
+    query=None,
+    limit=None,
+    text_check=None,
+    subjects=None,
 ):
     """Text for a ``query_cypher`` response. ``nodes`` maps element ids to
     nodes that links in the result point at but the query did not return;
     ``coverage`` is the snapshot's EdgeCoverage records as plain dicts;
-    ``text_check`` is ``GraphQueryService._text_check``'s records."""
+    ``text_check`` is ``GraphQueryService._text_check``'s records;
+    ``subjects`` the declarations the result is about, with their links
+    (their source text in the result is numbered by line)."""
     items = response.get("items") or []
     renderer = _Renderer(items, nodes or {})
+    renderer.sources = {
+        str(s["source"]).rstrip("\n"): s["start"]
+        for s in subjects or ()
+        if s.get("source") and s.get("start") is not None
+    }
     count = len(items)
     noun = "result" if count == 1 else "results"
     if response.get("truncated"):
@@ -732,6 +807,8 @@ def render(
                 shared.append(f"{column} none")
                 continue
             text = renderer.value_text(items[0].get(column))
+            if isinstance(items[0].get(column), str) and "\n" in text:
+                text = renderer.block(text)
             if text is not None:
                 if "\n" in text:
                     text = "\n" + text.rstrip("\n")
@@ -799,6 +876,7 @@ def render(
                 previous = current
             block.append(row)
         flush()
+    lines.extend(subject_lines(subjects))
     line = coverage_line(items, renderer.nodes, coverage, query)
     if line:
         lines.append(line)

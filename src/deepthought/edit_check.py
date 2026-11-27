@@ -76,6 +76,8 @@ class FileEdit:
     # each insertion falls between (the line before, the line after).
     removed: set = field(default_factory=set)
     inserted: set = field(default_factory=set)
+    # The text of each removed or replaced unedited line.
+    removed_text: dict = field(default_factory=dict)
 
     def changed_lines(self):
         """Where the edit changes the unedited file, for a lookup of the
@@ -164,6 +166,7 @@ def parse_diff(text):
         ):
             if line.startswith("-"):
                 edit.removed.add(hunk[4])
+                edit.removed_text[hunk[4]] = line[1:]
                 hunk[4] += 1
                 hunk[1] += 1
             elif line.startswith("+"):
@@ -240,6 +243,10 @@ class Check:
     after: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     unchecked: list = field(default_factory=list)  # files no checker read
+    # Files the checker read (None: every file of the project), and the
+    # import aliases the project maps to its own files (tsconfig paths).
+    files: set | None = None
+    aliases: list = field(default_factory=list)
 
 
 def _relative(path, root):
@@ -557,9 +564,11 @@ def _type_package_installed(directory, entry):
 
 
 def _project_config(node, package, project, timeout):
-    """(missing, types) of a project as tsc resolves it: the entries of
-    compilerOptions.types that are not installed (tsc stops before checking
-    any file when one is missing), and the installed ones."""
+    """(missing, types, aliases) of a project as tsc resolves it: the
+    entries of compilerOptions.types that are not installed (tsc stops
+    before checking any file when one is missing), the installed ones, and
+    the import patterns compilerOptions.paths maps to the project's own
+    files."""
     completed = subprocess.run(
         [node, str(package / "lib" / "tsc.js"), "-p", str(project), "--showConfig"],
         cwd=project.parent,
@@ -570,12 +579,14 @@ def _project_config(node, package, project, timeout):
     try:
         config = json.loads(completed.stdout or b"{}")
     except ValueError:
-        return [], None
-    types = (config.get("compilerOptions") or {}).get("types")
+        return [], None, []
+    options = config.get("compilerOptions") or {}
+    aliases = sorted(options.get("paths") or {}) if isinstance(options, dict) else []
+    types = options.get("types") if isinstance(options, dict) else None
     if not isinstance(types, list):
-        return [], None
+        return [], None, aliases
     missing = [t for t in types if not _type_package_installed(project.parent, str(t))]
-    return missing, [t for t in types if t not in missing]
+    return missing, [t for t in types if t not in missing], aliases
 
 
 def _package_name(specifier):
@@ -675,15 +686,248 @@ def _install_extends(config, root, environ):
     return sorted(missing)
 
 
+_MANIFESTS = (
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "yarn.lock",
+    ".npmrc",
+    ".yarnrc.yml",
+)
+
+
+def _manifests(top):
+    """The package manifests and lockfiles under ``top`` (outside installed
+    packages), relative to it: what an install of its dependencies reads."""
+    found = []
+    for directory, names, files in os.walk(top):
+        names[:] = sorted(n for n in names if n not in _SKIPPED)
+        here = Path(directory)
+        found.extend(
+            _relative(here / name, top) for name in sorted(files) if name in _MANIFESTS
+        )
+        if len(found) > 5000:
+            break
+    return found
+
+
+def _workspace_packages(top):
+    """{package name: directory relative to ``top``} of the packages the
+    workspace holds itself (a monorepo's own packages)."""
+    found = {}
+    for manifest in _manifests(top):
+        if PurePosixPath(manifest).name != "package.json":
+            continue
+        data = _json(Path(top) / manifest)
+        name = data.get("name") if isinstance(data, dict) else None
+        directory = str(PurePosixPath(manifest).parent)
+        if isinstance(name, str) and name and name not in found and directory != ".":
+            found[name] = directory
+    return found
+
+
+def _package_top(root, project):
+    """The outermost directory from ``project``'s up to ``root`` with a
+    package.json: where the workspace's dependencies are installed."""
+    relative = _relative(project.parent, root)
+    file = f"{relative}/tsconfig.json" if relative != "." else "tsconfig.json"
+    top = None
+    for directory in _directories(root, file):
+        if (directory / "package.json").is_file():
+            top = directory
+    return top
+
+
+def _has_node_modules(root, project):
+    relative = _relative(project.parent, root)
+    file = f"{relative}/tsconfig.json" if relative != "." else "tsconfig.json"
+    return any((d / "node_modules").exists() for d in _directories(root, file))
+
+
+def _install_command(top, environ):
+    """The package manager command that installs the dependencies under
+    ``top`` as its lockfile pins them (no package scripts run), or None."""
+    path = environ.get("PATH")
+    npm = shutil.which("npm", path=path)
+    quiet = ["--ignore-scripts"]
+    if (top / "pnpm-lock.yaml").is_file() and shutil.which("pnpm", path=path):
+        return [shutil.which("pnpm", path=path), "install", "--frozen-lockfile", *quiet]
+    if (top / "yarn.lock").is_file() and shutil.which("yarn", path=path):
+        return [shutil.which("yarn", path=path), "install", *quiet]
+    if npm is None:
+        return None
+    flags = [*quiet, "--no-audit", "--no-fund", "--prefer-offline"]
+    if (top / "package-lock.json").is_file() or (top / "npm-shrinkwrap.json").is_file():
+        return [npm, "ci", *flags]
+    return [npm, "install", *flags, "--no-package-lock", "--legacy-peer-deps"]
+
+
+def _install_dependencies(top, environ, timeout):
+    """A cache directory holding the workspace's manifests with their
+    dependencies installed, keyed by the manifests' content so a later
+    check reuses it. Raises RuntimeError when the install fails (the
+    failure is kept, so the same manifests are not retried every check)."""
+    import hashlib
+
+    manifests = _manifests(top)
+    digest = hashlib.sha256()
+    for manifest in manifests:
+        digest.update(manifest.encode() + b"\0")
+        try:
+            digest.update((Path(top) / manifest).read_bytes())
+        except OSError:
+            pass
+    key = digest.hexdigest()[:20]
+    base = _cache_directory(environ) / "node-dependencies"
+    target = base / key
+    failed = base / f"{key}.failed"
+    if (target / ".installed").is_file():
+        return target
+    if failed.is_file():
+        raise RuntimeError(failed.read_text(errors="replace"))
+    command = _install_command(Path(top), environ)
+    if command is None:
+        raise RuntimeError("npm is required to install the project's packages")
+    base.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(dir=base, prefix=".install-"))
+    try:
+        for manifest in manifests:
+            destination = scratch / manifest
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(top) / manifest, destination)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=scratch,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={**environ, "CI": "1"},
+            )
+        except subprocess.TimeoutExpired:
+            completed = None
+        if completed is None or completed.returncode != 0:
+            detail = (
+                f"timed out after {timeout}s"
+                if completed is None
+                else (completed.stderr or completed.stdout).strip()[-300:]
+            )
+            message = f"{PurePosixPath(command[0]).name} {command[1]} failed: {detail}"
+            failed.write_text(message)
+            raise RuntimeError(message)
+        (scratch / ".installed").write_text(" ".join(command[1:]))
+        try:
+            os.replace(scratch, target)
+        except OSError:
+            if not (target / ".installed").is_file():
+                raise
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return target
+
+
+def _link_installed(installed, copy_top):
+    """Link each node_modules of the cache directory ``installed`` into the
+    scratch copy at the same place."""
+    linked = []
+    for directory, names, _ in os.walk(installed):
+        names[:] = sorted(n for n in names if n not in {".git"})
+        if "node_modules" in names:
+            names.remove("node_modules")
+            source = Path(directory) / "node_modules"
+            destination = Path(copy_top) / source.relative_to(installed)
+            if destination.parent.is_dir() and not destination.exists():
+                destination.symlink_to(source, target_is_directory=True)
+                linked.append(destination)
+    return linked
+
+
+def _link_workspace_packages(copy_top, packages):
+    """Make each of the workspace's own packages resolvable by name from
+    the scratch copy, pointing at the copy's own directory (so the edited
+    copy sees edits to a sibling package). A name an install linked to a
+    manifest-only directory of the cache is relinked."""
+    copy_top = Path(copy_top)
+    linked = []
+    for name, directory in sorted(packages.items()):
+        package = (copy_top / directory).resolve()
+        target = copy_top / "node_modules" / name
+        if target.is_symlink():
+            real = target.resolve()
+            if real == package or "node_modules" in real.parts:
+                continue
+            _expand(copy_top / "node_modules", name)
+            target.unlink()
+        elif target.exists():
+            continue
+        _link_package(copy_top, name, package)
+        linked.append(name)
+    return linked
+
+
+def _expand(node_modules, name):
+    """Replace links to directories outside the copy on the way to
+    ``node_modules``/``name`` by directories of links, so its entry can be
+    replaced without writing outside the copy."""
+    current = node_modules
+    for part in ["", *name.split("/")[:-1]]:
+        current = current / part if part else current
+        if current.is_symlink():
+            original = current.resolve()
+            current.unlink()
+            current.mkdir()
+            for entry in original.iterdir():
+                (current / entry.name).symlink_to(entry, entry.is_dir())
+
+
+def _provision_typescript(root, edited_root, project, environ, timeout):
+    """Set up what tsc needs to read the project in both scratch copies:
+    with no node_modules from the project up, the workspace's dependencies
+    are installed into the cache (as its lockfile pins them) and linked in;
+    the workspace's own packages are linked by name. Notes of what was done
+    and what could not be, so a check with packages missing says so."""
+    root, edited_root = Path(root), Path(edited_root)
+    top = _package_top(root, project)
+    if top is None:
+        return []
+    notes = []
+    relative = top.relative_to(root)
+    if not _has_node_modules(root, project):
+        try:
+            installed = _install_dependencies(top, environ, timeout)
+        except (RuntimeError, OSError) as error:
+            notes.append(
+                "packages not installed (no node_modules, and installing them"
+                f" failed: {str(error)[:200]}); imports of packages are unresolved"
+            )
+        else:
+            for copy in (root, edited_root):
+                _link_installed(installed, copy / relative)
+            notes.append(
+                "node_modules missing: the project's packages were installed"
+                " into the cache and linked in"
+            )
+    packages = _workspace_packages(top)
+    linked = []
+    for copy in (root, edited_root):
+        linked = _link_workspace_packages(copy / relative, packages) or linked
+    if linked:
+        notes.append("workspace packages linked by name: " + ", ".join(linked[:10]))
+    return notes
+
+
 def _tsc_run(node, package, root, project, timeout):
-    """(diagnostics, errors with no file, missing type packages). An error
+    """(diagnostics, errors with no file, missing type packages, path
+    aliases). An error
     with no file (a bad option) stops tsc before it checks any file, so a
     type package that is not installed is left out of compilerOptions.types
     and reported. The check runs from a wrapper config beside the project
     (in a scratch copy), which extends it, so every path the project leaves
     to its config's directory (include, rootDir, typeRoots) stays the same.
     """
-    missing, types = _project_config(node, package, project, timeout)
+    missing, types, aliases = _project_config(node, package, project, timeout)
     options = {"noEmit": True, "incremental": False, "composite": False}
     if missing:
         options["types"] = types
@@ -728,7 +972,33 @@ def _tsc_run(node, package, root, project, timeout):
             )
         elif line.startswith("error TS"):
             general.append(line.strip())
-    return found, general, missing
+    return found, general, missing, aliases
+
+
+def _tsc_files(node, package, root, project, timeout):
+    """The files of the workspace that tsc reads for ``project``, relative
+    to ``root``: an edited file the project does not include is not
+    checked, though its tsconfig.json is the nearest one. None when tsc
+    cannot list them."""
+    completed = subprocess.run(
+        [node, str(package / "lib" / "tsc.js"), "-p", str(project), "--listFilesOnly"],
+        cwd=project.parent,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    listed = set()
+    real_root = Path(root).resolve()
+    for line in completed.stdout.decode(errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        path = Path(os.path.normpath(os.path.join(project.parent, line)))
+        for base in (Path(root), real_root):
+            if path.is_relative_to(base):
+                listed.add(_relative(path, base))
+                break
+    return listed or None
 
 
 def _check_typescript(root, edited_root, files, timeout):
@@ -743,16 +1013,22 @@ def _check_typescript(root, edited_root, files, timeout):
                 raise RuntimeError("node is required to check TypeScript edits")
             package, check.release = _typescript_package(root, project, environ)
             edited_project = Path(edited_root) / project.relative_to(root)
+            check.notes.extend(
+                _provision_typescript(root, edited_root, project, environ, timeout)
+            )
             installed = _install_extends(project, root, environ)
             _install_extends(edited_project, Path(edited_root), environ)
             if installed:
                 check.notes.append(
                     "extended configs installed into the cache: " + ", ".join(installed)
                 )
-            check.before, general, missing = _tsc_run(
+            check.before, general, missing, check.aliases = _tsc_run(
                 node, package, root, project, timeout
             )
-            check.after, general_after, _ = _tsc_run(
+            check.after, general_after, _, _ = _tsc_run(
+                node, package, edited_root, edited_project, timeout
+            )
+            check.files = _tsc_files(
                 node, package, edited_root, edited_project, timeout
             )
             if missing:
@@ -760,9 +1036,19 @@ def _check_typescript(root, edited_root, files, timeout):
                     "type packages not installed, left out of the check: "
                     + ", ".join(missing)
                 )
+            library = [d for d in check.before + check.after if d[3] in _TS_LIBRARY]
             if general or general_after:
                 check.status = "failed"
                 check.reason = (general or general_after)[0][:300]
+            elif library:
+                # Without its standard library tsc types nothing: every
+                # break would be missed, so the check did not happen.
+                check.status = "failed"
+                check.reason = (
+                    "TypeScript could not load its standard library"
+                    f" ({library[0][3]} {library[0][4][:120]}), so the types it"
+                    " reports cannot be trusted"
+                )
         except RuntimeError as error:
             check.status, check.reason = "unavailable", str(error)[:300]
         except (OSError, ValueError, subprocess.SubprocessError) as error:
@@ -862,6 +1148,27 @@ def _pyright_files(command, root, project, files, timeout):
     return found
 
 
+def _python_environment(root, project, environ):
+    """The Python interpreter whose installed packages the project's imports
+    resolve to: ``DEEPTHOUGHT_PYTHON``, else a virtual environment in the
+    project or the workspace (a directory holding pyvenv.cfg), else None
+    (pyright then uses the ``python`` on PATH). A project whose pyright
+    configuration names its own environment keeps it."""
+    configured = environ.get("DEEPTHOUGHT_PYTHON")
+    if configured:
+        return Path(configured)
+    if (project / "pyrightconfig.json").is_file():
+        return None
+    for base in dict.fromkeys((project, Path(root))):
+        for name in (".venv", "venv", "env", ".env"):
+            venv = base / name
+            if (venv / "pyvenv.cfg").is_file():
+                for python in ("bin/python", "Scripts/python.exe"):
+                    if (venv / python).exists():
+                        return venv / python
+    return None
+
+
 def _check_python(root, edited_root, files, timeout):
     environ = dict(os.environ)
     root = Path(root).resolve()
@@ -871,6 +1178,17 @@ def _check_python(root, edited_root, files, timeout):
         check = Check("python", "pyright", _relative(project, root))
         try:
             command, check.release = _pyright(environ)
+            interpreter = _python_environment(root, project, environ)
+            if interpreter is not None:
+                command = [*command, "--pythonpath", str(interpreter)]
+                check.notes.append(
+                    "imports resolved through "
+                    + (
+                        _relative(interpreter, root)
+                        if Path(interpreter).is_relative_to(root)
+                        else str(interpreter)
+                    )
+                )
             check.before = _pyright_run(command, root, project, timeout)
             check.after = _pyright_run(
                 command,
@@ -891,6 +1209,172 @@ _CHECKERS = (
     ("typescript", _TS_SUFFIXES, _check_typescript),
     ("python", _PY_SUFFIXES, _check_python),
 )
+
+
+# -- environment diagnostics ---------------------------------------------------
+
+# tsc codes that mean its standard library did not load (a missing or wrong
+# lib or target, often from a tsconfig it extends that is not installed).
+_TS_LIBRARY = {"TS2318", "TS2468", "TS2583", "TS2584", "TS2585", "TS2697", "TS2705"}
+# Type definitions that are not installed (test runners, node, a package
+# installed without types).
+_TS_MISSING_TYPES = {
+    "TS2580",
+    "TS2581",
+    "TS2582",
+    "TS2591",
+    "TS2592",
+    "TS2593",
+    "TS2688",
+    "TS7016",
+}
+_TS_MISSING_MODULE = {"TS2307", "TS2792"}
+# tsc says a test runner's types are missing only for the names it knows
+# (test, describe, it); the runner's other globals then read as unknown
+# names (TS2304) in the same file.
+_TS_RUNNER_TYPES = {"TS2582", "TS2593"}
+_TS_RUNNER_GLOBALS = re.compile(
+    r"^Cannot find name '(expect|jest|vi|beforeEach|afterEach|beforeAll|afterAll"
+    r"|describe|it|test|fit|xit|xdescribe|fdescribe|suite|context|assert)'\.$"
+)
+_MODULE = re.compile(r"""module ['"]([^'"]+)['"]""")
+_PY_IMPORT = re.compile(r'Import "([^"]+)"')
+
+
+def _aliased(specifier, aliases):
+    for pattern in aliases:
+        if "*" in pattern:
+            if specifier.startswith(pattern.split("*")[0]):
+                return True
+        elif specifier == pattern:
+            return True
+    return False
+
+
+def _local_module(root, dotted):
+    """Whether the top package of a Python import is the workspace's own."""
+    top = dotted.split(".")[0]
+    root = Path(root)
+    bases = [root, root / "src"]
+    try:
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and child.name not in _SKIPPED:
+                bases.extend((child, child / "src"))
+    except OSError:
+        pass
+    return any((b / top).is_dir() or (b / f"{top}.py").is_file() for b in bases)
+
+
+def environment_reason(
+    language, code, message, *, root=".", aliases=(), runner_missing=False
+):
+    """Why a diagnostic comes from what the checker could not find (a
+    package or type definitions that are not installed, a standard library
+    that did not load) rather than from the code, or None.
+    ``runner_missing``: tsc said the file's test runner types are missing."""
+    if language == "typescript":
+        if runner_missing and code == "TS2304" and _TS_RUNNER_GLOBALS.match(message):
+            return "test runner type definitions not installed"
+        if code in _TS_LIBRARY:
+            return "TypeScript's standard library did not load"
+        if code in _TS_MISSING_TYPES:
+            return "type definitions not installed"
+        if code in _TS_MISSING_MODULE:
+            match = _MODULE.search(message)
+            if (
+                match
+                and not match[1].startswith((".", "/"))
+                and not _aliased(match[1], aliases)
+            ):
+                return f"package {_package_name(match[1])} not installed"
+    elif language == "python":
+        if code in ("reportMissingImports", "reportMissingModuleSource"):
+            match = _PY_IMPORT.search(message)
+            if (
+                match
+                and not match[1].startswith(".")
+                and not _local_module(root, match[1])
+            ):
+                return f"package {match[1].split('.')[0]} not installed"
+    elif language == "go" and "could not import" in message:
+        return "package not available to the checker"
+    return None
+
+
+_LANGUAGE_NAMES = {"go": "Go", "typescript": "TypeScript", "python": "Python"}
+
+
+def _covers(check, file):
+    """Whether ``check``'s project holds ``file`` and its checker read it."""
+    if check.files is not None:
+        return file in check.files
+    project = check.project
+    if check.language == "typescript":
+        project = str(PurePosixPath(project).parent)
+    return project in (".", "") or file.startswith(project.rstrip("/") + "/")
+
+
+def _file_coverage(root, edits, checks):
+    """For each edited file that still exists: whether a checker that ran
+    read it, else why not; and the packages its imports need that were
+    not found, so what flows through them went unchecked."""
+    languages = {lang: suffixes for lang, suffixes, _ in _CHECKERS}
+    found = {}
+    runner_missing = {d[0] for c in checks for d in c.after if d[3] in _TS_RUNNER_TYPES}
+    for edit in edits:
+        file = edit.new_path
+        if file is None:
+            continue
+        language = next(
+            (lang for lang, suffixes in languages.items() if file.endswith(suffixes)),
+            None,
+        )
+        if language is None:
+            found[file] = {
+                "checked": False,
+                "reason": "no type checker for this kind of file",
+            }
+            continue
+        mine = [c for c in checks if c.language == language]
+        ran = [c for c in mine if c.status == "checked" and _covers(c, file)]
+        if ran:
+            missing = sorted(
+                {
+                    reason
+                    for c in ran
+                    for f, _, _, code, message in c.after
+                    if f == file
+                    and (
+                        reason := environment_reason(
+                            c.language,
+                            code,
+                            message,
+                            root=root,
+                            aliases=c.aliases,
+                            runner_missing=file in runner_missing,
+                        )
+                    )
+                }
+            )
+            entry = {"checked": True}
+            if missing:
+                entry["unresolved"] = missing
+            found[file] = entry
+            continue
+        failed = [c for c in mine if c.status != "checked"]
+        if failed:
+            reason = f"{_LANGUAGE_NAMES[language]} check {failed[0].status}: " + (
+                failed[0].reason or "no reason given"
+            )
+        elif mine:
+            reason = (
+                f"no {_LANGUAGE_NAMES[language]} project includes it"
+                f" (checked: {', '.join(c.project for c in mine)})"
+            )
+        else:
+            reason = f"no {_LANGUAGE_NAMES[language]} project found for it"
+        found[file] = {"checked": False, "reason": reason[:300]}
+    return found
 
 
 # -- declarations --------------------------------------------------------------
@@ -957,13 +1441,14 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
         for check in checks:
             check.before = _relative_messages(check.before, unedited_root)
             check.after = _relative_messages(check.after, edited_root)
-    breaks, in_edit, declarations = [], [], {}
+    breaks, in_edit, environment, declarations = [], [], [], {}
     for check in checks:
         if check.status != "checked":
             continue
         unedited = Counter(
             (f, line, code, message) for f, line, _, code, message in check.before
         )
+        runner_missing = {d[0] for d in check.after if d[3] in _TS_RUNNER_TYPES}
         for file, line, column, code, message in sorted(set(check.after)):
             edit = by_path.get(file)
             old_line, written = edit.unedited_line(line) if edit else (line, False)
@@ -977,6 +1462,20 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
                 unedited[key] -= 1
                 continue
             entry = {"language": check.language, "code": code, "message": message}
+            reason = environment_reason(
+                check.language,
+                code,
+                message,
+                root=root,
+                aliases=check.aliases,
+                runner_missing=file in runner_missing,
+            )
+            if reason:
+                # Not the code's fault: what the checker could not find.
+                environment.append(
+                    {"file": file, "line": line, **entry, "reason": reason}
+                )
+                continue
             if written:
                 in_edit.append({"file": file, "line": line, **entry})
                 continue
@@ -994,12 +1493,17 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
                     **entry,
                 }
             )
+    coverage = _file_coverage(root, edits, checks)
     complete = bool(checks) and all(check.status == "checked" for check in checks)
     unchecked = sorted(
         {f for f in edited if not any(f.endswith(s) for _, s, _ in _CHECKERS)}
         | {f for check in checks for f in check.unchecked}
+        | {f for f, c in coverage.items() if not c["checked"]}
     )
-    return {
+    breaks, in_edit = _unique(breaks), _unique(in_edit)
+    complete = complete and not unchecked
+    report = {
+        "verdict": _verdict(breaks, in_edit, complete),
         "edited_files": edited,
         "changed_lines": {
             edit.old_path: edit.changed_lines()
@@ -1020,11 +1524,185 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
             }
             for c in checks
         ],
-        "complete": complete and not unchecked,
+        "complete": complete,
         "unchecked_files": unchecked,
-        "breaks": _unique(breaks),
-        "edit_diagnostics": _unique(in_edit),
+        "files": coverage,
+        "breaks": breaks,
+        "edit_diagnostics": in_edit,
+        "environment": _unique(environment),
+        # The text of each line the edit changes, by unedited file and line.
+        "changed_text": {
+            edit.old_path: {str(k): v for k, v in sorted(edit.removed_text.items())}
+            for edit in edits
+            if edit.old_path and edit.removed_text
+        },
     }
+    report["summary"] = summary_line(report)
+    return report
+
+
+def _verdict(breaks, in_edit, complete):
+    if breaks or in_edit:
+        return "breaks"
+    return "no_breaks" if complete else "not_fully_checked"
+
+
+# -- the report as text --------------------------------------------------------
+
+
+def _count(n, one, many=None):
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _listed(items, shown=5):
+    more = len(items) - shown
+    return ", ".join(items[:shown]) + (f" and {more} more" if more > 0 else "")
+
+
+def summary_line(report):
+    """The report's verdict as one plain sentence: what the edit breaks,
+    and what could not be checked, never "no breaks" for an edit whose
+    files were not all checked."""
+    breaks = len(report.get("breaks") or [])
+    in_edit = len(report.get("edit_diagnostics") or [])
+    files = report.get("files") or {}
+    unchecked = [f for f, c in files.items() if not c["checked"]] or list(
+        report.get("unchecked_files") or []
+    )
+    failed = [c for c in report.get("checks") or [] if c["status"] != "checked"]
+    parts = []
+    if breaks or in_edit:
+        said = []
+        if breaks:
+            said.append(_count(breaks, "break") + " in code the edit did not touch")
+        if in_edit:
+            said.append(_count(in_edit, "error") + " on lines the edit wrote")
+        parts.append("BREAKS: " + " and ".join(said) + ".")
+    if unchecked or failed or not report.get("checks"):
+        if unchecked:
+            reasons = sorted(
+                {
+                    files[f]["reason"]
+                    for f in unchecked
+                    if f in files and not files[f]["checked"]
+                }
+            )
+            text = (
+                "NOT CHECKED: "
+                + _listed(unchecked)
+                + (" (" + "; ".join(reasons[:2]) + ")" if reasons else "")
+                + ". Edits there are unverified"
+            )
+        else:
+            text = "NOT FULLY CHECKED: " + "; ".join(
+                f"{c['language']} {c['project']} {c['status']} ({c['reason']})"
+                for c in failed[:2]
+            )
+        if not (breaks or in_edit):
+            text += ", and nothing that was checked breaks"
+        parts.append(text + ".")
+    elif not (breaks or in_edit):
+        parts.append(
+            "No breaks: every edited file was type-checked and the edit adds no errors."
+        )
+    partly = [f for f, c in files.items() if c.get("unresolved")]
+    if partly:
+        parts.append(
+            "Imports not resolved (packages or type definitions not installed) in "
+            + _listed(partly, 3)
+            + ": code using them is not type-checked."
+        )
+    environment = len(report.get("environment") or [])
+    if environment:
+        parts.append(
+            _count(environment, "new diagnostic")
+            + " came from missing packages or type definitions, not from the edit"
+            " (listed under environment)."
+        )
+    return " ".join(parts)
+
+
+def _diagnostic_line(row, with_declaration=True):
+    where = f"{row['file']}:{row['line']}"
+    if with_declaration and row.get("declaration"):
+        where += " in " + (
+            row["declaration"]
+            if row.get("declaration_line") is None
+            else f"{row['declaration']} (line {row['declaration_line']})"
+        )
+    return f"- {where}: {row['code']} {row['message']}"
+
+
+def report_text(report):
+    """A checkEdit report as short lines: the verdict first, then each
+    break, each error the edit wrote, each check and what it could not
+    cover, environment noise apart, and the report's added sections
+    (sibling calls, tests)."""
+    if report.get("note"):
+        return report["note"][:1].upper() + report["note"][1:] + "."
+    lines = [report.get("summary") or summary_line(report)]
+    breaks = report.get("breaks") or []
+    if breaks:
+        total = report.get("total_breaks", len(breaks))
+        lines.append(
+            f"Breaks ({total}, at their line in the unedited source):"
+            if total == len(breaks)
+            else f"Breaks ({len(breaks)} of {total} shown):"
+        )
+        lines.extend(_diagnostic_line(row) for row in breaks)
+    if report.get("edit_diagnostics"):
+        lines.append("Errors on lines the edit wrote:")
+        lines.extend(_diagnostic_line(row, False) for row in report["edit_diagnostics"])
+    for check in report.get("checks") or []:
+        head = f"{_LANGUAGE_NAMES.get(check['language'], check['language'])} {check['project']}"
+        if check.get("release"):
+            head += f" ({check['checker']} {check['release']})"
+        else:
+            head += f" ({check['checker']})"
+        if check["status"] == "checked":
+            text = (
+                f"Checked {head}: {check['diagnostics_before']} errors before,"
+                f" {check['diagnostics_after']} after."
+            )
+        else:
+            text = f"NOT CHECKED {head}: {check['status']}, {check['reason']}."
+        if check.get("notes"):
+            text += " " + "; ".join(check["notes"]) + "."
+        lines.append(text)
+    for file, coverage in sorted((report.get("files") or {}).items()):
+        if not coverage["checked"]:
+            lines.append(f"Not checked: {file} ({coverage['reason']}).")
+        elif coverage.get("unresolved"):
+            lines.append(
+                f"Partly checked: {file} ("
+                + "; ".join(coverage["unresolved"][:5])
+                + ")."
+            )
+    environment = report.get("environment") or []
+    if environment:
+        lines.append("Environment, not the edit (what the checker could not find):")
+        lines.extend(
+            _diagnostic_line(row, False) + f" [{row['reason']}]"
+            for row in environment[:10]
+        )
+        if len(environment) > 10:
+            lines.append(f"- and {len(environment) - 10} more")
+    for line in report.get("sibling_lines") or []:
+        lines.append(line)
+    tests = report.get("tests") or {}
+    if tests.get("tests"):
+        lines.append(
+            "Existing tests that run the changed code (nearest first):"
+            + (" " + "; ".join(tests["run"]) if tests.get("run") else "")
+        )
+        lines.extend(
+            f"- {t['test']} ({t['file']}:{t['line']}) reaches {t['reaches']}"
+            f" ({t['reaches_at']}), {_count(t['links_away'], 'link')} away"
+            for t in tests["tests"][:10]
+        )
+    elif tests.get("status") == "succeeded" and tests.get("changed"):
+        lines.append("No existing test in the graph reaches the changed declarations.")
+    return "\n".join(lines)
 
 
 def _relative_messages(diagnostics, root):
@@ -1115,12 +1793,16 @@ def check_working_copy(workspace, *, git_dir=None, timeout=_TIMEOUT):
     diff = working_copy_diff(workspace, git_dir=git_dir)
     if not diff.strip():
         return {
+            "verdict": "no_edits",
+            "summary": "The workspace has no edits since its HEAD commit.",
             "edited_files": [],
             "checks": [],
             "complete": True,
             "unchecked_files": [],
+            "files": {},
             "breaks": [],
             "edit_diagnostics": [],
+            "environment": [],
             "note": "the workspace has no edits since its HEAD commit",
         }
     root = Path(workspace).resolve()

@@ -209,3 +209,176 @@ class TestsReachingIntegrationTests(unittest.TestCase):
                 )
                 await result.consume()
             await driver.close()
+
+
+@unittest.skipUnless(
+    os.environ.get("DEEPTHOUGHT_NEO4J_URI") and importlib.util.find_spec("neo4j"),
+    "explicit isolated Neo4j test instance required",
+)
+class SiblingCallsIntegrationTests(unittest.TestCase):
+    def test_unchanged_calls_of_a_changed_call_are_listed(self):
+        asyncio.run(self.exercise())
+
+    async def exercise(self):
+        from neo4j import AsyncGraphDatabase
+        from deepthought.graph_queries import sibling_sentences
+        from deepthought.storage.graph import setup_schema, WriteCoordinator
+
+        driver = AsyncGraphDatabase.driver(
+            os.environ["DEEPTHOUGHT_NEO4J_URI"],
+            auth=(
+                os.environ.get("DEEPTHOUGHT_NEO4J_USER", "neo4j"),
+                os.environ["DEEPTHOUGHT_NEO4J_PASSWORD"],
+            ),
+        )
+        database = os.environ.get("DEEPTHOUGHT_NEO4J_DATABASE", "neo4j")
+        repo = "https://github.com/public/sibling-calls-" + uuid4().hex
+        snapshot = "snapshot-" + uuid4().hex
+        map_source = (
+            "func mapDecoder() {\n"
+            "\tScan(SplitEscaped(v, sep)...)\n"
+            "\tother()\n"
+            "\tScan(v)\n"
+            "}"
+        )
+        slice_source = "func sliceDecoder() {\n\tScan(SplitEscaped(v, sep)...)\n}"
+
+        def node(qname, labels, **props):
+            return NodeData(
+                labels, {"qualified_name": qname, "repo_url": repo, **props}
+            )
+
+        def symbol(qname, path, start, end, source=None):
+            extra = {"source_code": source} if source else {}
+            return node(
+                qname,
+                ["Function", "Symbol"],
+                name=qname,
+                kind="Function",
+                file_path=path,
+                start_line=start,
+                end_line=end,
+                **extra,
+            )
+
+        nodes = [
+            node("repo", ["Repository"], url=repo),
+            node("mapper", ["File"], path="mapper.go", language="go"),
+            node("scanner", ["File"], path="scanner.go", language="go"),
+            symbol("mapDecoder", "mapper.go", 1, 5, map_source),
+            symbol("sliceDecoder", "mapper.go", 7, 9, slice_source),
+            symbol("other", "mapper.go", 11, 12),
+            symbol("Scan", "scanner.go", 1, 3),
+            symbol("parse", "scanner.go", 5, 7, "func parse() {\n\tScan(x)\n}"),
+        ]
+        byname = {n.properties["qualified_name"]: n for n in nodes}
+
+        def edge(source, target, kind, **props):
+            return RelationshipData(
+                kind,
+                byname[source].labels,
+                {"qualified_name": source},
+                byname[target].labels,
+                {"qualified_name": target},
+                {**FIXTURE_EVIDENCE, **props},
+            )
+
+        rels = [
+            edge("repo", "mapper", "CONTAINS"),
+            edge("repo", "scanner", "CONTAINS"),
+            *(
+                edge("mapper", s, "DEFINES")
+                for s in ("mapDecoder", "sliceDecoder", "other")
+            ),
+            edge("scanner", "Scan", "DEFINES"),
+            edge("scanner", "parse", "DEFINES"),
+            edge("mapDecoder", "Scan", "CALLS", line=2),
+            edge("mapDecoder", "other", "CALLS", line=3),
+            edge("mapDecoder", "Scan", "CALLS", line=4),
+            edge("sliceDecoder", "Scan", "CALLS", line=8),
+            edge("parse", "Scan", "CALLS", line=6),
+        ]
+        meta = ToolExecutionMetadata(
+            "fixture",
+            "1",
+            0,
+            custom_metrics={
+                "snapshot_id": snapshot,
+                "analysis_status": "succeeded",
+                "capabilities": ["definitions", "calls"],
+            },
+        )
+        service = GraphQueryService(driver, database)
+        try:
+            await setup_schema(driver, database=database)
+            written = await WriteCoordinator(
+                driver, database=database
+            ).write_tool_output("fixture", StandardizedOutput(nodes, rels, meta), repo)
+            self.assertTrue(written.success, written.errors)
+            # The edit replaces sliceDecoder's Scan line only.
+            found = await service.sibling_calls(
+                {"mapper.go": [{"start": 8, "end": 8, "inside": False}]},
+                {"mapper.go": {"8": "\tScan(SplitEscaped(v, sep)...)"}},
+            )
+            self.assertEqual(found["status"], "succeeded")
+            [scan] = found["calls"]
+            self.assertEqual(
+                (scan["callee"], scan["changed"], scan["total"]), ("Scan", 1, 4)
+            )
+            self.assertEqual(
+                [
+                    (s["caller"], s["line"], s["same_file"], s["identical"])
+                    for s in scan["unchanged"]
+                ],
+                [
+                    ("mapDecoder", 2, True, True),
+                    ("mapDecoder", 4, True, False),
+                    ("parse", 6, False, False),
+                ],
+            )
+            [sentence] = sibling_sentences(found)
+            self.assertEqual(
+                sentence,
+                "Same call elsewhere: the edit changes 1 of 4 calls to Scan"
+                " (scanner.go:1); not changed: mapDecoder (mapper.go:1) at lines 2"
+                " (same text as a line the edit changes), 4; parse (scanner.go:5)"
+                " at line 6.",
+            )
+            # A read of a declaration's source numbers its lines and says
+            # what links into it and what it links to, unasked.
+            text = await service.query_cypher_text(
+                "MATCH (s:Symbol {name: $name}) RETURN s.source_code AS source",
+                {"name": "mapDecoder"},
+                repo,
+                snapshot_id=snapshot,
+                allow_database_scope=True,
+            )
+            self.assertIn("1| func mapDecoder() {\n", text)
+            self.assertIn("4| \tScan(v)", text)
+            self.assertIn(
+                "Links of mapDecoder (mapper.go:1): 3 CALLS links from it"
+                " (it calls these): Scan (scanner.go:1) at line 2; other"
+                " (mapper.go:11) at line 3; Scan (scanner.go:1) at line 4.",
+                text,
+            )
+            # A result that already holds links gets no such line.
+            text = await service.query_cypher_text(
+                "MATCH (s:Symbol {name: 'parse'})-[c:CALLS]->(t) RETURN c",
+                {},
+                repo,
+                snapshot_id=snapshot,
+                allow_database_scope=True,
+            )
+            self.assertNotIn("Links of", text)
+            # An insertion changes no call.
+            found = await service.sibling_calls(
+                {"mapper.go": [{"start": 8, "end": 9, "inside": True}]}
+            )
+            self.assertEqual(found["status"], "no_changed_lines")
+        finally:
+            async with driver.session(database=database) as session:
+                result = await session.run(
+                    "MATCH (n {repo_url:$repo}) DETACH DELETE n", repo=repo
+                )
+                await result.consume()
+            await driver.close()

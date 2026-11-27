@@ -682,12 +682,17 @@ def create_server():
         # answers are checked against, on scratch copies of it.
         git_dir = os.environ.get("DEEPTHOUGHT_WORKSPACE_GIT_DIR") or None
 
+        check_format = os.environ.get("DEEPTHOUGHT_QUERY_FORMAT", "json")
+        if check_format not in ("json", "text"):
+            raise ValueError("DEEPTHOUGHT_QUERY_FORMAT must be json or text")
+
         @server.tool()
         async def checkEdit(
             ctx: Context,
             diff: str = "",
             max_elements: Annotated[int, Field(ge=1, le=500)] = 100,
-        ) -> dict:
+            format: Literal["json", "text"] | None = None,
+        ):  # No return annotation: the report is a dict or its text.
             """Type-check edits and list what they break elsewhere.
 
             With no diff, checks the edits already made to the working copy
@@ -701,8 +706,21 @@ def create_server():
             declaration that holds them: callers, importers and tests the edit
             broke. edit_diagnostics are errors on lines the edit wrote.
             complete is false when a check could not run or files were not
-            checked (unchecked_files). At most max_elements breaks are
-            returned; total_breaks counts all.
+            checked (unchecked_files). verdict is breaks, no_breaks (every
+            edited file was checked) or not_fully_checked, and summary says
+            it in one sentence, naming each edited file no checker read and
+            why. files says, per edited file, whether it was checked and
+            which imports could not be resolved. environment lists new
+            diagnostics caused by what the checker could not find (packages
+            or type definitions not installed), not by the edit. Missing
+            node_modules are installed into a cache and the workspace's own
+            packages linked by name before checking. At most max_elements
+            breaks are returned; total_breaks counts all.
+
+            same_calls lists, for each function the edit changes a call to,
+            the calls of it the edit leaves as they were (callers, files,
+            lines, and whether a line reads the same as a changed one): the
+            other places the same change may be needed.
 
             tests are the existing tests the graph links to the declarations
             the edit changes (changed): each test that calls one, directly or
@@ -712,6 +730,8 @@ def create_server():
             test files for JavaScript and TypeScript). The type check says
             whether the edit compiles; these tests say whether the code they
             exercise still behaves. Tests the edit adds are not in the graph.
+
+            format "text" writes the report as short lines, verdict first.
             """
             from .edit_check import check_edit, check_working_copy
 
@@ -723,7 +743,10 @@ def create_server():
                         check_working_copy, workspace, git_dir=git_dir
                     )
             except ValueError as error:
-                return {"status": "invalid_diff", "error": str(error)[:500]}
+                failure = {"status": "invalid_diff", "error": str(error)[:500]}
+                if (format or check_format) == "text":
+                    return "The edit was not checked: " + failure["error"]
+                return failure
             breaks = report["breaks"]
             report["total_breaks"] = len(breaks)
             report["truncated"] = len(breaks) > max_elements
@@ -744,6 +767,27 @@ def create_server():
                         "error": str(error)[:300],
                         "tests": [],
                     }
+            if service is not None and hasattr(service, "sibling_calls"):
+                from .graph_queries import sibling_sentences
+
+                try:
+                    report["same_calls"] = await service.sibling_calls(
+                        report.get("changed_lines"), report.get("changed_text")
+                    )
+                    report["sibling_lines"] = sibling_sentences(report["same_calls"])
+                except Exception as error:  # the type check still stands
+                    report["same_calls"] = {
+                        "status": "failed",
+                        "error": str(error)[:300],
+                        "calls": [],
+                    }
+            # Line texts were for matching calls, not for the reader.
+            report.pop("changed_text", None)
+            if (format or check_format) == "text":
+                from .edit_check import report_text
+
+                return report_text(report)
+            report.pop("sibling_lines", None)
             return report
 
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
