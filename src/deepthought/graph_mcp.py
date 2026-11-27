@@ -187,7 +187,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges into a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
+        """Get stored CALLS edges into a declaration, and REFERENCES_FUNCTION edges from where it is passed as a value (a handler, callback or middleware), each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_callers(
             qualified_name,
             repository_id,
@@ -205,7 +205,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges out of a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
+        """Get stored CALLS edges out of a declaration, and REFERENCES_FUNCTION edges to the functions it passes as values, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_calls(
             qualified_name,
             repository_id,
@@ -229,8 +229,9 @@ def create_server():
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
-        Follows CALLS, INHERITS_FROM, IMPLEMENTS, DISPATCHES_TO (Go interface
-        methods to implementations) and REQUESTS backwards and
+        Follows CALLS, REFERENCES_FUNCTION (where it is passed as a value),
+        INHERITS_FROM, IMPLEMENTS, DISPATCHES_TO (Go interface methods to
+        implementations) and REQUESTS backwards and
         HANDLES forwards, so callers of a changed HTTP handler's route in
         other services count; each dependent has its depth, its path's edges
         and the path's weakest evidence. A truncated list continues with

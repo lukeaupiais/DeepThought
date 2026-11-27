@@ -80,6 +80,7 @@ class _Context:
         self.calls_of = None
         self.python_router_of = None
         self.script_route_of = None
+        self.fastify_route_of = None
         self.client_of = None
         # Python and Express: {router name: full prefixes} of the file's
         # mounted routers.
@@ -1055,7 +1056,7 @@ def _router_middleware(node, content):
     return node
 
 
-def express_routers(tree, content, is_router=None):
+def express_routers(tree, content, is_router=None, is_mount=None):
     """Express apps and routers of one script file, what it exports and the
     routers it mounts, for composing route prefixes across files
     (``compose_express_prefixes``).
@@ -1070,7 +1071,8 @@ def express_routers(tree, content, is_router=None):
     (module specifier, export name). ``modules`` is ``_js_modules``.
     ``is_router(value)``, when given, also counts a bound value the SCIP
     index resolves to a router constructor (``new Router()`` of
-    koa-router)."""
+    koa-router, ``new Hono()``); ``is_mount(property node)`` a method other
+    than ``use`` that mounts a router under a path (Hono's ``route``)."""
     root = tree.root_node
     modules = _js_modules(root, content)
     folder = Folder("javascript", root, content)
@@ -1122,12 +1124,38 @@ def express_routers(tree, content, is_router=None):
                 function is None
                 or function.type != "member_expression"
                 or arguments is None
-                or text(function.child_by_field_name("property"), content) != "use"
+                or (
+                    text(function.child_by_field_name("property"), content) != "use"
+                    and (
+                        is_mount is None
+                        or not is_mount(function.child_by_field_name("property"))
+                    )
+                )
             ):
                 continue
             parent = function.child_by_field_name("object")
+            base = ""
             if parent.type != "identifier":
-                continue
+                # An app made in place (``new Hono().basePath("/v1").route(...)``,
+                # a chain of calls on it): mounted at the root under its
+                # basePath.
+                current = parent
+                while current.type == "call_expression":
+                    inner = current.child_by_field_name("function")
+                    if inner is None or inner.type != "member_expression":
+                        break
+                    if (
+                        text(inner.child_by_field_name("property"), content)
+                        == "basePath"
+                    ):
+                        given = current.child_by_field_name("arguments")
+                        if given is not None and given.named_children:
+                            base = folder.evaluate(given.named_children[0]) + base
+                    current = inner.child_by_field_name("object")
+                if current.type != "new_expression" or not (
+                    is_router is not None and is_router(current)
+                ):
+                    continue
             positional = [c for c in arguments.named_children if c.type != "comment"]
             if not positional:
                 continue
@@ -1149,7 +1177,15 @@ def express_routers(tree, content, is_router=None):
                 prefixes, rest = [""], positional
             children = [c for c in (child_of(n) for n in rest) if c is not None]
             if children and prefixes:
-                mounts.append((text(parent, content), prefixes, children))
+                mounts.append(
+                    (
+                        text(parent, content)
+                        if parent.type == "identifier"
+                        else "<in place>",
+                        [base + p for p in prefixes],
+                        children,
+                    )
+                )
     routers = {
         name
         for name, values in bound.items()
@@ -1421,6 +1457,24 @@ def _own_prefix(context, owner):
     found = context.folder.binding(owner)
     if found is None or found[1].type not in ("new_expression", "call_expression"):
         return ""
+    value, base = found[1], ""
+    # Hono: ``new Hono().basePath("/api")``.
+    while value.type == "call_expression":
+        function = value.child_by_field_name("function")
+        arguments = value.child_by_field_name("arguments")
+        if (
+            function is None
+            or function.type != "member_expression"
+            or text(function.child_by_field_name("property"), context.content)
+            != "basePath"
+            or arguments is None
+            or not arguments.named_children
+        ):
+            break
+        base = context.folder.evaluate(arguments.named_children[0]) + base
+        value = function.child_by_field_name("object")
+    if base:
+        return base
     arguments = found[1].child_by_field_name("arguments")
     options = [
         c for c in (arguments.named_children if arguments else ()) if c.type == "object"
@@ -1431,6 +1485,57 @@ def _own_prefix(context, owner):
             if text(key, context.content).strip("'\"") == "prefix":
                 return context.folder.evaluate(pair.child_by_field_name("value"))
     return ""
+
+
+def _fastify_route(context, node, positional, verb, prefixes):
+    """A Fastify route: ``instance.get(path, [options], handler)`` and the
+    other shorthand methods, or ``instance.route({method, url, handler})``
+    (``path`` is accepted for ``url``), under the prefixes its plugin is
+    registered with (``fastify.FastifyPlugins``)."""
+    content = context.content
+    if verb == "route":
+        if not positional or positional[0].type != "object":
+            return
+        options = _js_object(positional[0], content)
+        url = options.get("url") or options.get("path")
+        method_node = options.get("method")
+        if url is None or method_node is None:
+            return
+        given = (
+            method_node.named_children if method_node.type == "array" else [method_node]
+        )
+        methods = [_method(context.folder, m, None) for m in given]
+        if not methods or None in methods:
+            context.unread.append(
+                Unread(
+                    context.file,
+                    node.start_point.row + 1,
+                    "route",
+                    "method_not_literal",
+                )
+            )
+            return
+        handler_node = options.get("handler")
+    else:
+        if len(positional) < 2:
+            return
+        url = positional[0]
+        methods = [ANY_METHOD if verb == "all" else verb.upper()]
+        handler_node = positional[-1]
+        if handler_node.type == "object":
+            handler_node = _js_object(handler_node, content).get("handler")
+    handler = (
+        context.named_function(text(handler_node, content))
+        if handler_node is not None and handler_node.type == "identifier"
+        else None
+    )
+    declared = context.folder.evaluate(url)
+    for prefix in prefixes:
+        path, base_unknown = _express_path(prefix + declared), False
+        if path.startswith(PLACEHOLDER):
+            rest = path.lstrip(PLACEHOLDER)
+            path, base_unknown = (rest if rest.startswith("/") else "/" + rest), True
+        context.route(node, methods, path, "fastify", handler, base_unknown)
 
 
 def _typed_script_route(context, node, function, positional, framework, method):
@@ -1475,8 +1580,25 @@ def _typed_script_route(context, node, function, positional, framework, method):
         if handler_node.type == "identifier"
         else None
     )
+    # A route on a chain of calls (``const api = new Hono().get(...).post(...)``)
+    # is on the router the chain is bound to.
+    named = owner
+    while named.type == "call_expression":
+        inner = named.child_by_field_name("function")
+        if inner is None or inner.type != "member_expression":
+            break
+        named = inner.child_by_field_name("object")
+    if named.type != "identifier":
+        outer = node
+        while outer.parent is not None and outer.parent.type in (
+            "member_expression",
+            "call_expression",
+        ):
+            outer = outer.parent
+        if outer.parent is not None and outer.parent.type == "variable_declarator":
+            named = outer.parent.child_by_field_name("name")
     declared = _own_prefix(context, owner) + context.folder.evaluate(path_node)
-    for prefix in context.mounts.get(text(owner, content), [""]):
+    for prefix in context.mounts.get(text(named, content), [""]):
         path, base_unknown = _express_path(prefix + declared), False
         if prefix.startswith(PLACEHOLDER) or path.startswith(PLACEHOLDER):
             path, base_unknown = _unknown_base(path)
@@ -1643,6 +1765,14 @@ def extract_javascript(context, nest=None, axios_imports=None):
         if function.type == "member_expression":
             owner = text(function.child_by_field_name("object"), content)
             verb = text(function.child_by_field_name("property"), content)
+            fastify = (
+                context.fastify_route_of(context.file, node, function)
+                if context.fastify_route_of is not None
+                else None
+            )
+            if fastify is not None:
+                _fastify_route(context, node, positional, *fastify)
+                continue
             typed = (
                 context.script_route_of(
                     context.file, function.child_by_field_name("property")
@@ -2368,6 +2498,7 @@ def extract_web(
     go_routes=None,
     python_router_of=None,
     script_route_of=None,
+    fastify_route_of=None,
     client_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
@@ -2389,6 +2520,8 @@ def extract_web(
     ``script_route_of(file, property node)`` the (framework, method) of a
     JavaScript/TypeScript route registration method the SCIP index resolves
     the called name to (``_script_route_resolver``), or None;
+    ``fastify_route_of(file, call, member)`` the (verb, prefixes) of a
+    Fastify route call (``fastify.FastifyPlugins.route_of``), or None;
     ``client_of(file, name node)`` the HTTP client library (``requests``,
     ``httpx``, ``aiohttp``, ``axios``) whose request method the index
     resolves a called name to (``_client_resolver``), or None."""
@@ -2399,6 +2532,7 @@ def extract_web(
     context.mounts = mounts or {}
     context.python_router_of = python_router_of
     context.script_route_of = script_route_of
+    context.fastify_route_of = fastify_route_of
     context.client_of = client_of
     if language == "python":
         extract_python(context)

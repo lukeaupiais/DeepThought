@@ -1509,6 +1509,47 @@ dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
 
+### Calls through parameters
+
+`def apply(f, x): return f(x)` called as `apply(double, 3)` runs `double`.
+A call written as a parameter's name that no other rule links gets a CALLS
+edge to each function, method or class passed to that parameter (rule
+`python.call-parameter-value`, evidence type `resolved`, `dispatch:
+parameter`; `src/deepthought/python_value_calls.py`, facts read by
+`python_parameter_calls.py` with Python's `ast`).
+
+- A call that the index or pyright links to a parsed function binds its
+  arguments as Python does: positional arguments in order, after `self` or
+  `cls` for a method called through an instance or for a class method
+  (not for one called through its class, nor for a `staticmethod`), to
+  `__init__` for a class called, keyword arguments by name, and nothing
+  after a `*` or `**` argument.
+- An argument is a value of its parameter when the SCIP index resolves its
+  name (or the last name of a dotted name) to a parsed function, method or
+  class. A decorator written as a name gets the function it decorates.
+- A caller that passes its own parameter on as a bare name (`def
+  forward(g): apply(g)`) passes every value of that parameter, to any
+  depth.
+- The calls of a parameter are the calls written as its bare name in the
+  function's body, including in nested functions and lambdas, unless one
+  of them binds the name again. A parameter that the body rebinds anywhere
+  (`f = f or default`) takes part in nothing.
+
+No maintained tool answers this for Python. pyright and scip-python
+resolve names, not values flowing into a parameter, and the points-to call
+graph tools do not run on current Python (PyCG was archived in 2023 and
+fails on 3.13; pytype was retired in 2024). The binding is therefore this
+rule's, over names the index resolves. Not followed: values stored and read
+back (`self.steps.append(step)`, then `for step in self.steps: step()`),
+values taken from containers or returned from calls, and arguments passed
+through `*args` or `**kwargs`. The tool metadata counts
+`python_parameter_calls` (`sites`, `edges`).
+
+The caller and callee queries (`getFunctionCallers`, `getFunctionCalls`)
+also return the REFERENCES_FUNCTION edges of a function passed as a value
+(a handler given to a router, a callback, a middleware, a table entry), in
+every language, and each row's relationship type says which it is.
+
 ### Python versions
 
 The pytest fixture and FastAPI dependency rules read sources with Python's
@@ -3429,7 +3470,27 @@ which only client requests are read:
   join their `prefix` option and the paths they are mounted at with `use`,
   including `router.routes()` mounts and exports; the index decides what
   is a koa-router `Router`. Plain JavaScript gets these symbols through
-  the DefinitelyTyped packages acquired before indexing. Django routes are
+  the DefinitelyTyped packages acquired before indexing. Hono routes (rule
+  `hono-route`) are `get`/`post`/.../`all` calls the index resolves to
+  Hono's methods, under the app's `basePath` and the paths it is mounted
+  at with `route(path, app)`, which the index resolves the same way; an
+  app built as one chain of calls (`new Hono().get(...).post(...)`) is the
+  app the chain is bound to, and one mounted in place is at the root. Fastify routes
+  (`service_contracts/fastify.py`, rule `fastify-route`) are
+  `get`/`post`/.../`all` and `route({method, url, handler})` calls on an
+  instance the index resolves the method to Fastify's `FastifyInstance`
+  for, or that is the first parameter of a plugin function the repository
+  registers (`register(plugin, {prefix})`, inline, local or imported) or
+  `@fastify/autoload` loads; Fastify always calls a plugin with the
+  instance. Prefixes follow encapsulation: a plugin's routes take the
+  prefixes of the plugin registering it plus its `prefix` option, a
+  `fastify-plugin` wrapper takes none, and autoload, read as its
+  `find-plugins` loads a directory (its `index` file, else every script but
+  `autohooks`), adds the directory path below `dir` (unless
+  `dirNameRoutePrefix: false`), a literal `autoPrefix` export in its place,
+  and `options.prefix`. A prefix the code does not fix leaves the base
+  unknown; a `dir` other than `path.join(__dirname | import.meta.dirname,
+  "...")` is `autoload_dir_not_literal`. Django routes are
   URLconf entries (`service_contracts/django_urls.py`, rule
   `django-urlconf-route`): from a module's `urlpatterns` (with `+=` and
   `+` and the module's own lists), a call the scip-python index resolves
@@ -3442,9 +3503,17 @@ which only client requests are read:
   optional parts dropped), and any other construct is `path_not_literal`.
   A URLconf no other includes is at `/`; one included at a pattern the code
   does not fix keeps an unknown base. A view the index does not resolve to
-  the repository (`admin.site.urls`) is `view_not_resolved`; Django REST
-  framework routers (`include(router.urls)`) are not read yet
-  (`include_not_resolved`). Express `get`/`post`/.../`all` calls on an app or Router
+  the repository (`admin.site.urls`) is `view_not_resolved`. Django REST
+  framework routers (`service_contracts/drf_routers.py`, rule
+  `drf-router-route`) are read where a URLconf includes `router.urls` of a
+  value whose `register` the index resolves to DRF's: each registered
+  ViewSet has the routes `SimpleRouter` generates for its actions
+  (`{prefix}/` GET list and POST create, `{prefix}/{lookup}/` GET retrieve,
+  PUT update, PATCH partial_update, DELETE destroy, and each `@action` with
+  its `detail`, `methods` and `url_path`), the actions read from the class,
+  its repository bases and the DRF ViewSet and mixin classes the index
+  resolves among them. A ViewSet with any other base is
+  `viewset_base_not_resolved`. Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
@@ -3500,9 +3569,9 @@ which only client requests are read:
   not followed. A conversion to a func type (`http.HandlerFunc(List)`) is
   its function, also through a variable assigned only that conversion and
   through that variable's `ServeHTTP` method value (`token.ServeHTTP`).
-  Not read: a mounted router
-  that is the result of a call (`r.Mount("/api", apiRouter())`), whose
-  routes then miss the prefix, and Fiber's optional `:id?` and `+`
+  A router mounted from a call of a module function
+  (`r.Mount("/api", apiRouter())`) is the variable the function returns,
+  so its routes take the mount's prefix. Not read: Fiber's optional `:id?` and `+`
   parameters, which are kept as written.
   Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
