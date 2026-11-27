@@ -849,7 +849,17 @@ function protoFacts(checker, file, out) {
     const symbol = node && checker.getSymbolAtLocation(node);
     let target = symbol;
     if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
-    const declaration = target && target.declarations && target.declarations[0];
+    // A name that is both a value and a type (protobuf-es's erasable
+    // enums: export const E = {...} and export type E) is its type here.
+    const declarations = (target && target.declarations) || [];
+    const declaration =
+      declarations.find(
+        (d) =>
+          ts.isTypeAliasDeclaration(d) ||
+          ts.isInterfaceDeclaration(d) ||
+          ts.isEnumDeclaration(d) ||
+          ts.isClassDeclaration(d),
+      ) || declarations[0];
     if (!declaration || !declaration.name) return null;
     const source = declaration.getSourceFile();
     return {

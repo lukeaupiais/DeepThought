@@ -2405,14 +2405,15 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
 
 def _go_messaging_facts(root, sources):
     """({file: (calls, literals, reason)}, GOPATH-era packages, {file:
-    calls}, (GoRoutes, unread), {file: GoPasses}, GoStructs, GoProtoFiles)
-    from the Go type checker: the
+    calls}, (GoRoutes, unread), {file: GoPasses}, Fiber c.Next() operands,
+    GoStructs, GoProtoFiles) from the Go type checker: the
     first for the Go sources that import a broker client, the third for
     those whose HTTP handlers may carry payloads
     (``_GO_HTTP_PAYLOAD_IMPORTS``), the fourth the routes of gin, Echo, chi
     and Fiber routers (``go_routes``), then the values each file passes to
-    its own helpers, the module's struct types, and the protoc-gen-go
-    files' descriptors and Go types;
+    its own helpers, the parameters Fiber's c.Next() is called on, the
+    module's struct types, and the protoc-gen-go files' descriptors and Go
+    types;
     reason is
     why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
@@ -2456,7 +2457,7 @@ def _go_messaging_facts(root, sources):
         and b"protoimpl.TypeBuilder" in content
     ]
     if not files and not handlers and not routing and not generated:
-        return {}, {}, {}, ([], []), {}, (), ()
+        return {}, {}, {}, ([], []), {}, set(), (), ()
     facts = go_facts.collect(
         root,
         sorted({*files, *handlers, *routing, *generated}),
@@ -2488,15 +2489,62 @@ def _go_messaging_facts(root, sources):
     passes = defaultdict(list)
     for item in facts.passes:
         passes[item.file].append(item)
+    # The parameters (references) that Fiber's c.Next() is called on: the
+    # handlers declaring them pass the request on (middleware).
+    fiber_next = {
+        call.operand
+        for call in facts.calls
+        if call.method == "Next"
+        and call.receiver is not None
+        and call.receiver[0] in _FIBER_PACKAGES
+        and call.receiver[1] == "Ctx"
+        and call.operand is not None
+        and call.operand[0] == "o"
+    }
     return (
         found,
         go_facts.gopath_report(facts),
         handler_calls,
         routes,
         passes,
+        fiber_next,
         facts.structs,
         facts.proto_files,
     )
+
+
+_FIBER_PACKAGES = ("github.com/gofiber/fiber/v2", "github.com/gofiber/fiber/v3")
+
+
+def _fiber_endpoint(candidates, fiber_next, declarations, definitions):
+    """The (function reference, literal reference) of the handler Fiber
+    ends a route's chain with: the first, in run order, that never calls
+    c.Next() on its context. A func literal, function or method value
+    passes the request on when c.Next() is called on its own parameter or
+    inside its declaration; a factory call (Protected()) is known to give
+    middleware only when c.Next() is called inside it, since the handler
+    it returns may be a library's (limiter.New). None when a handler before
+    the endpoint is not known either way: a library's, not one
+    declaration, or a factory without c.Next()."""
+    for function, literal, factory in candidates:
+        if literal is not None:
+            passes_on = literal in fiber_next
+        elif function is not None:
+            ids = declarations.get(function[1:3], [])
+            if len(ids) != 1 or ids[0] not in definitions:
+                return None
+            found = definitions[ids[0]]
+            passes_on = any(
+                ref[1] == found.file and found.line <= ref[2] <= found.end_line
+                for ref in fiber_next
+            )
+            if factory and not passes_on:
+                return None
+        else:
+            return None
+        if not passes_on:
+            return function, literal
+    return None
 
 
 _FIELD_DEPTH = 6
@@ -3474,6 +3522,7 @@ class ServiceContractTool(AnalysisTool):
             go_handler_calls,
             (go_found_routes, go_route_unread),
             go_passes,
+            go_fiber_next,
             go_structs,
             go_proto_files,
         ) = _go_messaging_facts(root, sources)
@@ -3491,12 +3540,23 @@ class ServiceContractTool(AnalysisTool):
         # The first parameter of each Go route's func literal handler, by the
         # (file, line, column) of the route call.
         go_literals = {}
+        go_definitions = {d.id: d for d in result.definitions}
         for route in go_found_routes:
-            if route.literal is not None and route.literal[1] == route.file:
-                go_literals[(route.file, route.line, route.column)] = route.literal
+            function, literal = route.handler, route.literal
+            chosen = (
+                _fiber_endpoint(
+                    route.candidates, go_fiber_next, go_declarations, go_definitions
+                )
+                if route.candidates
+                else None
+            )
+            if chosen is not None:
+                function, literal = chosen
+            if literal is not None and literal[1] == route.file:
+                go_literals[(route.file, route.line, route.column)] = literal
             handler = None
-            if route.handler is not None:
-                ids = go_declarations.get(route.handler[1:3], [])
+            if function is not None:
+                ids = go_declarations.get(function[1:3], [])
                 handler = ids[0] if len(ids) == 1 else None
             go_routes[route.file][(route.line, route.column, route.method)] = (
                 route,
