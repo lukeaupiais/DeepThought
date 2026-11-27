@@ -313,6 +313,37 @@ class GoPayloadTypeTests(unittest.TestCase):
         # The value given to writeJSON as an any is not known.
         self.assertEqual(self.unresolved, 1)
 
+    def test_chi_render_bodies(self):
+        # go-chi/render decodes the handler's own request and renders to its
+        # own response writer; a body read from another service is not the
+        # route's.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod(
+                    "example.com/shop",
+                    "github.com/go-chi/chi/v5",
+                    "github.com/go-chi/render",
+                ),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": CHI_RENDER,
+            }
+        )
+        self.assertEqual(
+            sorted(
+                (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
+            ),
+            [
+                # The types orderRequest and orderResponse embed.
+                ("/orders", "CreateOrder", "request", "go-field-type"),
+                ("/orders", "CreateOrder", "request", "go-request-body-type"),
+                ("/orders", "Order", "response", "go-field-type"),
+                ("/orders", "Order", "response", "go-response-body-type"),
+                ("/orders", "orderRequest", "request", "go-request-body-type"),
+                ("/orders", "orderResponse", "response", "go-response-body-type"),
+            ],
+        )
+
 
 ERROR_TYPE = """
 type Problem struct {
@@ -553,3 +584,55 @@ func main() {
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CHI_RENDER = """package main
+
+import (
+\t"net/http"
+
+\t"github.com/go-chi/chi/v5"
+\t"github.com/go-chi/render"
+
+\t"example.com/shop/api"
+)
+
+type orderRequest struct{ *api.CreateOrder }
+
+func (orderRequest) Bind(r *http.Request) error { return nil }
+
+type orderResponse struct{ *api.Order }
+
+func (orderResponse) Render(w http.ResponseWriter, r *http.Request) error { return nil }
+
+func create(w http.ResponseWriter, r *http.Request) {
+\tin := &orderRequest{}
+\tif err := render.Bind(r, in); err != nil {
+\t\treturn
+\t}
+\trender.Render(w, r, orderResponse{})
+}
+
+func list(w http.ResponseWriter, r *http.Request) {
+\tvar q api.CreateOrder
+\trender.DecodeJSON(r.Body, &q)
+\trender.JSON(w, r, []api.Order{})
+}
+
+func proxy(w http.ResponseWriter, r *http.Request) {
+\tresp, err := http.Get("http://inventory/stock")
+\tif err != nil {
+\t\treturn
+\t}
+\tvar o api.Order
+\trender.DecodeJSON(resp.Body, &o)
+}
+
+func main() {
+\tr := chi.NewRouter()
+\tr.Post("/orders", create)
+\tr.Get("/orders", list)
+\tr.Get("/proxy", proxy)
+\thttp.ListenAndServe(":8080", r)
+}
+"""

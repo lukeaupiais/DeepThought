@@ -2404,6 +2404,7 @@ _GO_HTTP_PAYLOAD_IMPORTS = (
     b'"github.com/gin-gonic/gin"',
     b'"github.com/labstack/echo',
     b'"github.com/gofiber/fiber',
+    b'"github.com/go-chi/render"',
 )
 
 
