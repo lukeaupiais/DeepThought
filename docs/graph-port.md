@@ -3470,7 +3470,12 @@ which only client requests are read:
   join their `prefix` option and the paths they are mounted at with `use`,
   including `router.routes()` mounts and exports; the index decides what
   is a koa-router `Router`. Plain JavaScript gets these symbols through
-  the DefinitelyTyped packages acquired before indexing. Fastify routes
+  the DefinitelyTyped packages acquired before indexing. Hono routes (rule
+  `hono-route`) are `get`/`post`/.../`all` calls the index resolves to
+  Hono's methods, under the app's `basePath` and the paths it is mounted
+  at with `route(path, app)`, which the index resolves the same way; an
+  app built as one chain of calls (`new Hono().get(...).post(...)`) is the
+  app the chain is bound to, and one mounted in place is at the root. Fastify routes
   (`service_contracts/fastify.py`, rule `fastify-route`) are
   `get`/`post`/.../`all` and `route({method, url, handler})` calls on an
   instance the index resolves the method to Fastify's `FastifyInstance`
