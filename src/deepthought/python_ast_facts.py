@@ -16,20 +16,28 @@ import sys
 
 try:
     from .fastapi_dependencies import dependency_facts
+    from .python_parameter_calls import parameter_facts
     from .pytest_fixtures import fixture_uses
 except ImportError:  # Run as a script by another interpreter.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from fastapi_dependencies import dependency_facts
+    from python_parameter_calls import parameter_facts
     from pytest_fixtures import fixture_uses
 
 # The modules a script run needs beside this one.
-MODULES = ("python_ast_facts.py", "pytest_fixtures.py", "fastapi_dependencies.py")
+MODULES = (
+    "python_ast_facts.py",
+    "pytest_fixtures.py",
+    "fastapi_dependencies.py",
+    "python_parameter_calls.py",
+)
 
 
 def ast_facts(sources):
     """``python`` (the interpreter's version), ``unparsed`` (path to the
     error of each file it cannot parse), ``fixtures`` (``FixtureUse`` fields)
-    and ``dependencies`` (path to ``dependency_facts``) of ``sources``."""
+    ``dependencies`` (path to ``dependency_facts``) and ``parameters``
+    (path to ``parameter_facts``) of ``sources``."""
     trees, unparsed = {}, {}
     for path in sorted(sources):
         try:
@@ -41,6 +49,7 @@ def ast_facts(sources):
         "unparsed": unparsed,
         "fixtures": [asdict(use) for use in fixture_uses(sources)],
         "dependencies": {path: dependency_facts(tree) for path, tree in trees.items()},
+        "parameters": {path: parameter_facts(tree) for path, tree in trees.items()},
     }
 
 
