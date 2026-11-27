@@ -177,9 +177,13 @@ class GoRouters:
                 continue
             if call.assigned is not None:
                 self.assigned.setdefault(call.assigned, []).append(("call", call))
-            for index, parameter in enumerate(call.literal_parameters):
-                if parameter is not None:
-                    self.scopes.setdefault(parameter, []).append((call, index))
+            # The router parameter of a func literal (r.Route("/x",
+            # func(r chi.Router) {...})) or of a function or method passed
+            # as a value (r.Route("/x", api.ConfigureRouter)).
+            for parameters in (call.literal_parameters, call.callback_parameters):
+                for index, parameter in enumerate(parameters):
+                    if parameter is not None:
+                        self.scopes.setdefault(parameter, []).append((call, index))
         # Routers mounted under a prefix, by the reference of the variable
         # or field they are held in: one mounted directly, or the variable
         # a module function returns when the mount is given its call

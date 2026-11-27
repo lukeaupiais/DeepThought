@@ -3564,8 +3564,10 @@ which only client requests are read:
   `var` or struct field the router is assigned to (in any file of the
   module), the call it is (`r.Group("/v1").GET(...)`), the parameter of a
   module function that callers pass it to (one route per distinct prefix,
-  across packages), and the parameter of a func literal that chi's
-  `Route(prefix, fn)`/`Group(fn)` or Fiber v2's `Route(prefix, fn)` calls.
+  across packages), and the first parameter of a func literal, or of a
+  module function or method passed as a value (`api.ConfigureRouter`),
+  that chi's `Route(prefix, fn)`/`Group(fn)` or Fiber v2's
+  `Route(prefix, fn)` calls.
   `Group` (and chi/Fiber v3 `Route`) joins its prefix; Gin's and Fiber's `Use`, chi's
   `With`, chi's `Group` and a verb that returns a router keep it. A root
   router (Gin `Engine`, Echo `Echo`, chi `Mux`, Fiber `App`) adds no

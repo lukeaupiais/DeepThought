@@ -111,6 +111,9 @@ class GoCall:
     refs: tuple = ()
     functions: tuple = ()
     literal_parameters: tuple = ()
+    # The first parameter of the module's function or method an argument
+    # names as a value.
+    callback_parameters: tuple = ()
 
 
 # A reference gofacts gives: ("o", file, line, column) of a variable or field
@@ -750,6 +753,7 @@ def _read(text, directory, members, facts):
                     tuple(ref(a.get("ref")) for a in arguments),
                     tuple(ref(a.get("function")) for a in arguments),
                     tuple(ref(a.get("literal")) for a in arguments),
+                    tuple(ref(a.get("callback")) for a in arguments),
                 )
             )
         elif kind == "pass":
