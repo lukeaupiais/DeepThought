@@ -4,7 +4,8 @@
 // stdin: {"op": "config" | "dmmf", "schemas": [[[path, text], ...], ...]}.
 // stdout: one JSON result per schema, in order:
 //   config: {"datasources": n, "errors": [message, ...]}
-//   dmmf:   {"models": [{"name", "dbName", "schema", "columns", "relations"}]}
+//   dmmf:   {"models": [{"name", "dbName", "schema", "columns", "relations",
+//                        "links", "compounds"}]}
 //           or {"error": message}
 "use strict";
 const wasm = require(process.argv[2]);
@@ -64,6 +65,17 @@ process.stdin.on("end", () => {
               references: f.relationToFields || [],
               onDelete: f.relationOnDelete || null,
             })),
+          // Every relation field: [name, related model, the fields of this
+          // model that hold its foreign key].
+          links: m.fields
+            .filter((f) => f.kind === "object")
+            .map((f) => [f.name, f.type, f.relationFromFields || []]),
+          // Compound unique and primary keys by the name Prisma Client's
+          // WhereUniqueInput gives them (the fields joined by "_" when
+          // unnamed).
+          compounds: [m.primaryKey, ...(m.uniqueIndexes || [])]
+            .filter((u) => u && u.fields.length > 1)
+            .map((u) => [u.name || u.fields.join("_"), u.fields]),
         })),
       };
     } catch (error) {

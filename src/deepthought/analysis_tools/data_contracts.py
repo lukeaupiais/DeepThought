@@ -24,11 +24,26 @@ from .._version import __version__
 from .. import go_facts as gofacts
 from .. import ts_modules
 from ..gorm_naming import table_names as gorm_table_names
+from ..django_naming import column_names as django_column_names
+from ..typeorm_naming import column_names as typeorm_column_names
 from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     _owner_at,
+    _descendants,
+    DJANGO_NO_COLUMN,
+    django_chain,
+    django_columns,
+    PRISMA_INPUT_KINDS,
+    prisma_columns,
+    extract_typeorm_classes,
+    typeorm_key_access,
+    TYPEORM_METHOD_SYMBOL,
+    typeorm_columns as typeorm_call_columns,
+    prisma_assignments,
+    prisma_input_columns,
+    prisma_typed_inputs,
     drizzle_helper_name,
     drizzle_spread_columns,
     statement_columns,
@@ -113,7 +128,7 @@ from ..scip_calls import ScipReferences
 from .. import deploy_facts
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
-from ..syntax import make_parser, parse_source
+from ..syntax import make_parser, parse_source, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .components import _nearest_packages
 from .contracts import (
@@ -468,6 +483,45 @@ DJANGO_HISTORICAL_RULE = register_rule(
 )
 
 
+DJANGO_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-column",
+        "resolved",
+        "A field of a Django model (or of an abstract model it extends) "
+        "assigned a Django field class: its column is the one Django's own "
+        "Field.get_attname_column() gives, at the Django release the project "
+        "declares (db_column, else the attname: author_id for a ForeignKey "
+        "author); the implicit id of a model without a primary key. Declared "
+        "for a table whose migrations give no columns.",
+    )
+)
+DJANGO_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-scip-column-access",
+        "resolved",
+        "A scip-python index resolves an attribute access to a field of a "
+        "Django model (data-contracts.django-column): an assignment to it "
+        "writes the column, an augmented assignment reads and writes it, any "
+        "other access reads it.",
+    )
+)
+DJANGO_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-column-key",
+        "pattern_matched",
+        "A lookup or field name of a Django query on a model the index "
+        "resolves (data-contracts.django-scip-manager-call): keyword lookups "
+        "of filter, exclude, get and the like and of Q(), field names of "
+        "values, only, order_by and the like and of F() and aggregates read, "
+        "followed through relations (author__name reads author_id and the "
+        "author's name) and reverse relations (by related_query_name, else "
+        "related_name, else the model name); keywords of update and create, "
+        "defaults of get_or_create and a Model(...) constructor's keywords "
+        "write, and get_or_create/update_or_create lookups read and write. Read "
+        "against the model's fields, as scip-python does not resolve keyword "
+        "lookups or field-name strings.",
+    )
+)
 SA_TABLENAME_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sqlalchemy-tablename",
@@ -760,6 +814,107 @@ PRISMA_CLIENT_RULE = register_rule(
         "name, first letter lower case): the one such model of the caller's "
         "namespace, else of the repository. The receiver is not checked to "
         "be a PrismaClient.",
+    )
+)
+# A scalar field of a model's payload type in the Prisma Client prisma
+# generate writes (``Prisma/$UserPayload#typeLiteral10:scalars.`...`:
+# typeLiteral11:email.``), or of a groupBy row
+# (``Prisma/UserGroupByOutputType#typeLiteral10:email.``).
+# The prisma-client-js generator declares these in its namespace Prisma
+# (``index.d.ts`/Prisma/``); the prisma-client generator (Prisma 7's
+# default) in a file per model (``models/`User.ts`/``).
+_PRISMA_CLIENT_SCOPE = r"(?:/Prisma/|/models/`\w+\.ts`/)"
+_PRISMA_PAYLOAD = re.compile(
+    r"^scip-typescript .*" + _PRISMA_CLIENT_SCOPE + r"(?:\$(\w+)Payload#[^ ]*"
+    r":scalars\.[^ ]*|(\w+)GroupByOutputType#[^ ]*):(\w+)\.$"
+)
+PRISMA_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-column",
+        "resolved",
+        "Prisma's own schema engine (data-contracts.prisma-model) lists this "
+        "scalar field of the model, with its @map name, in the schema's "
+        "DMMF; used for a table whose migrations give no columns. The DMMF "
+        "leaves out Unsupported and @ignore fields, so the table's columns "
+        "are not marked all known.",
+    )
+)
+PRISMA_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-column-key",
+        "pattern_matched",
+        "A key of a Prisma Client call's arguments (data-contracts."
+        "prisma-client) names a field of the model in Prisma's DMMF: in a "
+        "where, cursor, having, select, orderBy, distinct, by or aggregate "
+        "it reads the field's column, in a data, create or update it "
+        "writes it; a relation key reads (or, written, sets) the foreign "
+        "key fields the model holds and its own keys name the related "
+        "model's fields. Prisma Client types these objects by the model's "
+        "fields, which scip-typescript records as local keys, not "
+        "references.",
+    )
+)
+PRISMA_COLUMN_READ_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-scip-column-read",
+        "resolved",
+        "A scip-typescript index resolves a property access on a row to a "
+        "scalar of the model's payload type in the Prisma Client the "
+        "project's prisma generate wrote ($<Model>Payload scalars, or a "
+        "groupBy row's <Model>GroupByOutputType), and "
+        "Prisma's DMMF maps that field to this column of the model's "
+        "table: the one such model of the reader's namespace, else of the "
+        "repository.",
+    )
+)
+TYPEORM_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-column",
+        "resolved",
+        "A property of a TypeORM entity (or of a class the entity extends) "
+        "is decorated with one of TypeORM's column decorators (@Column, "
+        "@PrimaryGeneratedColumn, @CreateDateColumn, ...), or is a "
+        "ManyToOne or a OneToOne with @JoinColumn, which holds a foreign "
+        "key. Its column is the name its options give, else the name "
+        "TypeORM's DefaultNamingStrategy (columnName, or joinColumnName of "
+        "the related entity's primary column) at the release the project "
+        "pins gives it; declared for a table whose migrations give no "
+        "columns. A project that sets a namingStrategy gets only the names "
+        "its options give.",
+    )
+)
+TYPEORM_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-scip-column-access",
+        "resolved",
+        "A scip-typescript index resolves a property access to a column "
+        "property of a TypeORM entity (data-contracts.typeorm-column): an "
+        "assignment to it writes the column; an object key naming it reads "
+        "it under a find option (where, order, select...), in an object a "
+        "TypeORM find option type is declared for (an annotation, as, "
+        "satisfies, or the parameter type of the project function called), "
+        "and in the criteria or arguments of a TypeORM repository or entity "
+        "manager method that reads; any other object key writes it (values "
+        "of save, create, update, or of a project's own method); any other "
+        "access reads it.",
+    )
+)
+# scip-typescript symbols of TypeORM's query builder methods and types.
+_TYPEORM_BUILDER_METHOD_SYMBOL = re.compile(
+    r"scip-typescript npm typeorm \S+ query-builder/.*/\w*QueryBuilder#\w+\(\)\."
+)
+_TYPEORM_TYPE_SYMBOL = re.compile(r"scip-typescript npm typeorm \S+ .*/(\w+)#")
+TYPEORM_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-column-key",
+        "pattern_matched",
+        "A key of a TypeORM repository call's arguments (find options "
+        "where, select and order, the criteria of findBy, delete, update "
+        "and the like, the values of save, insert, upsert and update) names "
+        "a column property of the entity the index resolves the call to "
+        "(data-contracts.typeorm-scip): the call reads it, or writes it in "
+        "values. Read by key, as scip-typescript does not resolve the keys "
+        "of TypeORM's mapped option types to the entity's properties.",
     )
 )
 TYPEORM_TABLE_RULE = register_rule(
@@ -1346,7 +1501,14 @@ class DataContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
-            sources.append((coverage.file, coverage.language, content))
+            # A Vue component is read as its script blocks.
+            sources.append(
+                (
+                    coverage.file,
+                    coverage.language,
+                    *script_source(coverage.file, content),
+                )
+            )
         if changed:
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
@@ -1354,14 +1516,14 @@ class DataContractTool(AnalysisTool):
         parsers = {}
         trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
         php_trees = []
-        for file, language, content in sources:
+        for file, language, grammar, content in sources:
             if language in ("ruby", "php") and _is_ruby_test(file):
                 continue
             if language == "go" and file.endswith("_test.go"):
                 continue
             if language in ("javascript", "typescript") and _is_script_test(file):
                 continue
-            suffix = ".tsx" if file.endswith(".tsx") else ""
+            suffix = ".tsx" if grammar == ".tsx" else ""
             if (language, suffix) not in parsers:
                 parsers[language, suffix] = make_parser(language, suffix)
             tree = parse_source(parsers[language, suffix], language, suffix, content)
@@ -1694,6 +1856,227 @@ class DataContractTool(AnalysisTool):
             model = by_id[model_id]
             label = model.app_label or django_app(model.file, labels)[1]
             django_by_label.setdefault((label, model.name), set()).add(target)
+        # Django model fields: their columns by Django's own naming, the
+        # accesses the index resolves to them, and the lookups and field
+        # names of manager calls and model constructors.
+        django_columns_counts = Counter()
+        django_models, django_field_at = {}, defaultdict(dict)
+        django_field_name = {}
+        models_by_name = defaultdict(list)
+        for model in models:
+            models_by_name[model.name].append(model)
+
+        def django_model_named(name, file):
+            found = models_by_name.get(name, [])
+            own = [m for m in found if scope(m.file) == scope(file)]
+            found = own or found
+            return found[0] if len(found) == 1 else None
+
+        def django_fields(model, seen=()):
+            """The fields of a model and of the abstract models it extends,
+            the model's own last."""
+            found = []
+            for base in model.bases:
+                parent = django_model_named(base, model.file)
+                if (
+                    parent is not None
+                    and parent.abstract
+                    and parent.model_id not in seen
+                ):
+                    found += django_fields(parent, seen + (model.model_id,))
+            return found + [(model, f) for f in model.fields]
+
+        django_planned, django_requests = [], set()
+        for model_id, target in sorted(django_by_model.items(), key=str):
+            model = by_id[model_id]
+            if model.proxy:
+                continue
+            fields = {}
+            for owner, field in django_fields(model):
+                fields[field.name] = (owner, field)
+            concrete_parent = any(
+                (p := django_model_named(b, model.file)) is not None and not p.abstract
+                for b in model.bases
+            )
+            entry = django_models.setdefault(
+                target, {"fields": {}, "pk": None, "reverse": {}}
+            )
+            primary = next((n for n, (_, f) in fields.items() if f.primary), None)
+            entry["pk"] = primary or ("id" if not concrete_parent else None)
+            for name, (owner, field) in fields.items():
+                related = None
+                if field.target is not None:
+                    other = (
+                        model
+                        if field.target == "self"
+                        else django_model_named(field.target, owner.file)
+                    )
+                    if other is not None:
+                        related = django_by_model.get(other.model_id)
+                entry["fields"][name] = (None, related)
+                if field.kind in DJANGO_NO_COLUMN:
+                    continue
+                request = (field.kind, field.name, field.db_column)
+                django_requests.add(request)
+                django_planned.append((target, owner, field, request))
+            if primary is None and not concrete_parent:
+                django_requests.add(("AutoField", "id", None))
+                django_planned.append((target, model, None, ("AutoField", "id", None)))
+        django_names, django_unread = django_column_names(root, django_requests)
+        if not django_planned:
+            django_unread = None
+        if django_unread:
+            django_columns_counts["naming_unread"] = len(django_planned)
+        for target, owner, field, request in django_planned:
+            name = django_names.get(request)
+            if name is None:
+                continue
+            known = table_columns.get(target)
+            if known is not None:
+                column = (
+                    name
+                    if name in known
+                    else next((c for c in known if c.lower() == name.lower()), None)
+                )
+                if column is None:
+                    django_columns_counts["not_a_table_column"] += 1
+                    continue
+            else:
+                column = name
+            column_target = f"{target}::column::{column}"
+            if known is None and column_target not in column_nodes:
+                table_label = target.rsplit("::", 1)[-1]
+                column_nodes[column_target] = NodeData(
+                    ["DbColumn", "Contract"],
+                    {
+                        "qualified_name": column_target,
+                        "repo_url": repo_url,
+                        "name": f"{table_label}.{column}",
+                        "display_name": f"{table_label}.{column}",
+                        "table": table_label,
+                        "column": column,
+                        "protocol": "sql",
+                        "scope": scope(owner.file),
+                    },
+                )
+                link(
+                    "HAS_COLUMN",
+                    (["DbTable", "Contract"], target),
+                    column_target,
+                    DJANGO_COLUMN_RULE,
+                    {"field": request[1]},
+                    labels=("DbColumn", "Contract"),
+                )
+                if field is not None:
+                    link(
+                        "DECLARES",
+                        (["File"], f"{repo_url}::{owner.file}::file"),
+                        column_target,
+                        DJANGO_COLUMN_RULE,
+                        {"line": field.line, "field": field.name},
+                        labels=("DbColumn", "Contract"),
+                    )
+                django_columns_counts["columns_declared"] += 1
+            django_columns_counts["columns"] += 1
+            entry = django_models[target]
+            entry["fields"][request[1]] = (
+                column_target,
+                entry["fields"].get(request[1], (None, None))[1],
+            )
+            if field is not None:
+                site = (owner.file, field.line, field.column)
+                django_field_at[site][target] = column_target
+                django_field_name[site] = field.name
+        # A reverse relation's lookup name: related_query_name, else
+        # related_name, else the model's name in lower case.
+        django_related_query = {}
+        for target, owner, field, request in django_planned:
+            if field is not None and field.related_query:
+                django_related_query[(target, field.name)] = field.related_query
+        for target, entry in django_models.items():
+            for name, (column, related) in entry["fields"].items():
+                if column is not None and related in django_models:
+                    model_name = django_related_query.get((target, name)) or next(
+                        (
+                            by_id[m].name.lower()
+                            for m, t in django_by_model.items()
+                            if t == target and not by_id[m].proxy
+                        ),
+                        None,
+                    )
+                    if model_name and "%" not in model_name and model_name != "+":
+                        django_models[related]["reverse"].setdefault(
+                            model_name, (target, name)
+                        )
+        # Attribute accesses the index resolves to a field.
+        django_sites = set()
+        if django_field_at:
+            owners_by_file = defaultdict(list)
+            for d in result.definitions:
+                owners_by_file[d.file].append(d)
+            for file, line, column, site in references.references_to(django_field_at):
+                holders = django_field_at[site]
+                if len(holders) != 1:
+                    django_columns_counts["accesses_unattributed"] += 1
+                    for name in holders.values():
+                        if name in column_nodes:
+                            column_nodes[name].properties["reads_unattributed"] = True
+                    continue
+                entry = django_trees.get(file)
+                kinds = ("READS_COLUMN",)
+                if entry is not None:
+                    node = entry[1].root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    access = node.parent if node is not None else None
+                    holder = access.parent if access is not None else None
+                    if (
+                        access is not None
+                        and access.type == "attribute"
+                        and holder is not None
+                        and holder.child_by_field_name("left") == access
+                    ):
+                        if holder.type == "assignment":
+                            kinds = ("WRITES_COLUMN",)
+                        elif holder.type == "augmented_assignment":
+                            # ``x.f += 1`` reads the value it writes.
+                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
+                django_sites.add((file, line, column))
+                tool, receipt = references.tool(file)
+                for kind in kinds:
+                    django_columns_counts[
+                        "writes" if kind == "WRITES_COLUMN" else "reads"
+                    ] += 1
+                    link(
+                        kind,
+                        code(file, _owner_at(owners_by_file[file], file, line, column)),
+                        next(iter(holders.values())),
+                        DJANGO_COLUMN_ACCESS_RULE,
+                        {
+                            "line": line,
+                            "column": column,
+                            "field": django_field_name[site],
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                        labels=("DbColumn", "Contract"),
+                    )
+
+        def django_keys(file, keyed, method):
+            owners = [d for d in result.definitions if d.file == file]
+            for key, name, sets, line, column in keyed.uses:
+                if (file, line, column) in django_sites:
+                    continue
+                django_columns_counts["call_keys"] += 1
+                link(
+                    "WRITES_COLUMN" if sets else "READS_COLUMN",
+                    code(file, _owner_at(owners, file, line, column)),
+                    django_models[key]["fields"][name][0],
+                    DJANGO_COLUMN_KEY_RULE,
+                    {"line": line, "column": column, "method": method, "field": name},
+                    labels=("DbColumn", "Contract"),
+                )
+
         django_counts = {
             "linked_scip": 0,
             "historical": 0,
@@ -1729,6 +2112,34 @@ class DataContractTool(AnalysisTool):
             django_counts["historical" if historical else "linked_scip"] += 1
             tool, receipt = references.tool(access.file)
             source = code(access.file, access.caller_id)
+            properties = {
+                "model": access.model,
+                "line": access.line,
+                "column": access.column,
+                "indexer": tool,
+                "receipt": receipt,
+            }
+            entry = django_trees.get(access.file)
+            if targets[0] in django_models and entry is not None:
+                node = entry[1].root_node.descendant_for_point_range(
+                    (access.line - 1, access.column), (access.line - 1, access.column)
+                )
+                while node is not None and not (
+                    node.type == "attribute"
+                    and node.child_by_field_name("attribute") is not None
+                    and node.child_by_field_name("attribute").text == b"objects"
+                ):
+                    node = node.parent
+                if node is not None:
+                    chain = django_chain(node)
+                    keyed = django_columns(chain, entry[0], targets[0], django_models)
+                    django_keys(
+                        access.file, keyed, chain[-1][0] if chain else "objects"
+                    )
+                    properties["columns_resolved"] = keyed.complete and not keyed.rows
+                    django_columns_counts["calls_resolved"] += properties[
+                        "columns_resolved"
+                    ]
             for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
                 if used:
                     link(
@@ -1736,14 +2147,43 @@ class DataContractTool(AnalysisTool):
                         source,
                         targets[0],
                         DJANGO_HISTORICAL_RULE if historical else DJANGO_ACCESS_RULE,
-                        {
-                            "model": access.model,
-                            "line": access.line,
-                            "column": access.column,
-                            "indexer": tool,
-                            "receipt": receipt,
-                        },
+                        properties,
                     )
+        # Model(field=...) constructors the index resolves to a model.
+        if django_models:
+            model_names = {
+                by_id[m].name for m, t in django_by_model.items() if t in django_models
+            }
+            for file, content, tree in python_trees:
+                if not references.covers(file):
+                    continue
+                for call in _descendants(tree.root_node, "call"):
+                    function = call.child_by_field_name("function")
+                    if function is None:
+                        continue
+                    last = function
+                    if function.type == "attribute":
+                        last = function.child_by_field_name("attribute")
+                    if last is None or last.type != "identifier":
+                        continue
+                    name = last.text.decode("utf-8", "replace")
+                    if name not in model_names:
+                        continue
+                    declared = references.declarations(
+                        file, last.start_point.row + 1, last.start_point.column, name
+                    )
+                    found = {
+                        django_by_model[d.id]
+                        for d in declared or ()
+                        if d.id in django_by_model
+                    }
+                    if len(found) != 1 or next(iter(found)) not in django_models:
+                        continue
+                    keyed = django_columns(
+                        (), content, next(iter(found)), django_models, call
+                    )
+                    django_columns_counts["constructors"] += 1
+                    django_keys(file, keyed, name)
         # SQLAlchemy mapped classes, Table() declarations and their uses.
         # Where a SCIP index covers a file, a written model name links to the
         # class the index resolves it to; elsewhere to the one mapped class
@@ -2211,11 +2651,14 @@ class DataContractTool(AnalysisTool):
                         },
                     )
         # Prisma models and the client calls that use them.
-        prisma_targets = {}
+        prisma_targets, prisma_by_accessor = {}, defaultdict(set)
         for model in sorted(prisma, key=lambda m: (m.file, m.line)):
             target = table(model.file, table_key(model.table))
             prisma_targets.setdefault(prisma_accessor(model.model), set()).add(
                 (scope(model.file), target)
+            )
+            prisma_by_accessor[prisma_accessor(model.model)].add(
+                (scope(model.file), model)
             )
             link(
                 "DECLARES",
@@ -2235,6 +2678,63 @@ class DataContractTool(AnalysisTool):
                     on_delete,
                     PRISMA_FOREIGN_KEY_RULE,
                 )
+        # The column of each Prisma model field: the table's own column
+        # from its migrations, else the field's column in the DMMF.
+        prisma_models = {(scope(m.file), m.model): m for m in prisma}
+        prisma_columns_at = {}
+        prisma_counts = Counter()
+        for model in sorted(prisma, key=lambda m: (m.file, m.line)):
+            owner = table(model.file, table_key(model.table))
+            known = table_columns.get(owner)
+            by_field = {}
+            for field, column in model.columns:
+                if known is not None:
+                    name = (
+                        column
+                        if column in known
+                        else next(
+                            (c for c in known if c.lower() == column.lower()), None
+                        )
+                    )
+                    if name is None:
+                        prisma_counts["field_not_a_table_column"] += 1
+                        continue
+                else:
+                    name = column
+                    target = f"{owner}::column::{name}"
+                    if target not in column_nodes:
+                        prisma_counts["columns_declared"] += 1
+                        column_nodes[target] = NodeData(
+                            ["DbColumn", "Contract"],
+                            {
+                                "qualified_name": target,
+                                "repo_url": repo_url,
+                                "name": f"{model.table}.{name}",
+                                "display_name": f"{model.table}.{name}",
+                                "table": model.table,
+                                "column": name,
+                                "protocol": "sql",
+                                "scope": scope(model.file),
+                            },
+                        )
+                        link(
+                            "HAS_COLUMN",
+                            (["DbTable", "Contract"], owner),
+                            target,
+                            PRISMA_COLUMN_RULE,
+                            {"field": field},
+                            labels=("DbColumn", "Contract"),
+                        )
+                        link(
+                            "DECLARES",
+                            (["File"], f"{repo_url}::{model.file}::file"),
+                            target,
+                            PRISMA_COLUMN_RULE,
+                            {"line": model.line, "field": field},
+                            labels=("DbColumn", "Contract"),
+                        )
+                by_field[field] = f"{owner}::column::{name}"
+            prisma_columns_at[(scope(model.file), model.model)] = by_field
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
         # A caller whose own namespace has a schema the engine did not read
         # is not linked to another namespace's model of the same name.
@@ -2256,19 +2756,179 @@ class DataContractTool(AnalysisTool):
                     orm_counts["prisma_ambiguous"] += 1
                     continue
                 orm_counts["prisma_linked"] += 1
+                target = next(iter(targets))
+                model = next(
+                    m
+                    for s_, m in prisma_by_accessor[use.model]
+                    if table(m.file, table_key(m.table)) == target
+                )
+                model_scope = scope(model.file)
+                found = prisma_columns(
+                    use.call,
+                    content,
+                    use.method,
+                    model,
+                    lambda name, at=model_scope: prisma_models.get((at, name)),
+                )
+                resolved = found.complete
+                for name, field, writes, line, column in found.uses:
+                    column_target = prisma_columns_at.get((model_scope, name), {}).get(
+                        field
+                    )
+                    if column_target is None:
+                        resolved = False
+                        prisma_counts["key_not_a_column"] += 1
+                        continue
+                    prisma_counts["keys"] += 1
+                    link(
+                        "WRITES_COLUMN" if writes else "READS_COLUMN",
+                        code(use.file, use.caller_id),
+                        column_target,
+                        PRISMA_COLUMN_KEY_RULE,
+                        {"field": field, "line": line, "column": column},
+                        labels=("DbColumn", "Contract"),
+                    )
                 for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                     if used:
+                        # A read is resolved when the rows it returns are
+                        # only the fields it selects.
+                        whole = resolved and (kind == "WRITES" or not found.rows)
                         link(
                             kind,
                             code(use.file, use.caller_id),
-                            next(iter(targets)),
+                            target,
                             PRISMA_CLIENT_RULE,
                             {
                                 "model": use.model,
                                 "line": use.line,
                                 "column": use.column,
+                                **({"columns_resolved": True} if whole else {}),
                             },
                         )
+        # Reads of a row's field: the index resolves the property to a
+        # scalar of the model's payload type in the generated client.
+        if prisma_columns_at:
+            owners = defaultdict(list)
+            for d in result.definitions:
+                owners[d.file].append(d)
+            by_model = defaultdict(set)
+            for (at, name), model in prisma_models.items():
+                by_model[name].add((at, model))
+            # Objects written for a Prisma Client input type outside a call
+            # (``const where: Prisma.UserWhereInput = {...}``): the index
+            # resolves the type to the client's, which names the model.
+            for file, content, tree in script_trees:
+                typed = prisma_typed_inputs(tree)
+                # Later assignments to a typed variable, or to one of its
+                # properties, through the index's definition of the name.
+                bound = {
+                    (file, *binding): (line, column, name)
+                    for line, column, name, _, binding in typed
+                    if binding is not None
+                }
+                inputs = [(*t[:4], None) for t in typed if t[3] is not None]
+                for line, column, key, key_line, key_column, value in (
+                    prisma_assignments(tree, content) if bound else ()
+                ):
+                    for site in references.definition_sites(file, line, column) or ():
+                        if site in bound:
+                            inputs.append(
+                                (
+                                    *bound[site],
+                                    value,
+                                    None
+                                    if key is None
+                                    else (key, key_line, key_column),
+                                )
+                            )
+                for line, column, name, value, key in inputs:
+                    natives = references.symbols(file, line, column) or ()
+                    if not any(
+                        re.search(_PRISMA_CLIENT_SCOPE + re.escape(name) + "#$", native)
+                        for native in natives
+                    ):
+                        continue
+                    kind = model = None
+                    for suffix, what in PRISMA_INPUT_KINDS.items():
+                        prefix = name[: -len(suffix)]
+                        if name.endswith(suffix) and prefix in by_model:
+                            if model is None or len(prefix) > len(model):
+                                kind, model = what, prefix
+                    candidates = _nearest(by_model.get(model, ()), scope(file))
+                    if len(candidates) != 1:
+                        prisma_counts["typed_inputs_no_model"] += 1
+                        continue
+                    model = next(iter(candidates))
+                    model_scope = scope(model.file)
+                    found = prisma_input_columns(
+                        kind,
+                        value,
+                        content,
+                        model,
+                        lambda related, at=model_scope: prisma_models.get(
+                            (at, related)
+                        ),
+                        key,
+                    )
+                    prisma_counts["typed_inputs"] += 1
+                    for related, field, writes, at_line, at_column in found.uses:
+                        column_target = prisma_columns_at.get(
+                            (model_scope, related), {}
+                        ).get(field)
+                        if column_target is None:
+                            prisma_counts["key_not_a_column"] += 1
+                            continue
+                        prisma_counts["typed_input_keys"] += 1
+                        link(
+                            "WRITES_COLUMN" if writes else "READS_COLUMN",
+                            code(
+                                file, _owner_at(owners[file], file, at_line, at_column)
+                            ),
+                            column_target,
+                            PRISMA_COLUMN_KEY_RULE,
+                            {
+                                "field": field,
+                                "line": at_line,
+                                "column": at_column,
+                                "input_type": name,
+                            },
+                            labels=("DbColumn", "Contract"),
+                        )
+            for file, line, column, native in references.references_matching(
+                lambda native: _PRISMA_PAYLOAD.search(native) is not None
+            ):
+                match = _PRISMA_PAYLOAD.search(native)
+                model_name = match.group(1) or match.group(2)
+                field = match.group(3)
+                candidates = _nearest(by_model.get(model_name, ()), scope(file))
+                if len(candidates) != 1:
+                    prisma_counts[
+                        "row_reads_ambiguous" if candidates else "row_reads_no_model"
+                    ] += 1
+                    continue
+                model = next(iter(candidates))
+                column_target = prisma_columns_at.get(
+                    (scope(model.file), model.model), {}
+                ).get(field)
+                if column_target is None:
+                    prisma_counts["row_reads_not_a_column"] += 1
+                    continue
+                prisma_counts["row_reads"] += 1
+                tool, receipt = references.tool(file)
+                link(
+                    "READS_COLUMN",
+                    code(file, _owner_at(owners[file], file, line, column)),
+                    column_target,
+                    PRISMA_COLUMN_READ_RULE,
+                    {
+                        "field": field,
+                        "line": line,
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
         # TypeORM entities and the repositories of them.
         typeorm_mappings, typeorm_uses, typeorm_children = [], [], []
         for file, content, tree in script_trees:
@@ -2334,6 +2994,335 @@ class DataContractTool(AnalysisTool):
             "linked": len(typeorm_children) - len(pending),
             "base_not_an_entity": len(pending),
         }
+        # The columns of each entity's properties, through the classes it
+        # extends; a property a base class declares is shared by the
+        # entities that extend it.
+        typeorm_columns = Counter()
+        typeorm_classes = defaultdict(list)
+        for file, content, tree in script_trees:
+            for found in extract_typeorm_classes(tree, content, file):
+                typeorm_classes[found.name].append(found)
+        custom_naming = any(
+            b"namingStrategy" in content for _, content, _ in script_trees
+        )
+        if custom_naming:
+            typeorm_columns["naming_strategy_set"] = 1
+
+        def typeorm_class(name, file):
+            """The class ``name`` that ``file`` sees: its own, else the one
+            of its namespace, else the repository's only one."""
+            found = typeorm_classes.get(name, [])
+            own = [c for c in found if c.file == file] or [
+                c for c in found if scope(c.file) == scope(file)
+            ]
+            found = own or found
+            return found[0] if len(found) == 1 else None
+
+        entity_tables = [
+            (m.file, m.name, typeorm_by_model[m.model_id]) for m in typeorm_mappings
+        ]
+        entity_tables += [
+            (c.file, c.name, typeorm_by_model[c.model_id])
+            for c in typeorm_children
+            if c.model_id in typeorm_by_model
+        ]
+        # (file, line, column) of a property -> {table: column}
+        typeorm_property_at = defaultdict(dict)
+        # table -> {property: (column or None, related)}
+        typeorm_fields = {}
+        typeorm_property_name = {}
+        requests, planned = set(), []
+        for file, name, owner in entity_tables:
+            chain, seen, at = [], set(), typeorm_class(name, file)
+            while at is not None and (at.file, at.name) not in seen:
+                seen.add((at.file, at.name))
+                chain.append(at)
+                at = typeorm_class(at.base, at.file) if at.base else None
+            if not chain:
+                typeorm_columns["entity_class_not_read"] += 1
+                continue
+            properties = {}
+            for cls in reversed(chain):
+                for prop in cls.properties:
+                    properties[prop.name] = (cls, prop)
+            fields = typeorm_fields.setdefault(owner, {})
+            for cls, prop in properties.values():
+                if prop.kind == "relation":
+                    fields[prop.name] = (None, (cls.file, prop.target))
+                    if not prop.owning:
+                        continue
+                    if prop.custom is not None:
+                        planned.append((owner, cls, prop, prop.custom, None))
+                        continue
+                    referenced = prop.referenced
+                    if referenced is None:
+                        related = (
+                            typeorm_class(prop.target, cls.file)
+                            if prop.target
+                            else None
+                        )
+                        primaries = []
+                        while related is not None and not primaries:
+                            primaries = [
+                                p for p in related.properties if p.kind == "primary"
+                            ]
+                            related = (
+                                typeorm_class(related.base, related.file)
+                                if related.base and not primaries
+                                else None
+                            )
+                        if len(primaries) != 1:
+                            typeorm_columns["join_column_unknown"] += 1
+                            continue
+                        referenced = primaries[0].name
+                    request = ("join", prop.name, referenced)
+                else:
+                    request = ("column", prop.name, prop.custom, ())
+                if custom_naming and prop.custom is None:
+                    typeorm_columns["named_by_project_strategy"] += 1
+                    continue
+                requests.add((cls.file, request))
+                planned.append((owner, cls, prop, None, request))
+        column_names_found, column_naming_unread = typeorm_column_names(
+            root, sorted(requests, key=str)
+        )
+        for path, reason in sorted(column_naming_unread.items()):
+            typeorm_naming_unread.setdefault(path, reason)
+        for owner, cls, prop, custom, request in planned:
+            name = (
+                custom
+                if custom is not None
+                else column_names_found.get((cls.file, request))
+            )
+            if name is None:
+                typeorm_columns["naming_unread"] += 1
+                continue
+            known = table_columns.get(owner)
+            if known is not None:
+                column = (
+                    name
+                    if name in known
+                    else next((c for c in known if c.lower() == name.lower()), None)
+                )
+                if column is None:
+                    typeorm_columns["not_a_table_column"] += 1
+                    continue
+            else:
+                column = name
+            target = f"{owner}::column::{column}"
+            if known is None and target not in column_nodes:
+                table_label = owner.rsplit("::", 1)[-1]
+                column_nodes[target] = NodeData(
+                    ["DbColumn", "Contract"],
+                    {
+                        "qualified_name": target,
+                        "repo_url": repo_url,
+                        "name": f"{table_label}.{column}",
+                        "display_name": f"{table_label}.{column}",
+                        "table": table_label,
+                        "column": column,
+                        "protocol": "sql",
+                        "scope": scope(cls.file),
+                    },
+                )
+                link(
+                    "HAS_COLUMN",
+                    (["DbTable", "Contract"], owner),
+                    target,
+                    TYPEORM_COLUMN_RULE,
+                    {"property": prop.name},
+                    labels=("DbColumn", "Contract"),
+                )
+                link(
+                    "DECLARES",
+                    (["File"], f"{repo_url}::{cls.file}::file"),
+                    target,
+                    TYPEORM_COLUMN_RULE,
+                    {"line": prop.line, "property": prop.name},
+                    labels=("DbColumn", "Contract"),
+                )
+                typeorm_columns["columns_declared"] += 1
+            typeorm_columns["columns"] += 1
+            typeorm_property_at[(cls.file, prop.line, prop.column)][owner] = target
+            typeorm_property_name[(cls.file, prop.line, prop.column)] = prop.name
+            typeorm_fields[owner][prop.name] = (
+                target,
+                typeorm_fields[owner].get(prop.name, (None, None))[1],
+            )
+        # A relation's related entity, as its table.
+        owner_of_class = defaultdict(set)
+        for file, name, owner in entity_tables:
+            owner_of_class[name].add((file, owner))
+        for fields in typeorm_fields.values():
+            for name, (column, related) in list(fields.items()):
+                if related is None:
+                    continue
+                at, target_name = related
+                owners = owner_of_class.get(target_name, set())
+                near = [o for f, o in owners if scope(f) == scope(at)] or [
+                    o for _, o in owners
+                ]
+                fields[name] = (column, near[0] if len(set(near)) == 1 else None)
+        # Accesses of a column property, through the index.
+        typeorm_unattributed, typeorm_sites = set(), set()
+
+        def typeorm_method_owner(file, name):
+            """The TypeORM class whose method the index resolves ``name``
+            (a called method's name node) to, else None."""
+            for symbol in (
+                references.symbols(
+                    file, name.start_point.row + 1, name.start_point.column
+                )
+                or ()
+            ):
+                match = TYPEORM_METHOD_SYMBOL.fullmatch(symbol)
+                if match is not None:
+                    return match.group(1)
+                if _TYPEORM_BUILDER_METHOD_SYMBOL.fullmatch(symbol):
+                    return "QueryBuilder"
+            return None
+
+        def typeorm_type_kind(file, node):
+            """ "read" for a type the index resolves to one of TypeORM's
+            find option types, "write" for DeepPartial and
+            QueryDeepPartialEntity, else None."""
+            for symbol in (
+                references.symbols(
+                    file, node.start_point.row + 1, node.start_point.column
+                )
+                or ()
+            ):
+                match = _TYPEORM_TYPE_SYMBOL.fullmatch(symbol)
+                if match is None:
+                    continue
+                if match.group(1).startswith("Find"):
+                    return "read"
+                if match.group(1) in ("DeepPartial", "QueryDeepPartialEntity"):
+                    return "write"
+            return None
+
+        def typeorm_parameter_kind(file, name, index):
+            """typeorm_type_kind of the declared type of parameter ``index``
+            of the function the index resolves the called ``name`` to."""
+            for site in (
+                references.definition_sites(
+                    file, name.start_point.row + 1, name.start_point.column
+                )
+                or ()
+            ):
+                entry = trees_by_file.get(site[0])
+                if entry is None:
+                    continue
+                at = entry.root_node.descendant_for_point_range(
+                    (site[1] - 1, site[2]), (site[1] - 1, site[2])
+                )
+                holder = at.parent if at is not None else None
+                parameters = (
+                    holder.child_by_field_name("parameters")
+                    if holder is not None
+                    else None
+                )
+                if parameters is None:
+                    continue
+                listed = [
+                    p
+                    for p in parameters.named_children
+                    if p.type in ("required_parameter", "optional_parameter")
+                ]
+                if index >= len(listed):
+                    continue
+                annotation = listed[index].child_by_field_name("type")
+                if annotation is not None and annotation.named_children:
+                    annotation = annotation.named_children[0]
+                if annotation is not None and annotation.type == "generic_type":
+                    annotation = annotation.child_by_field_name("name")
+                if annotation is not None and annotation.type == "type_identifier":
+                    kind = typeorm_type_kind(site[0], annotation)
+                    if kind is not None:
+                        return kind
+            return None
+
+        if typeorm_property_at:
+            owners_by_file = defaultdict(list)
+            for d in result.definitions:
+                owners_by_file[d.file].append(d)
+            trees_by_file = {file: tree for file, _, tree in script_trees}
+            contents_by_file = {file: content for file, content, _ in script_trees}
+            for file, line, column, site in references.references_to(
+                typeorm_property_at
+            ):
+                holders = typeorm_property_at[site]
+                tree = trees_by_file.get(file)
+                at = (
+                    tree.root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    if tree is not None
+                    else None
+                )
+                while at is not None and at.type not in ("type_query", "program"):
+                    at = at.parent
+                if at is not None and at.type == "type_query":
+                    # ``typeof row.kind`` names a type, not a value.
+                    continue
+                if len(holders) != 1:
+                    typeorm_columns["accesses_unattributed"] += 1
+                    typeorm_unattributed.update(holders.values())
+                    continue
+                writes = False
+                tree = trees_by_file.get(file)
+                keyed = (
+                    typeorm_key_access(
+                        tree,
+                        contents_by_file[file],
+                        line,
+                        column,
+                        lambda name, file=file: typeorm_method_owner(file, name),
+                        lambda node, file=file: typeorm_type_kind(file, node),
+                        lambda name, index, file=file: typeorm_parameter_kind(
+                            file, name, index
+                        ),
+                    )
+                    if tree is not None
+                    else None
+                )
+                if keyed is not None:
+                    writes = keyed == "write"
+                    typeorm_columns["keys"] += 1
+                elif tree is not None:
+                    node = tree.root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    access = node.parent if node is not None else None
+                    holder = access.parent if access is not None else None
+                    writes = (
+                        access is not None
+                        and access.type == "member_expression"
+                        and holder is not None
+                        and holder.type
+                        in ("assignment_expression", "augmented_assignment_expression")
+                        and holder.child_by_field_name("left") == access
+                    )
+                typeorm_columns["writes" if writes else "reads"] += 1
+                typeorm_sites.add((file, line, column))
+                tool, receipt = references.tool(file)
+                link(
+                    "WRITES_COLUMN" if writes else "READS_COLUMN",
+                    code(file, _owner_at(owners_by_file[file], file, line, column)),
+                    next(iter(holders.values())),
+                    TYPEORM_COLUMN_ACCESS_RULE,
+                    {
+                        "line": line,
+                        "property": typeorm_property_name[site],
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+        for name in typeorm_unattributed:
+            if name in column_nodes:
+                column_nodes[name].properties["reads_unattributed"] = True
         orm_counts.update(typeorm_linked=0, typeorm_not_an_entity=0)
         # A wrapper call names no entity more often than not: count those
         # apart so the TypeORM API's own misses stay visible.
@@ -2384,6 +3373,35 @@ class DataContractTool(AnalysisTool):
             "builders": 0,
             "relation_builders": 0,
         }
+
+        def typeorm_keys(call, content, node, method, owner, chain, manager=False):
+            """Read a repository call's (or query builder's) keys and link
+            the columns they name; returns the TypeormColumns."""
+            keyed = typeorm_call_columns(
+                node, content, method, owner, typeorm_fields, manager, chain
+            )
+            owners = [d for d in result.definitions if d.file == call.file]
+            for ent, name, sets, line, column in keyed.uses:
+                if (call.file, line, column) in typeorm_sites:
+                    continue
+                typeorm_columns["call_keys"] += 1
+                link(
+                    "WRITES_COLUMN" if sets else "READS_COLUMN",
+                    code(call.file, _owner_at(owners, call.file, line, column)),
+                    typeorm_fields[ent][name][0],
+                    TYPEORM_COLUMN_KEY_RULE,
+                    {
+                        "line": line,
+                        "column": column,
+                        "method": call.method
+                        if method != "builder"
+                        else "createQueryBuilder",
+                        "property": name,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+            return keyed
+
         if typeorm_mappings or typeorm_children:
             ts_trees = {file: (content, tree) for file, content, tree in script_trees}
             for file, content, tree in script_trees:
@@ -2412,18 +3430,32 @@ class DataContractTool(AnalysisTool):
                         typeorm_scip_counts["linked"] += 1
                         typeorm_scip_counts["builders"] += 1
                         tool, receipt = references.tool(call.file)
+                        properties = {
+                            "method": call.method,
+                            "line": call.line,
+                            "column": call.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        }
+                        if targets[0] in typeorm_fields:
+                            keyed = typeorm_keys(
+                                call,
+                                content,
+                                None,
+                                "builder",
+                                targets[0],
+                                builder.chain,
+                            )
+                            # A reading builder's columns are SQL text, not read here.
+                            properties["columns_resolved"] = (
+                                keyed.complete and builder.writes
+                            )
                         link(
                             "WRITES" if builder.writes else "READS",
                             code(call.file, call.caller_id),
                             targets[0],
                             TYPEORM_SCIP_RULE,
-                            {
-                                "method": call.method,
-                                "line": call.line,
-                                "column": call.column,
-                                "indexer": tool,
-                                "receipt": receipt,
-                            },
+                            properties,
                         )
                         continue
                     status, entities = typeorm_call_entities(references, ts_trees, call)
@@ -2443,18 +3475,42 @@ class DataContractTool(AnalysisTool):
                         continue
                     typeorm_scip_counts["linked"] += 1
                     tool, receipt = references.tool(call.file)
+                    writes = call.method in _TYPEORM_WRITES
+                    properties = {
+                        "method": call.method,
+                        "line": call.line,
+                        "column": call.column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    }
+                    node = tree.root_node.descendant_for_point_range(
+                        (call.line - 1, call.column), (call.line - 1, call.column)
+                    )
+                    while node is not None and node.type != "call_expression":
+                        node = node.parent
+                    if targets[0] in typeorm_fields and node is not None:
+                        manager = any(
+                            "/`EntityManager.d.ts`/EntityManager#" in symbol
+                            for symbol in references.symbols(
+                                call.file, call.line, call.column
+                            )
+                            or ()
+                        )
+                        keyed = typeorm_keys(
+                            call, content, node, call.method, targets[0], (), manager
+                        )
+                        properties["columns_resolved"] = keyed.complete and (
+                            writes or not keyed.rows
+                        )
+                        typeorm_columns["call_keys_resolved"] += properties[
+                            "columns_resolved"
+                        ]
                     link(
-                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        "WRITES" if writes else "READS",
                         code(call.file, call.caller_id),
                         targets[0],
                         TYPEORM_SCIP_RULE,
-                        {
-                            "method": call.method,
-                            "line": call.line,
-                            "column": call.column,
-                            "indexer": tool,
-                            "receipt": receipt,
-                        },
+                        properties,
                     )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
@@ -2808,7 +3864,8 @@ class DataContractTool(AnalysisTool):
                 continue
             if sha256(content).hexdigest() != coverage.digest:
                 continue
-            suffix = ".tsx" if coverage.file.endswith(".tsx") else ""
+            grammar, content = script_source(coverage.file, content)
+            suffix = ".tsx" if grammar == ".tsx" else ""
             if (coverage.language, suffix) not in parsers:
                 parsers[coverage.language, suffix] = make_parser(
                     coverage.language, suffix
@@ -3459,6 +4516,7 @@ class DataContractTool(AnalysisTool):
             or kysely_unindexed
             or gorm_naming_unread
             or typeorm_naming_unread
+            or django_unread
             or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
@@ -3475,6 +4533,11 @@ class DataContractTool(AnalysisTool):
             "without a name get no table"
             for path, reason in sorted(typeorm_naming_unread.items())
         ]
+        if django_unread:
+            warnings.append(
+                f"django_naming_unread: {django_unread}, so Django model fields "
+                "get no columns"
+            )
         warnings += [
             f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
             "this statement, so its foreign keys are not read"
@@ -3609,6 +4672,8 @@ class DataContractTool(AnalysisTool):
                     "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
                     "typeorm_scip": typeorm_scip_counts,
+                    "typeorm_columns": dict(typeorm_columns),
+                    "django_columns": dict(django_columns_counts),
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
@@ -3632,6 +4697,7 @@ class DataContractTool(AnalysisTool):
                     "drizzle_access_resolution": drizzle_access,
                     "drizzle_scip": drizzle_scip,
                     "drizzle_columns": dict(drizzle_columns),
+                    "prisma_columns": dict(prisma_counts),
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

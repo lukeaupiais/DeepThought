@@ -351,6 +351,15 @@ def read_schemas(root, texts, environ=None):
                         model["dbName"] is not None,
                         located[1],
                         tuple(keys),
+                        tuple(sorted(model["columns"].items())),
+                        tuple(
+                            (name, related, tuple(holds))
+                            for name, related, holds in model.get("links", ())
+                        ),
+                        tuple(
+                            (name, tuple(fields))
+                            for name, fields in model.get("compounds", ())
+                        ),
                     )
                 )
     read.models.sort(key=lambda m: (m.file, m.line, m.model))
