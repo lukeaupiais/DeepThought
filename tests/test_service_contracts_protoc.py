@@ -8,6 +8,7 @@ import unittest
 from deepthought.analysis_tools import ServiceContractTool
 
 from deepthought.service_contracts.protoc import available, read_protos
+from typescript_ready import needs_typescript
 
 COMMON = """
 syntax = "proto3";
@@ -71,7 +72,7 @@ class ProtocReaderTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_imports_resolve_across_directories(self):
-        package, methods, bindings = self.read["services/cart/api/shop.proto"]
+        package, methods, bindings, _ = self.read["services/cart/api/shop.proto"]
         self.assertEqual(package, "shop.v1")
         self.assertEqual(
             [(m.full_name, m.line, m.streaming) for m in methods],
@@ -83,7 +84,7 @@ class ProtocReaderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(bindings, [])
-        _, health, _ = self.read["proto/common/v1/common.proto"]
+        _, health, _, _ = self.read["proto/common/v1/common.proto"]
         self.assertEqual([m.full_name for m in health], ["common.v1.Health/Check"])
 
     def test_unresolved_import_is_not_read(self):
@@ -187,6 +188,7 @@ def _google_api():
 
 
 @unittest.skipUnless(_google_api(), "googleapis-common-protos or pyyaml missing")
+@needs_typescript
 class HttpAnnotationTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

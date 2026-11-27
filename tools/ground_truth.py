@@ -18,6 +18,10 @@ are where the oracle says the name leads, with a kind:
   external   a symbol defined outside the repository (library, builtin)
   local      a local binding (parameter, loop variable, local function):
              the line that binds it
+  alias      an in-repository function, method or type reached through a
+             Python local bound once to a plain name (``f = obj.m``,
+             ``g = f``), or through a classmethod's ``cls``: each line that
+             defines it, followed through the index's own occurrences
 
 Only calls with a callable target are *expected* (the recall denominator);
 the others let a link at that position be judged right or wrong.
@@ -270,6 +274,7 @@ def derive(workspace, index):
             locations |= {
                 (file, line, "callable") for file, line, _ in defined.get(owner, ())
             }
+    follow = _alias_follower(source, defined, text_of)
     expected = {}
     for r in source.references:
         if r.line != r.end_line:
@@ -310,8 +315,14 @@ def derive(workspace, index):
             # builtin `set`: an attribute is never a top-level builtin
             # (except on the `builtins` module), so the row is unjudged.
             continue
-        if native in defined:
+        if followed := follow.cls(native):
+            targets = followed
+        elif native in defined:
             targets = defined[native]
+        elif r.native_id.startswith("local ") and (
+            followed := follow(r.file, r.native_id)
+        ):
+            targets = followed
         elif r.native_id.startswith("local "):
             # scip-typescript names a local class's constructor
             # `local N`<constructor>`().` without defining it: the call
@@ -331,6 +342,98 @@ def derive(workspace, index):
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
     return expected, indexed
+
+
+_ALIAS = re.compile(r"\s*=\s*([A-Za-z_][\w.]*)\s*(?:#.*)?$")
+_CLS = re.compile(r"\s*(?:async\s+)?def\s+(\w+)\s*\(\s*$")
+
+
+def _alias_follower(source, defined, text_of):
+    """``follow(file, local)``: where a scip-python local leads when it is
+    bound once, either to a plain name (``_Span = Span``, ``f = obj.m``,
+    ``g = f``) or as a classmethod's (or ``__new__``'s) ``cls``. Returns
+    ``{(file, line, "alias")}``, ``{("-", 0, "external")}``, or None when
+    the local is rebound or bound to anything else. Only the index's own
+    occurrences are used: the reference that ends the right-hand side, and
+    the method defined on the ``def`` line for ``cls``."""
+    binds, refs, methods = {}, {}, {}
+    for d in source.definitions:
+        if d.native_id and d.file.endswith(".py"):
+            if d.native_id.startswith("local "):
+                binds.setdefault((d.file, d.native_id), []).append(d)
+            elif d.native_id.endswith(")."):
+                methods.setdefault((d.file, d.line), []).append(d.native_id)
+    for r in source.references:
+        if r.line == r.end_line and r.file.endswith(".py"):
+            refs.setdefault((r.file, r.line), []).append(r)
+
+    def located(native):
+        if native not in defined:
+            return None
+        return {(f, line, "alias") for f, line, _ in defined[native]}
+
+    def follow(file, local, depth=0):
+        bound = binds.get((file, local), [])
+        if len(bound) != 1 or depth > 8:
+            return None
+        d = bound[0]
+        lines = text_of(file)
+        if d.line > len(lines) or not lines[d.line - 1].isascii():
+            return None
+        text = lines[d.line - 1]
+        before, name = text[: d.column], text[d.column : d.end_column]
+        if not before.strip():
+            match = _ALIAS.match(text, d.end_column)
+            if not match:
+                return None
+            end = match.end(1)
+            for r in refs.get((file, d.line), ()):
+                if r.end_column == end and r.column >= match.start(1):
+                    if r.native_id.startswith("local "):
+                        return follow(file, r.native_id, depth + 1)
+                    return located(r.native_id) or {("-", 0, "external")}
+            return None
+        header = _CLS.match(before)
+        if name != "cls" or not header:
+            return None
+        if header.group(1) != "__new__" and "@classmethod" not in decorators(
+            file, d.line
+        ):
+            return None
+        for native in methods.get((file, d.line), ()):
+            owner = native[: native.rfind("#") + 1]
+            if owner and native[len(owner) :] == header.group(1) + "().":
+                return located(owner)
+        return None
+
+    def cls(native):
+        """A classmethod's (or ``__new__``'s) ``cls`` parameter, which
+        scip-python names ``C#m().(cls)``: the class ``C#``."""
+        match = _CLS_PARAMETER.fullmatch(native)
+        if not match or not match.group(1).startswith("scip-python "):
+            return None
+        owner, method = match.group(1), match.group(2)
+        if method != "__new__" and not any(
+            "@classmethod" in decorators(file, line)
+            for file, line, _ in defined.get(f"{owner}{method}().", ())
+        ):
+            return None
+        return located(owner)
+
+    def decorators(file, line):
+        lines, found = text_of(file), []
+        for number in range(line - 1, 0, -1):
+            above = lines[number - 1].strip() if number <= len(lines) else ""
+            if not above.startswith("@"):
+                break
+            found.append(above)
+        return found
+
+    follow.cls = cls
+    return follow
+
+
+_CLS_PARAMETER = re.compile(r"(.*#)(\w+)\(\)\.\(cls\)")
 
 
 _MODIFIERS = re.compile(
@@ -529,7 +632,7 @@ DISAGREEMENT_COLUMNS = (
 def score(result, truth, examples=10, resolutions=None):
     """Judge every engine call resolution (``resolutions``, by default the
     parser's) against expected calls."""
-    from deepthought.calls import resolve_calls
+    from deepthought.calls import CALL_TS_DECLARATION_FILE, resolve_calls
 
     positions, indexed = truth
     expected = {
@@ -575,7 +678,14 @@ def score(result, truth, examples=10, resolutions=None):
         # A declaration's line can be that of its annotations or modifiers,
         # an oracle's that of its name: one inside the other is a match.
         targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
-        if resolution.status == "linked":
+        if resolution.rule_id == CALL_TS_DECLARATION_FILE and not (
+            keys and ours[0] not in targets
+        ):
+            # A declaration file with no implementation analyzed beside it:
+            # the call binds to what it declares, which is never confirmed.
+            # A link the oracle names other targets for is contradicted.
+            outcome = "declaration_file"
+        elif resolution.status == "linked":
             if not keys:
                 outcome = "unjudged" if site.file in indexed else "not_indexed"
             elif ours[0] in targets:
@@ -632,8 +742,9 @@ def score(result, truth, examples=10, resolutions=None):
 
 def analyze(workspace, languages, exclude=()):
     import deepthought
+    from deepthought.ts_modules import with_compiler_modules
 
-    return deepthought.analyze_repository(
+    result = deepthought.analyze_repository(
         Path(workspace).resolve(),
         repository_id="ground-truth",
         languages=tuple(languages),
@@ -641,6 +752,9 @@ def analyze(workspace, languages, exclude=()):
         max_files=100_000,
         max_total_bytes=1_000_000_000,
     )
+    # Imports, and the calls bound through them, as the engine resolves
+    # them: JavaScript and TypeScript by the TypeScript compiler.
+    return with_compiler_modules(result, Path(workspace).resolve())
 
 
 def fetch(corpus, cache):
@@ -849,7 +963,7 @@ TABLE_LANGUAGES = {"ruby": (".rb", "::"), "php": (".php", "\\")}
 MONGOOSE_LANGUAGES = ("javascript", "typescript")
 
 
-def score_tables(corpus, workspace, examples=10):
+def score_tables(corpus, workspace, examples=10, cache=None):
     """The table each model class maps to, against labels from the ORM's own
     rules: ActiveRecord's (tools/rails_table_oracle.rb) or, for Doctrine,
     the entity metadata checked against the schema its migrations build
@@ -880,7 +994,12 @@ def score_tables(corpus, workspace, examples=10):
         return score_go_sql_tables(labels, workspace, examples)
     if language == "python-orm":
         return score_line_tables(
-            labels, workspace, examples, "data-contracts.", ["python"]
+            labels,
+            workspace,
+            examples,
+            "data-contracts.",
+            ["python"],
+            table_indexes(corpus, workspace, cache),
         )
     if language in ("typeorm", "drizzle"):
         return score_line_tables(
@@ -1064,6 +1183,9 @@ def score_knex_tables(labels, workspace, examples=10):
     )
 
 
+_TABLE_EDGES = frozenset({"READS", "WRITES", "DECLARES"})
+
+
 def score_go_sql_tables(labels, workspace, examples=10):
     """SQL that Go code runs, against labels from sqlc's own analysis
     (tools/sqlc_table_labels.py) or read by hand, per line: see
@@ -1083,7 +1205,75 @@ def score_go_sql_tables(labels, workspace, examples=10):
     )
 
 
-def score_line_tables(labels, workspace, examples, rule_prefix, languages):
+def engine_indexes(corpus, workspace, cache, languages, repository_id="ground-truth"):
+    """The corpus's SCIP indexes for ``languages``, built by the engine's own
+    pinned indexers (``deepthought index-scip``'s ``index_workspace``) and
+    ingested as ``deepthought index`` ingests them. They are kept under
+    ``cache``, keyed by the corpus commit and the indexer versions, and
+    checked against their receipts when reused. A missing or failing indexer
+    stops the check: scores would otherwise drop as if the engine had
+    regressed."""
+    from deepthought.indexers import (
+        LANGUAGE_INDEXERS,
+        failed_files,
+        index_workspace,
+        ingest_indexed,
+    )
+
+    versions = "-".join(
+        sorted(
+            {
+                f"{LANGUAGE_INDEXERS[lang].name}-{LANGUAGE_INDEXERS[lang].version}"
+                for lang in languages
+            }
+        )
+    )
+    directory = (
+        Path(cache).resolve()
+        / "scip"
+        / f"{corpus['name']}-{corpus['commit']}-{versions}"
+    )
+    saved = directory / "report.json"
+    if saved.is_file():
+        report = json.loads(saved.read_text("utf-8"))
+    else:
+        report = index_workspace(workspace, directory, languages=tuple(languages))
+        failed = failed_files(report)
+        if failed:
+            raise RuntimeError(
+                f"{corpus['name']}: {len(failed)} files have no SCIP index "
+                f"because an indexer is missing or failed ({sorted(set(failed.values()))})"
+            )
+        staged = saved.with_suffix(".tmp")
+        staged.write_text(json.dumps(report), "utf-8")
+        staged.replace(saved)
+    return ingest_indexed(report, repository_id, workspace)
+
+
+def scip_languages(corpus):
+    """The languages of a calls corpus that the engine indexes with SCIP."""
+    from deepthought.indexers import LANGUAGE_INDEXERS
+
+    return tuple(lang for lang in corpus["languages"] if lang in LANGUAGE_INDEXERS)
+
+
+# Table corpora whose engine rules read names through SCIP indexes, and the
+# languages to index: the scorer runs the engine as `deepthought index` does.
+SCIP_TABLE_LANGUAGES = {"python-orm": ("python",)}
+
+
+def table_indexes(corpus, workspace, cache):
+    """The table corpus's SCIP indexes (``engine_indexes``), or () for a
+    corpus whose rules read none."""
+    languages = SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    if not languages or cache is None:
+        return ()
+    return engine_indexes(corpus, workspace, cache, languages, "tables")
+
+
+def score_line_tables(
+    labels, workspace, examples, rule_prefix, languages, scip_indexes=()
+):
     """Table accesses per line against labels.
 
     A labelled line is *found* when the engine's READS/WRITES/DECLARES edges
@@ -1098,12 +1288,18 @@ def score_line_tables(labels, workspace, examples, rule_prefix, languages):
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
+        DataContractTool(Path(workspace)).analyze(
+            "tables", languages=languages, scip_indexes=scip_indexes
+        )
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     read = defaultdict(set)
     for r in output.relationships:
         if not str(r.properties.get("rule_id", "")).startswith(rule_prefix):
+            continue
+        # Only table edges: the labels give each line's tables, and column
+        # edges (READS_COLUMN, WRITES_COLUMN) are scored on their own.
+        if r.type not in _TABLE_EDGES:
             continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
@@ -1136,6 +1332,86 @@ def score_line_tables(labels, workspace, examples, rule_prefix, languages):
         "wrong": [[*k, sorted(expected[k]), sorted(read[k])] for k in wrong][:examples],
         "missed": [[*k, sorted(expected[k])] for k in missed][:examples],
         "extra": [[*k, sorted(read[k])] for k in extra][:examples],
+    }
+    return report, samples
+
+
+def score_messages(corpus, workspace, examples=10):
+    """Message destinations against hand labels (evals/ground_truth/messages).
+
+    Each label is one publish or consume site: the destinations it names
+    (``destinations``), or ``unresolved`` when no static reading can name
+    one (a flag, the environment, a server-named queue), or ``none`` when
+    the line sends and receives nothing (a TopicPartition given to an offset
+    call). A label may accept the site at nearby lines (``also_at``), where
+    the call and its literal start on different lines.
+
+    *found* counts the labelled (site, destination) pairs the engine reports.
+    *wrong* is an endpoint at a labelled line that names a destination the
+    label does not, or any endpoint at an ``unresolved`` or ``none`` line.
+    *extra* is an endpoint at a line the labels do not list (outside
+    ``not_counted``): every broker site under the corpus root is labelled.
+    """
+    import asyncio
+
+    from deepthought.analysis_tools import ServiceContractTool
+
+    tool = ServiceContractTool(Path(workspace))
+    asyncio.run(tool.analyze("messages"))
+    endpoints, _unread = tool.last_messages
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    at = {}
+    for site in labels["sites"]:
+        for line in [site["line"], *site.get("also_at", ())]:
+            at[(site["file"], line)] = site
+
+    def counted(file, line):
+        for entry in labels.get("not_counted", ()):
+            if entry["line"] is None:
+                if file == entry["file"] or file.startswith(entry["file"] + "/"):
+                    return False
+            elif (file, line) == (entry["file"], entry["line"]):
+                return False
+        return True
+
+    expected = {
+        (site["file"], site["line"], site["role"], site["broker"], d)
+        for site in labels["sites"]
+        for d in site.get("destinations", ())
+    }
+    found, wrong, extra = set(), [], []
+    for e in endpoints:
+        if not counted(e.file, e.line):
+            continue
+        site = at.get((e.file, e.line))
+        got = [e.file, e.line, e.role, e.broker, e.destination]
+        if site is None:
+            extra.append(got)
+            continue
+        key = (site["file"], site["line"], e.role, e.broker, e.destination)
+        if key in expected:
+            found.add(key)
+        else:
+            reason = (
+                "none"
+                if "none" in site
+                else "unresolved"
+                if "unresolved" in site
+                else "other destination"
+            )
+            wrong.append(got + [reason])
+    missed = sorted(expected - found)
+    report = {
+        "expected": len(expected),
+        "found": len(found),
+        "wrong": len(wrong),
+        "extra": len(extra),
+        "unresolved_sites": sum("unresolved" in s for s in labels["sites"]),
+    }
+    samples = {
+        "missed": [list(m) for m in missed[:examples]],
+        "wrong": sorted(wrong)[:examples],
+        "extra": sorted(extra)[:examples],
     }
     return report, samples
 
@@ -1193,7 +1469,7 @@ CONTRACT_MODULES = ("yaml",)
 CONTRACT_LANGUAGES = ("python", "typescript", "javascript", "go", "java")
 
 
-def missing_requirements(manifest, names=()):
+def missing_requirements(manifest, names=(), scip=False):
     """Modules the selected corpora need that are not installed.
 
     A missing grammar or YAML reader does not fail analysis: files are
@@ -1210,10 +1486,17 @@ def missing_requirements(manifest, names=()):
     modules = set()
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
-            modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
+            modules.update(
+                LANGUAGES[lang][1]
+                for lang in corpus["languages"] + corpus.get("import_languages", [])
+            )
     if any(
         selected(c)
-        for c in [*manifest.get("contracts", ()), *manifest.get("routes", ())]
+        for c in [
+            *manifest.get("contracts", ()),
+            *manifest.get("routes", ()),
+            *manifest.get("messages", ()),
+        ]
     ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
@@ -1234,7 +1517,26 @@ def missing_requirements(manifest, names=()):
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
-    return sorted(m for m in modules if importlib.util.find_spec(m) is None)
+    from deepthought.indexers import LANGUAGE_INDEXERS, locate
+
+    indexers = {
+        LANGUAGE_INDEXERS[lang]
+        for corpus in manifest.get("tables", ())
+        if selected(corpus)
+        for lang in SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    }
+    if scip:
+        indexers |= {
+            LANGUAGE_INDEXERS[lang]
+            for corpus in manifest["corpora"]
+            if selected(corpus)
+            for lang in scip_languages(corpus)
+        }
+    return sorted(m for m in modules if importlib.util.find_spec(m) is None) + sorted(
+        f"{spec.name} {spec.version} (set {spec.environment_variable} or put it on PATH)"
+        for spec in indexers
+        if locate(spec) is None
+    )
 
 
 def declaration_regressions(report, baseline):
@@ -1255,7 +1557,51 @@ def declaration_regressions(report, baseline):
     return problems
 
 
-def check(names, cache, update=False, examples=10):
+def score_scip_calls(corpus, workspace, cache, result, expected, examples=10):
+    """Calls as the engine binds them in production: TreeSitterTool's
+    ``bind_calls`` over the corpus's SCIP indexes from the engine's own
+    pinned indexers (``engine_indexes``), scored like the parser's, with
+    impact over the same calls when the corpus has impact truth. Truth that
+    the same indexer derived checks the binding, not the indexer; the
+    compile oracles (go_compile_truth.py, ts_compile_truth.py,
+    py_check_truth.py) judge the indexer."""
+    # As TreeSitterTool binds them: pyright answers the Python calls the
+    # index gets wrong.
+    from deepthought.analysis_tools.tree_sitter import _bind
+
+    indexes = engine_indexes(corpus, workspace, cache, scip_languages(corpus))
+    binding = _bind(result, indexes, workspace)
+    report, samples = score(result, expected, examples, binding.resolutions)
+    if "impact" in corpus:
+        import impact_truth
+
+        path = CORPUS / corpus["impact"]
+        report["impact"], samples["impact"] = impact_truth.score(
+            result,
+            impact_truth.read(path),
+            examples=examples,
+            aliases=impact_truth.read_aliases(path),
+            nodes=impact_truth.read_nodes(path),
+            unjudged=impact_truth.read_unjudged(path),
+            indexed=expected[1],
+            fold_nested=bool({"typescript", "javascript"} & set(corpus["languages"])),
+            resolutions=binding.resolutions,
+        )
+    return report, samples
+
+
+def scip_regressions(report, baseline):
+    """``regressions`` of the SCIP-bound calls, and of their impact."""
+    problems = regressions(report, baseline)
+    if "impact" in baseline and "impact" in report:
+        problems += [
+            "impact: " + p
+            for p in impact_regressions(report["impact"], baseline["impact"])
+        ]
+    return problems
+
+
+def check(names, cache, update=False, examples=10, scip=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
     known = {
         entry["name"]
@@ -1268,7 +1614,7 @@ def check(names, cache, update=False, examples=10):
     if unknown:
         # A misspelled name would otherwise check nothing and pass.
         raise ValueError("no such corpus: " + ", ".join(unknown))
-    missing = missing_requirements(manifest, names)
+    missing = missing_requirements(manifest, names, scip)
     if missing:
         raise RuntimeError(
             "not installed: "
@@ -1303,9 +1649,17 @@ def check(names, cache, update=False, examples=10):
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result,
+                imports_of,
                 read_truth(CORPUS / corpus["imports"]),
+                workspace,
                 corpus.get("imports_granularity") == "directory",
                 examples,
             )
@@ -1341,6 +1695,15 @@ def check(names, cache, update=False, examples=10):
                         impact, baseline[corpus["name"]]["impact"]
                     )
                 ]
+        before = baseline.get(corpus["name"], {}).get("scip")
+        if scip and scip_languages(corpus):
+            report["scip"], samples["scip"] = score_scip_calls(
+                corpus, workspace, cache, result, expected, examples
+            )
+            if not update and before is not None:
+                problems += [
+                    "scip: " + p for p in scip_regressions(report["scip"], before)
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],
@@ -1349,7 +1712,12 @@ def check(names, cache, update=False, examples=10):
             "examples": samples,
         }
         if update:
-            baseline[corpus["name"]] = report
+            # Scored without the indexers, the SCIP baseline stays as it was.
+            baseline[corpus["name"]] = (
+                report
+                if "scip" in report or before is None
+                else {**report, "scip": before}
+            )
     declared = baseline.setdefault("declarations", {})
     for corpus in manifest.get("declarations", ()):
         if names and corpus["name"] not in names:
@@ -1367,8 +1735,18 @@ def check(names, cache, update=False, examples=10):
             else []
         )
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result, read_truth(CORPUS / corpus["imports"]), examples=examples
+                imports_of,
+                read_truth(CORPUS / corpus["imports"]),
+                workspace,
+                examples=examples,
             )
             report["imports"] = imported
             samples = {"declarations": samples, "imports": import_samples}
@@ -1449,7 +1827,7 @@ def check(names, cache, update=False, examples=10):
             # on its own and its paths are relative to it.
             else fetch(corpus, cache) / corpus.get("root", ".")
         )
-        report, samples = score_tables(corpus, workspace, examples)
+        report, samples = score_tables(corpus, workspace, examples, cache)
         problems = (
             table_regressions(report, tabled[corpus["name"]])
             if (corpus["name"] in tabled and not update)
@@ -1464,6 +1842,26 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             tabled[corpus["name"]] = report
+    messaged = baseline.setdefault("messages", {})
+    for corpus in manifest.get("messages", ()):
+        if names and corpus["name"] not in names:
+            continue
+        workspace = fetch(corpus, cache) / corpus.get("root", ".")
+        report, samples = score_messages(corpus, workspace, examples)
+        problems = (
+            table_regressions(report, messaged[corpus["name"]])
+            if (corpus["name"] in messaged and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "messages": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            messaged[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
@@ -1574,7 +1972,7 @@ def derive_imports(workspace, index, language, directory=False):
     return expected, indexed
 
 
-def score_imports(result, truth, directory=False, examples=10):
+def score_imports(result, truth, workspace, directory=False, examples=10):
     """Import resolutions judged against module-reference truth.
 
     An import statement is judged by the truth lines it spans. It is
@@ -1587,11 +1985,14 @@ def score_imports(result, truth, directory=False, examples=10):
     from deepthought.imports import resolve_imports
 
     expected, indexed = truth
+    # JavaScript and TypeScript imports as the engine resolves them: by the
+    # TypeScript compiler (deepthought.ts_modules).
+    resolutions = resolve_imports(result)
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()
     samples = {"contradicted": [], "linked_external": [], "missed": []}
-    for resolution in resolve_imports(result):
+    for resolution in resolutions:
         item = imports[resolution.import_id]
         if item.file not in indexed:
             counts["not_indexed"] += 1
@@ -1774,6 +2175,8 @@ def rule_coverage(reports):
     for report in reports.values():
         for rule, counts in report.get("by_rule", {}).items():
             totals.setdefault(rule, Counter()).update(counts)
+        for rule, counts in report.get("scip", {}).get("by_rule", {}).items():
+            totals.setdefault(rule, Counter()).update(counts)
     return {
         "rules": {
             rule: {k: c.get(k, 0) for k in ("confirmed", "contradicted")}
@@ -1798,6 +2201,7 @@ SUMMARY_METRICS = {
     "contracts": (("true_positive", True), ("false_positive", False)),
     "routes": (("found", True), ("extra", False), ("expected", True)),
     "tables": (("found", True), ("wrong", False), ("extra", False)),
+    "messages": (("found", True), ("wrong", False), ("extra", False)),
 }
 
 
@@ -1831,6 +2235,8 @@ def summary(reports, baseline):
                 )
         elif "tables" in report:
             yield "tables", report["tables"], base.get("tables", {}).get(name)
+        elif "messages" in report:
+            yield "messages", report["messages"], base.get("messages", {}).get(name)
         elif "routes" in report:
             before = base.get("routes", {}).get(name, {})
             for kind, counts in sorted(report["routes"].items()):
@@ -1847,6 +2253,15 @@ def summary(reports, baseline):
             for layer in ("inherits", "imports", "impact"):
                 if layer in report:
                     yield layer, report[layer], base.get(name, {}).get(layer)
+            if "scip" in report:
+                before = base.get(name, {}).get("scip") or {}
+                yield "calls (scip)", report["scip"], before or None
+                if "impact" in report["scip"]:
+                    yield (
+                        "impact (scip)",
+                        report["scip"]["impact"],
+                        before.get("impact"),
+                    )
 
     def cell(now, before):
         if now is None:
@@ -1930,6 +2345,12 @@ def main(argv=None):
     c.add_argument("--corpus", action="append", default=[])
     c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
     c.add_argument("--update-baseline", action="store_true")
+    c.add_argument(
+        "--scip",
+        action="store_true",
+        help="also score calls as the engine binds them from its own SCIP "
+        "indexes (needs the pinned indexers)",
+    )
     for p in (s, c):
         p.add_argument("--examples", type=int, default=10)
     args = parser.parse_args(argv)
@@ -1960,9 +2381,9 @@ def main(argv=None):
             # Calls bound from SCIP indexes of the workspace. Truth derived
             # from the same indexer checks the binding, not the indexer.
             import deepthought
-            from deepthought.scip_calls import bind_calls
+            from deepthought.analysis_tools.tree_sitter import _bind
 
-            binding = bind_calls(
+            binding = _bind(
                 result,
                 [
                     (deepthought.ingest_scip(path, repository_id="truth"), "-")
@@ -2003,7 +2424,11 @@ def main(argv=None):
     baseline = json.loads((CORPUS / "baseline.json").read_text("utf-8"))
     try:
         reports, failed = check(
-            set(args.corpus), args.cache, args.update_baseline, args.examples
+            set(args.corpus),
+            args.cache,
+            args.update_baseline,
+            args.examples,
+            args.scip,
         )
     except (RuntimeError, ValueError) as error:
         print(f"ground_truth check: {error}", file=sys.stderr)

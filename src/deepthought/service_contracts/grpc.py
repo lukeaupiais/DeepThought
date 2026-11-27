@@ -43,6 +43,9 @@ class ProtoMethod:
     line: int
     # unary | client | server | bidi, or None when the signature is not read.
     streaming: str | None = None
+    # The request and response message types, fully qualified (pkg.Point).
+    request: str | None = None
+    response: str | None = None
 
     @property
     def full_name(self):
@@ -979,6 +982,8 @@ class GrpcFacts:
     # simple service name -> Go files that register its generated HTTP
     # handlers (go_http_registrations)
     http_servers: dict = dataclasses.field(default_factory=dict)
+    # protoc.ProtoMessage | protoc.ProtoEnum of the compiled files
+    proto_types: list = dataclasses.field(default_factory=list)
 
 
 _SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", "vendor"}
@@ -990,6 +995,11 @@ _SUFFIXES = {
     "javascript": ".js",
     "typescript": ".ts",
 }
+
+
+# The languages whose servers and stub calls are read.
+SERVER_LANGUAGES = tuple(_SUFFIXES)
+CALL_LANGUAGES = tuple(sorted({*_CALL, "csharp"}))
 
 
 def proto_files(root, include=("*",), exclude=()):
@@ -1051,7 +1061,7 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
         digests[path] = sha256(data).hexdigest()
         texts[path] = data.decode("utf-8", "replace")
     compiled = read_protos(root, list(protos), texts)
-    bindings = []
+    bindings, types = [], []
     handlers, calls, unread, parsers = set(), [], [], {}
     for path in protos:
         if path not in compiled:
@@ -1061,6 +1071,7 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
             continue
         methods.extend(compiled[path][1])
         bindings.extend(compiled[path][2])
+        types.extend(compiled[path][3])
     readers = {
         path: "protoc" if path in compiled else "not_compiled" for path in protos
     }
@@ -1128,6 +1139,7 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
         proto_readers=readers,
         http_bindings=bindings,
         http_servers=http_servers,
+        proto_types=types,
         index=index,
         handlers=sorted(
             handlers, key=lambda h: (h.service, h.method, h.file, h.line, h.handler_id)

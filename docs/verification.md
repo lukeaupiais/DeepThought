@@ -54,7 +54,11 @@ scored against a yardstick its own rules cannot move.
   oracle says the name leads: `callable` (an in-repository function, method or
   type, at each defining line; a constructor also accepts its class), `value`
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
-  parameter, loop variable or local function, at its binding line) or
+  parameter, loop variable or local function, at its binding line),
+  `alias` (an in-repository symbol reached through a Python local bound once
+  to a plain name, `f = obj.m` or `g = f`, or through a classmethod's or
+  `__new__`'s `cls`; followed through the index's own reference at the end
+  of the right-hand side, or the method's owner class) or
   `external` (a library or builtin). `# indexed` rows list the files the
   oracle indexed. scip-python gives every later declaration of an
   `@overload` group (the implementation too), and a redefinition of a name
@@ -108,10 +112,11 @@ Every engine call resolution is judged at its source position:
 | contradicted | linked, and the oracle names other targets (including `local` or `external`) |
 | unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
 | not_indexed | linked in a file the oracle did not index |
+| declaration_file | linked to a declaration file with no analyzed implementation beside it (`typescript.call-declaration-file`): what the call is typed against, so never confirmed; contradicted instead when the oracle names other targets there |
 | missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
 
 Precision is confirmed / (confirmed + contradicted). Recall is the share of
-expected calls with a confirmed link; `value` and `local` links count toward
+expected calls with a confirmed link; `value`, `local` and `alias` links count toward
 precision only, so confirmed can exceed expected.
 
 ```sh
@@ -131,6 +136,21 @@ python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle
 
 Truth derived from the same SCIP index that binds the calls checks the
 binding, not the indexer; independent oracles judge the indexer.
+
+In production, TreeSitterTool binds call sites from the indexes its own
+pinned indexers write. `check --scip` scores that path too: for each calls
+corpus in a language with a SCIP indexer (Python, TypeScript, JavaScript,
+Go), it builds the corpus's indexes with `index_workspace`, as `deepthought
+index-scip` does, binds the calls with `bind_calls` and scores them, and
+their impact, under the corpus's `scip` baseline. Indexes are cached under
+`--cache`, keyed by corpus commit and indexer versions, and checked against
+their receipts when reused. A missing indexer is a missing requirement, and a
+file an indexer fails on stops the check, since either would read as a
+regression. Without `--scip` the SCIP baseline is left as it was.
+
+```sh
+python tools/ground_truth.py check --scip --corpus hono   # needs scip-typescript
+```
 
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
@@ -244,22 +264,55 @@ the truth lines it spans: *confirmed* when it links an expected target,
 *contradicted* when it links elsewhere or links a module the oracle places
 outside the repository. Recall is over import lines with a repository target.
 
+JavaScript and TypeScript imports (ky, hono, preact) are not derived from an
+index: the engine resolves them with the TypeScript compiler, which
+scip-typescript also runs, so an index-derived truth would grade the engine
+with its own resolver. `tools/ts_import_truth.py` derives them instead from
+webpack's resolver (enhanced-resolve 5.18.1, `tools/ts_import_oracle.cjs`),
+set up the way TypeScript resolves:
+
+- the `paths` and `baseUrl` of the nearest tsconfig.json or jsconfig.json
+  above the file (relative `extends` followed), longest prefix first;
+- TypeScript's extension order (`.ts`, `.tsx`, `.d.ts`, then `.js`, `.jsx`)
+  and its `.js` to `.ts` substitution;
+- the `types`/`typings` fields before `main`, and the `types`, `import`,
+  `require` and `default` conditions.
+
+@babel/parser finds the specifiers: import and export-from statements,
+`import()`, `require()` and `import x = require()`. A `.d.ts` target also
+accepts the implementation file beside it with the same stem, so preact's
+`'preact'` (whose `types` names `src/index.d.ts`) accepts `src/index.js`.
+Every file git tracks with the language's extensions is judged, tests and
+benchmarks included. A specifier that resolves to no repository file, such as
+a package that is not installed, is external.
+
 | Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
 |---|---|---|---|---|---|
 | click | 331 | 331 | 0 | 1.0 | 1.0 |
-| ky | 98 | 98 | 0 | 1.0 | 1.0 |
-| hono | 1,007 | 1,003 | 0 | 1.0 | 0.996 |
+| ky | 190 | 186 | 0 | 1.0 | 0.9789 |
+| hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 442 | 435 | 0 | 1.0 | 0.9842 |
+| preact | 516 | 499 | 0 | 1.0 | 0.9671 |
 
-Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
-tests are outside its TypeScript project, so the index does not cover them.
-preact's package aliases (`'preact'`, `'preact/hooks'`) resolve through its
-jsconfig.json `paths`. The oracle maps only the entry points its vitest
-config aliases, so `'preact/compat/scheduler'`, which the engine leaves
-ambiguous between `compat/scheduler.js` and `compat/scheduler.mjs`, is not
-judged.
+The engine's JavaScript and TypeScript imports are scored as it resolves them:
+through the TypeScript compiler (`deepthought.ts_modules`). The compiler
+resolves a package with a `types` field to its declaration file, so preact's
+imports are scored over an analysis that also takes its TypeScript files
+(`import_languages` in the manifest), while its calls are still scored over
+JavaScript alone; the judge stays the JavaScript truth. The 94 preact imports
+counted `not_indexed` are those of the `.d.ts` files this adds, which the truth
+does not judge.
+
+Every external import is left unresolved (click 320, ky 121, hono 223,
+preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
+groups:
+
+- dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
+- imports in hono's benchmark packages, whose `.mts` files the parser does not
+  read: 69;
+- preact's `require()` calls: 8;
+- side-effect imports of stylesheets in preact's demo folder: 2.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 
@@ -540,6 +593,44 @@ different kind is wrong, none is unread). Main reads every link, server and
 kind in all three: Go 4/4, Java 4/4, Node 10/10, streaming 4/4 each. Online
 Boutique's servers are 15 of 20: the 5 misses are the C# cartservice, whose
 servers are not read (C# is not a contract language yet).
+
+### .proto files
+
+The engine reads .proto files only with protoc. `tools/proto_truth.py REPO
+...` checks that reader against github.com/emicklei/proto
+(`tools/proto_oracle`, built with `go build`), a Go parser that shares no
+code with protoc. For every .proto file that git tracks, both list each rpc
+as (file, `package.Service`, method, line of the rpc, streaming kind), and
+each `google.api.http` binding as (file, `package.Service`, method, verb,
+path), including `additional_bindings` and the `(google.api.http).post = ...`
+form.
+
+A misread is either of these, and the tool exits 1 on any:
+
+- an rpc or binding the engine lists that the oracle does not;
+- one the engine misses in a file protoc compiled.
+
+The oracle parses each file on its own, so it also reads files that protoc
+cannot compile. Their rpcs are counted separately, and protoc's verdict
+stands: an import outside the repository, or a file protoc rejects.
+
+| Repository | .proto files | Compiled | rpcs agree | HTTP bindings agree | rpcs in uncompiled files |
+|---|---|---|---|---|---|
+| grpc-node route guide corpus | 43 | 38 | 113 / 113 | 0 / 0 | 7 |
+| grpc-java route guide corpus | 199 | 199 | 104 / 104 | 1 / 1 | 0 |
+| grpc-go route guide corpus | 13 | 13 | 18 / 18 | 0 / 0 | 0 |
+| online-boutique | 8 | 8 | 66 / 66 | 0 / 0 | 0 |
+| eShop (gRPC) | 2 | 2 | 6 / 6 | 0 / 0 | 0 |
+| simplebank | 12 | 12 | 4 / 4 | 4 / 4 | 0 |
+| grpc-gateway 5dbb59a | 38 | 38 | 121 / 121 | 149 / 149 | 0 |
+| kratos 56cfd65 | 16 | 16 | 2 / 2 | 1 / 1 | 0 |
+| envoy d4c3cc2 | 913 | 119 | 44 / 44 | 37 / 37 | 88 |
+
+There are no misreads. The uncompiled grpc-node files import `vendor.proto`
+through an include path that only their tests set, or use the reserved
+`uninterpreted_option`, which protoc rejects. 794 of envoy's files import
+protos that Bazel fetches (udpa, xds, validate, opentelemetry), which are
+not in the repository.
 
 ### Routes and GraphQL fields
 
@@ -879,6 +970,47 @@ schema qualifier is dropped (`app.users` names `users`), since tables join
 across readers by name, and a database's own catalog (`information_schema.*`,
 `pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
+### Go message destinations
+
+The manifest's `messages` entries label every Kafka and AMQP site in five
+Go repositories. The labels were written by hand from the pinned source,
+without the engine's type-checker facts, and cover each client the engine
+reads:
+
+| Corpus | Client | Root | Sites |
+|---|---|---|---|
+| rabbitmq-tutorials | amqp091-go | `go` | 17 |
+| go-clean-template | amqp091-go | `.` | 2 |
+| kafka-go | kafka-go | `examples` | 4 |
+| sarama | sarama | `examples` | 10 |
+| confluent-kafka-go | confluent-kafka-go | `examples` | 48 |
+
+A label is one call or literal, and says one of three things:
+
+- `destinations`: the destinations it names. Kafka destinations are the
+  topic. An AMQP publish is `exchange/routing-key`. An AMQP consume is
+  `/queue` on the default exchange, plus `exchange/key` for each binding
+  of that queue.
+- `unresolved`: no reading of the source can name it. Examples are a
+  flag, the environment, the command line, a request's `ReplyTo`, or a
+  queue the server names (`QueueDeclare("", ...)`).
+- `none`: the line sends and receives nothing, such as a `TopicPartition`
+  passed to `CommitOffsets` or to an admin call.
+
+`also_at` lists the other lines a site may be reported on, where a call
+and its literal start on different lines.
+
+`check` reports four numbers:
+
+- *found*: labelled destinations the engine reports;
+- *wrong*: endpoints naming another destination, or any endpoint at an
+  `unresolved` or `none` site;
+- *extra*: endpoints at lines the labels do not list (paths under
+  `not_counted` excepted);
+- *unresolved_sites*: how many labels say the destination cannot be known.
+
+The gate fails when *found* drops or *wrong* or *extra* rises.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
@@ -985,6 +1117,11 @@ follows CALLS, INHERITS_FROM and IMPLEMENTS backwards to depth 3, the way
 `get_impact` does. The files of the dependents it finds are the prediction,
 and the commit's other edited files are the outcome. The baseline is a plain
 text search: every file that contains one of the seed names as a whole word.
+A third line, `impact_injection`, also follows the edges through which a
+framework injects code: USES_FIXTURE from tests to their pytest fixtures and
+USES_DEPENDENCY from endpoints to their FastAPI dependencies, as `get_impact`
+does. The `impact` line keeps the
+code relations alone, so the results below stay comparable.
 
 ```sh
 python tools/replay_history.py CLONE --language python --commits 30 --revision REV
@@ -1066,6 +1203,9 @@ scip-python gives a span only to the first `@overload` of a function, so its
 other `def`s (implementation included) are folded into that node with spans
 found by indentation; and scip-typescript records `const f = () => ...` as a
 variable, so a variable whose initializer is a function counts as a callable.
+A class field holding an arrow function (`fetch = async (...) => { ... }`)
+gets no enclosing range from scip-typescript at all; its span is read from
+the source, from the field's `=` to the end of the arrow's body.
 
 `check` runs the same reverse search over the engine's linked CALLS edges at
 the pin. An engine dependent the oracle also reaches is *confirmed*; one it
@@ -1151,6 +1291,36 @@ dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
 none.
 
+TypeScript has a similar gap: a call through a member of a constant object
+literal, such as `const detector = detectors[name]; detector(c, options)`
+in hono's language middleware, binds to the local `detector`, so the call
+graph stops there. `node tools/ts_member_dispatch.cjs TYPESCRIPT_JS ROOT`
+(the TypeScript package scip-typescript installs, with the call truth's
+`# indexed` files on stdin) resolves the object to a `const` whose
+initializer is an object literal and lists each member the compiler names
+as a possible target of that call. A key that is a literal, a non-constant
+object, or a member the compiler cannot name (a spread, a computed value)
+yields no row. Passed as `--possible-calls`, these make a dependent reached
+only through them unjudged: hono gains one `# unjudged` row
+(`detectLanguage` for the cookie parser), ky and preact none.
+
+A test case is an anonymous function passed to a call, such as
+`it('sums', () => { add(1, 2) })` inside `describe(...)`. scip-typescript
+gives it no symbol, so its calls were dropped and no test was ever a
+dependent. `node tools/ts_callback_regions.cjs TYPESCRIPT_JS ROOT` (files on
+stdin) parses each file with the TypeScript compiler and lists every
+function or arrow that is a call argument and is not inside a named
+callable, with the line of its call and its span. Passed as
+`--initializers`, each one in a file the call truth indexes is a caller of
+the calls it holds (the innermost one wins) and a `# node`, keyed by its
+call's line, the line the engine declares a test case on. It is never a
+seed or a target. A callback inside a named function (`xs.map((x) => f(x))`
+in `g`) still belongs to `g`. Whether a callback runs the callbacks inside
+it (`act(() => ...)` in an `it`, an `it` in a `describe`) is not ruled on:
+a dependent reached only that way is an `# unjudged` row. hono's truth
+grows from 149 to 1710 dependents (221 unjudged) and preact's from 101 to
+6768 (518 unjudged); ky's call truth indexes no tests, so it is unchanged.
+
 Go call truth comes from scip-go, so a separate oracle checks it with the
 compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
 module, renames a seeded sample of declarations one at a time, and runs
@@ -1182,6 +1352,9 @@ renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
 38 give 431, all confirmed, and 6 fall outside the project.
+JavaScript declarations are sampled too: with `allowJs` and `checkJs` in
+the project, tsc reports their uses at `.js`, `.mjs` and `.cjs` paths, and
+JavaScript outside the project is `blocked` like TypeScript.
 
 `tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
 Python with mypy (`--check-untyped-defs`, no configuration file, so no
@@ -1199,7 +1372,10 @@ are blanked first, since one would hide the error a rename adds. Each edit gets 
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
-36 give 145, all confirmed, and 2 are `untyped`.
+36 give 145, all confirmed, and 2 are `untyped`. On rich, whose call truth is
+scip-python's, 27 give 119: 116 are confirmed, and the other 3 are in
+`rich/_win32_console.py`, which mypy treats as unreachable off Windows and does
+not check.
 
 gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's

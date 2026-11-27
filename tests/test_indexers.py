@@ -36,7 +36,7 @@ FAKE = textwrap.dedent(
         # A pass over chosen files: its project names them, absolute.
         with open(argv[-1]) as config:
             project = json.load(config)
-        documents = [os.path.relpath(f) for f in project["files"]] + documents
+        documents = [os.path.relpath(f) for f in project.get("files", [])] + documents
     # Only files under the directory it runs in, as a real indexer.
     documents = [path for path in documents if os.path.isfile(path)]
     # As scip-go: a file for another platform builds only there.
@@ -148,10 +148,13 @@ class IndexersTest(unittest.TestCase):
         # Source roots go on PYTHONPATH so src-layout imports resolve.
         argv, python_path = self.args_log.read_text().split("\n")
         self.assertIn("--project-version 0", argv)
+        # The source roots, then the scratch directory the project's
+        # declared dependencies are installed into.
+        *roots, site = python_path.split(os.pathsep)
         self.assertEqual(
-            python_path.split(os.pathsep),
-            [str(self.root.resolve()), str((self.root / "src").resolve())],
+            roots, [str(self.root.resolve()), str((self.root / "src").resolve())]
         )
+        self.assertTrue(site.endswith("site-packages"), site)
         receipt = indexers.validate_receipt(self.root, run["index"])
         self.assertEqual(receipt["profile"], "scip-python-v2")
         self.assertEqual(receipt["producer"]["python_path"], [".", "src"])
@@ -190,22 +193,33 @@ class IndexersTest(unittest.TestCase):
         )
         self.assertEqual(report["coverage"]["main.go"]["reason"], "no_go_module")
 
-    def test_an_inferred_tsconfig_does_not_stay_in_the_workspace(self):
+    def test_a_workspace_without_tsconfig_is_never_written_to(self):
         (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "lib").mkdir()
+        (self.root / "lib" / "b.js").write_text("module.exports = 1;\n")
         self.fake("scip-typescript")
         report = indexers.index_workspace(
             self.root,
             self.out,
-            languages=("typescript",),
+            languages=("typescript", "javascript"),
             environ=self.environ(
                 FAKE_NAME="scip-typescript",
                 FAKE_VERSION="0.6.2",
-                FAKE_DOCUMENTS="web.ts",
+                FAKE_DOCUMENTS="",
             ),
         )
         self.assertEqual(report["runs"][0]["status"], "indexed")
-        self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
+        self.assertEqual(
+            {path: entry["status"] for path, entry in report["coverage"].items()},
+            {"lib/b.js": "covered", "web.ts": "covered"},
+        )
+        # The project is written outside the workspace, which may be
+        # read-only, rather than inferred into it.
         self.assertFalse((self.root / "tsconfig.json").exists())
+        argv = self.args_log.read_text().split("\n")[0].split(" ")
+        self.assertNotIn("--infer-tsconfig", argv)
+        self.assertTrue(argv[-1].endswith("tsconfig.json"), argv)
+        self.assertFalse(Path(argv[-1]).is_relative_to(self.root.resolve()))
 
     def test_files_outside_every_tsconfig_get_a_second_pass(self):
         (self.root / "tsconfig.json").write_text("{}")
@@ -274,7 +288,8 @@ class IndexersTest(unittest.TestCase):
         (self.root / "svc" / "testdata" / "go.mod").write_text("module fixture\n")
         (self.root / "tools").mkdir()
         (self.root / "tools" / "gen.go").write_text("package tools\n")
-        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc"])
+        # The testdata module holds no Go file, so it gets no run.
+        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc", "svc/testdata"])
         self.fake("scip-go")
         report = indexers.index_workspace(
             self.root,
@@ -282,7 +297,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="lib.go,main.go",
             ),
         )
@@ -314,7 +329,7 @@ class IndexersTest(unittest.TestCase):
             languages=("go",),
             environ=self.environ(
                 FAKE_NAME="scip-go",
-                FAKE_VERSION="0.1.26",
+                FAKE_VERSION="0.2.7",
                 FAKE_DOCUMENTS="main.go,term_windows.go",
             ),
         )
@@ -338,6 +353,33 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(receipt["producer"]["platform"], "windows/amd64")
         self.assertEqual(receipt["producer"]["go_version"], "go1.24.7")
 
+    def test_own_indexes_are_read_whole_and_checked_against_their_receipts(self):
+        from unittest import mock
+
+        from deepthought import scip
+
+        self.fake("scip-python")
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("python",), environ=self.environ()
+        )
+        index = Path(report["runs"][0]["index"])
+        with mock.patch.object(scip, "ingest_scip", wraps=scip.ingest_scip) as ingest:
+            [(source, receipt)] = indexers.ingest_indexed(report, "repo", self.root)
+        # No cap below the index's own size, however large the repository.
+        self.assertEqual(
+            ingest.call_args.kwargs["max_index_bytes"], index.stat().st_size
+        )
+        self.assertEqual(receipt, report["runs"][0]["receipt_sha256"])
+        self.assertEqual([c.file for c in source.coverage], ["src/pkg/a.py"])
+        (self.root / "src" / "pkg" / "a.py").write_text("def f():\n    return 2\n")
+        with self.assertRaisesRegex(ValueError, "inputs changed"):
+            indexers.ingest_indexed(report, "repo", self.root)
+        # An index that cannot be read stops the run instead of reading as
+        # an index without facts.
+        index.write_bytes(b"not an index")
+        with self.assertRaisesRegex(ValueError, "could not be read: invalid_index"):
+            indexers.ingest_indexed(report, "repo")
+
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
             index = scip_pb2.Index()
@@ -352,6 +394,16 @@ class IndexersTest(unittest.TestCase):
             return indexers.canonical_bytes(index)
 
         self.assertEqual(build(["a.go", "b.go"]), build(["b.go", "a.go"]))
+
+    def test_canonical_bytes_do_not_depend_on_the_indexer_arguments(self):
+        # scip-go 0.2 records its arguments, with the scratch output path.
+        def build(output):
+            index = scip_pb2.Index()
+            index.metadata.tool_info.name = "scip-go"
+            index.metadata.tool_info.arguments.extend(["index", "--output", output])
+            return indexers.canonical_bytes(index)
+
+        self.assertEqual(build("/tmp/one/index.scip"), build("/tmp/two/index.scip"))
 
     def test_scip_tool_composes_indexes_of_several_languages(self):
         import asyncio
@@ -374,7 +426,7 @@ class IndexersTest(unittest.TestCase):
             self.root,
             self.out / "go.scip",
             environ=self.environ(
-                FAKE_NAME="scip-go", FAKE_VERSION="0.1.26", FAKE_DOCUMENTS="main.go"
+                FAKE_NAME="scip-go", FAKE_VERSION="0.2.7", FAKE_DOCUMENTS="main.go"
             ),
         )
         self.assertEqual((python.status, go.status), ("indexed", "indexed"))
@@ -397,6 +449,40 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(producers, ["scip-python", "scip-go"])
         only_go = asyncio.run(tool.analyze("repo", languages={"go"}))
         self.assertEqual(only_go.metadata.files_processed, 1)
+
+    def test_scip_tool_reads_a_whole_index_and_names_an_unreadable_one(self):
+        import asyncio
+        from unittest import mock
+
+        from deepthought import scip
+        from deepthought.analysis_tools import scip as tool_module
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        self.fake("scip-python")
+        self.out.mkdir()
+        python = indexers.run_indexer(
+            indexers.INDEXERS["scip-python"],
+            self.root,
+            self.out / "py.scip",
+            environ=self.environ(FAKE_DOCUMENTS="src/pkg/a.py"),
+        )
+        tool = ScipAnalysisTool(self.root, index_paths=[python.index])
+
+        # An index bigger than ingest_scip's default cap (lobe-chat's 80 MB
+        # against 50 MB): the default is shrunk so this small index exceeds it.
+        def capped(path, max_index_bytes=10, **kwargs):
+            return scip.ingest_scip(path, max_index_bytes=max_index_bytes, **kwargs)
+
+        with mock.patch.object(tool_module, "ingest_scip", capped):
+            output = asyncio.run(tool.analyze("repo"))
+        self.assertEqual(output.metadata.files_processed, 1)
+
+        def unreadable(path, **kwargs):
+            return scip.ingest_scip(path, **{**kwargs, "max_index_bytes": 1})
+
+        with mock.patch.object(tool_module, "ingest_scip", unreadable):
+            with self.assertRaisesRegex(ValueError, "exceeds max_index_bytes"):
+                asyncio.run(tool.analyze("repo"))
 
     def test_cli_exits_nonzero_when_files_are_uncovered(self):
         env = {**os.environ, "PYTHONPATH": str(SRC), "PATH": ""}

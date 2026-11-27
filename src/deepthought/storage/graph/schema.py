@@ -28,6 +28,11 @@ SCHEMA_QUERIES = (
         "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
     (
+        # "What is declared at file:line" is a common first question.
+        "CREATE INDEX deepthought_symbol_location IF NOT EXISTS "
+        "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.file_path)"
+    ),
+    (
         "CREATE INDEX deepthought_unresolved_call_name IF NOT EXISTS "
         "FOR (n:UnresolvedCall) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
@@ -46,3 +51,52 @@ async def setup_schema(driver, *, database="neo4j"):
             await result.consume()
         result = await session.run("CALL db.awaitIndexes(30)")
         await result.consume()
+
+
+# How each relationship type reads as a sentence, for text query results:
+# "<source> <verb> <target>", followed by "at line N" when the link has a line.
+# One entry per relationship type the engine writes; a test checks that every
+# type in an analyzed graph has one. Keep the verb in the reader's words.
+RELATIONSHIP_SENTENCES = {
+    "CALLS": "calls",
+    "DISPATCHES_TO": "can dispatch to",
+    "HAS_UNRESOLVED_CALL": "makes",
+    "IMPORTS": "imports",
+    "INHERITS_FROM": "inherits from",
+    "IMPLEMENTS": "implements",
+    "REFERENCES": "refers to",
+    "CONTAINS": "contains",
+    "CONTAINS_REFERENCE": "contains the reference",
+    "DEFINES": "defines",
+    "DECLARES": "declares",
+    "HAS_AST_DECLARATION": "has the syntax-tree declaration",
+    "DEPENDS_ON": "depends on",
+    "PART_OF": "is part of",
+    "REQUIRES": "requires",
+    "DEPLOYS": "deploys",
+    "REQUESTS": "sends a request to",
+    "HANDLES": "handles",
+    "PUBLISHES": "publishes to",
+    "CONSUMES": "consumes from",
+    "USES_CONTRACT_OF": "uses the contract of",
+    "READS": "reads",
+    "WRITES": "writes",
+    "SELECTS": "selects from",
+    "MAPS_TO": "maps to",
+    "REFERENCES_TABLE": "references the table",
+    "USES_TYPE": "uses the type",
+    "USES_FIXTURE": "uses the pytest fixture",
+    "USES_DEPENDENCY": "uses the FastAPI dependency",
+    "REFERENCES_FUNCTION": "refers to the function",
+    "READS_FIELD": "reads the field",
+    "WRITES_FIELD": "writes the field",
+    "IMPORTS_PACKAGE": "imports the package",
+    "CARRIES_MESSAGE": "is a message type of",
+    "CARRIES": "carries the payload type",
+    "HAS_COLUMN": "has the column",
+    "HAS_FIELD": "has the field",
+    "GENERATED_FROM": "is generated from",
+    "READS_COLUMN": "reads the column",
+    "WRITES_COLUMN": "writes the column",
+    "SIGNATURE_USES": "names in its signature the type",
+}

@@ -46,7 +46,13 @@ from .syntax import (
     make_parser,
     parse_source,
     rust_macro_rules,
+    script_source,
     RustExpander,
+)
+from .vue_sfc import (
+    SUFFIX as VUE_SUFFIX,
+    VUE_COMPILER_SFC_VERSION,
+    prefetch as prefetch_components,
 )
 from ._version import __version__
 
@@ -100,9 +106,7 @@ def _rust_item_macros(root, include, exclude, max_file_bytes):
     found = {}
     parser = None
     for directory, dirs, names, directory_fd in os.fwalk(root, follow_symlinks=False):
-        dirs[:] = sorted(
-            d for d in dirs if d not in {".git", ".venv", "node_modules", "__pycache__"}
-        )
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
         for name in sorted(names):
             relative = (Path(directory) / name).relative_to(root).as_posix()
             if (
@@ -199,6 +203,52 @@ def reusable_files(previous, repository_id):
     return facts, None
 
 
+_SKIPPED_DIRECTORIES = frozenset({".git", ".venv", "node_modules", "__pycache__"})
+
+
+def _components_under(root):
+    """Every Vue component under ``root`` that the walk may read."""
+    found = []
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
+        for name in names:
+            if name.endswith(VUE_SUFFIX):
+                found.append((Path(directory) / name).relative_to(root).as_posix())
+    return sorted(found)
+
+
+def _source_language(name, languages):
+    """The language of ``languages`` whose source suffix ``name`` has, or
+    None."""
+    suffix = Path(name).suffix
+    if suffix == ".h" and "cpp" in languages:
+        # A header is read as C++ when C++ is selected: C++ code includes
+        # it, and the C++ grammar reads C declarations too.
+        return "cpp"
+    return next((lang for lang in languages if suffix in LANGUAGES[lang][0]), None)
+
+
+def source_languages(root, include=("*",), exclude=()):
+    """{language: number of source files} of a workspace, for every language
+    the engine reads: the files ``analyze_repository`` with all languages
+    would select by their suffix (manifests left out)."""
+    root = Path(root)
+    languages = tuple(sorted(LANGUAGES))
+    counts = {}
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
+        for name in names:
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if not any(fnmatchcase(relative, pattern) for pattern in include) or any(
+                fnmatchcase(relative, pattern) for pattern in exclude
+            ):
+                continue
+            language = _source_language(name, languages)
+            if language is not None:
+                counts[language] = counts.get(language, 0) + 1
+    return counts
+
+
 def analyze_repository(
     path: str | Path,
     *,
@@ -242,6 +292,7 @@ def analyze_repository(
     packages = []
     impls = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
+    vue_read = False
     if "rust" in languages:
         try:
             versions[RUST_ITEM_MACROS] = _rust_item_macros(
@@ -284,13 +335,7 @@ def analyze_repository(
             ):
                 continue
             suffix = Path(name).suffix
-            language = next(
-                (lang for lang in languages if suffix in LANGUAGES[lang][0]), None
-            )
-            if suffix == ".h" and "cpp" in languages:
-                # A header is read as C++ when C++ is selected: C++ code
-                # includes it, and the C++ grammar reads C declarations too.
-                language = "cpp"
+            language = _source_language(name, languages)
             if name == "go.mod" and "go" in languages:
                 # Go module files declare the import path prefix of their tree.
                 language = "go"
@@ -441,6 +486,14 @@ def analyze_repository(
                         )
                     imports.extend(facts)
                     continue
+                if suffix == VUE_SUFFIX and not vue_read:
+                    # Vue's parser reads every component in one run.
+                    vue_read = True
+                    versions["@vue/compiler-sfc"] = VUE_COMPILER_SFC_VERSION
+                    prefetch_components(root, _components_under(root))
+                # A Vue component is read as its script blocks: the tree
+                # and every fact below read that source.
+                suffix, content = script_source(relative, content)
                 key = (language, suffix)
                 if key not in parsers:
                     parsers[key] = make_parser(language, suffix)
@@ -464,11 +517,7 @@ def analyze_repository(
                 stats["parsed"] += 1
                 tree = parse_source(parsers[key], language, suffix, content)
                 if tree.root_node.has_error:
-                    coverage.append(
-                        FileCoverage(
-                            relative, language, "partial", sha256(content).hexdigest()
-                        )
-                    )
+                    coverage.append(FileCoverage(relative, language, "partial", digest))
                     diagnostics.append(
                         Diagnostic(
                             "syntax_error", "Source contains syntax errors", relative
@@ -476,9 +525,7 @@ def analyze_repository(
                     )
                 else:
                     coverage.append(
-                        FileCoverage(
-                            relative, language, "analyzed", sha256(content).hexdigest()
-                        )
+                        FileCoverage(relative, language, "analyzed", digest)
                     )
                 if language == "c":
                     # C: declarations, includes and calls.

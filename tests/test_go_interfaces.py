@@ -195,7 +195,10 @@ class GoInterfaceTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
             output = asyncio.run(
-                TreeSitterTool(directory).analyze("r", languages=("go",))
+                # Files no SCIP index covers keep the method-set rule.
+                TreeSitterTool(directory).analyze(
+                    "r", languages=("go",), scip_indexes=()
+                )
             )
         names = {n.properties["qualified_name"]: n.properties for n in output.nodes}
         edges = sorted(
@@ -220,7 +223,10 @@ class GoInterfaceTests(unittest.TestCase):
             if r.type in {"IMPLEMENTS", "DISPATCHES_TO"}
         }
         self.assertEqual(rules, {GO_INTERFACE_METHOD_SET})
-        self.assertEqual(output.metadata.custom_metrics["go_implementations"], 7)
+        self.assertEqual(
+            output.metadata.custom_metrics["go_implementations"],
+            {GO_INTERFACE_METHOD_SET: 7, "scip.go-implementation": 0},
+        )
 
 
 if __name__ == "__main__":

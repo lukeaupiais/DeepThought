@@ -6,13 +6,29 @@ names a symbol, and the symbol's SCIP definition is read back to the parsed
 declaration whose name starts there. Call sites in files no index covers keep
 the parser's name-binding rules (``deepthought.calls``), which also run in
 shadow over covered files so that the two can be compared.
+
+Where scip-python 0.6.8 is known to be wrong (a name re-exported through a
+star import gets another name's symbol; a method named like a builtin is
+recorded as the builtin; same-named functions nested in different methods
+of one class share one symbol, so a call to one has several targets) or
+records no occurrence (code it treats as unreachable), the Python call is answered by pinned pyright's
+go-to-definition (``pyright_calls``), never by the parser.
 """
 
+import ast
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+import re
 
-from .calls import CallResolution, resolve_calls
+from .calls import (
+    CALL_IMPORTED_NAME,
+    CALL_MODULE_ATTRIBUTE,
+    CALL_TS_COMPILER_EXPORT,
+    CALL_TS_DECLARATION_FILE,
+    CallResolution,
+    resolve_calls,
+)
 from .inheritance import resolve_supertypes
 from .models import AnalysisResult
 
@@ -26,6 +42,28 @@ NO_OCCURRENCE = "scip_no_occurrence"
 EXTERNAL = "scip_external"
 NOT_DECLARATION = "scip_target_not_declaration"
 SUSPECT = "scip_suspect_target"
+# A Python call pyright answered: linked to the declaration it names.
+PYRIGHT_CALL_DEFINITION = "pyright.call-definition"
+PYRIGHT_CALL_ALIAS = "pyright.call-alias"
+PYRIGHT_CALL_CLASS_PARAMETER = "pyright.call-class-parameter"
+# Local aliases followed (``f = obj.m``, ``g = f``) before a call is left as
+# the index's local.
+_ALIAS_HOPS = 3
+PYRIGHT_NO_DEFINITION = "pyright_no_definition"
+PYRIGHT_EXTERNAL = "pyright_external"
+PYRIGHT_NOT_DECLARATION = "pyright_target_not_declaration"
+
+# Calls bound through an import as the TypeScript compiler resolves it and
+# says what the module exports (``deepthought.ts_modules``).
+_COMPILER_IMPORT_RULES = frozenset(
+    {
+        CALL_IMPORTED_NAME,
+        CALL_MODULE_ATTRIBUTE,
+        CALL_TS_COMPILER_EXPORT,
+        CALL_TS_DECLARATION_FILE,
+    }
+)
+_SCRIPT_LANGUAGES = frozenset({"javascript", "typescript"})
 
 # The columns an indexer writes when its documents leave the encoding
 # unspecified: scip-python counts UTF-16 code units, as the language server
@@ -79,17 +117,27 @@ class CallBinding:
     producers: dict
     disagreements: tuple[Disagreement, ...]
     # Calls in covered files whose index target was suspect, so the
-    # parser's link was kept.
+    # parser's link was kept (JavaScript, TypeScript and Go; pyright answers
+    # Python ones).
     parser_kept: frozenset = frozenset()
+    # JavaScript and TypeScript calls in covered files that the index calls
+    # external, or binds to a local it does not follow, while the TypeScript
+    # compiler binds them in the workspace.
+    compiler_kept: frozenset = frozenset()
 
     def resolver(self, call_id) -> str:
-        """Who decided a call: ``scip``, ``scip_suspect_parser`` (a covered
-        call whose parser link was kept) or ``tree-sitter`` (a file no index
-        covers)."""
-        if call_id in self.producers:
-            return "scip"
+        """Who decided a call: ``scip`` (the index), ``pyright`` (a Python
+        call the index named wrongly or recorded no occurrence for),
+        ``scip_suspect_parser`` (a covered call whose parser link was kept),
+        ``typescript`` (a covered call the compiler binds) or
+        ``tree-sitter`` (a file no index covers)."""
+        producer = self.producers.get(call_id)
+        if producer is not None:
+            return "pyright" if producer[0].startswith("pyright@") else "scip"
         if call_id in self.parser_kept:
             return "scip_suspect_parser"
+        if call_id in self.compiler_kept:
+            return "typescript"
         return "tree-sitter"
 
 
@@ -97,11 +145,17 @@ def bind_calls(
     result: AnalysisResult,
     indexes,
     root: str | Path,
+    python_definitions=None,
 ) -> CallBinding:
     """Resolve ``result``'s call sites from ``indexes``: pairs of an ingested
     SCIP index (``deepthought.ingest_scip``, with the same file paths) and its
     receipt digest. ``root`` holds the sources both were made from, which the
-    binder reads to convert columns and to read declared names."""
+    binder reads to convert columns and to read declared names.
+
+    A Python call whose index target is suspect, or that the index records
+    no occurrence for, is answered by ``python_definitions`` (a running
+    ``pyright_calls.PyrightDefinitions`` over ``root``), which is required
+    when there is such a call."""
     parsed = resolve_calls(result)
     if not indexes:
         return CallBinding(tuple(parsed), {}, ())
@@ -135,7 +189,9 @@ def bind_calls(
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
+    languages = {c.file: c.language for c in result.coverage}
     resolutions, producers, disagreements, kept = [], {}, [], set()
+    compiler_kept = set()
     for resolution in parsed:
         site = sites[resolution.call_id]
         view = covering.get(site.file)
@@ -153,11 +209,40 @@ def bind_calls(
             site, definitions[bound.target_id], result
         ):
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
+        elif bound.status == "ambiguous" and site.file.endswith((".py", ".pyi")):
+            # scip-python names a function nested in a method by the class
+            # alone (``C#inner().``), so same-named nested functions of one
+            # class share a symbol.
+            bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         chosen = bound
-        if bound.reason == SUSPECT and by_call[site.id].status == "linked":
+        parser = by_call[site.id]
+        if bound.reason in {SUSPECT, NO_OCCURRENCE, NOT_DECLARATION} and (
+            site.file.endswith((".py", ".pyi"))
+        ):
+            if python_definitions is None:
+                raise ValueError("binding Python calls requires pyright")
+            bound = chosen = _bind_pyright(
+                site, python_definitions, lines, in_file, by_symbol
+            )
+            producers[site.id] = (python_definitions.tool, view.receipt)
+        elif bound.reason == SUSPECT and parser.status == "linked":
             # A target the index may have wrong: the parser's stands.
-            chosen = by_call[site.id]
+            chosen = parser
             kept.add(site.id)
+        elif (
+            bound.reason in {EXTERNAL, NOT_DECLARATION}
+            and parser.rule_id in _COMPILER_IMPORT_RULES
+            and languages.get(site.file) in _SCRIPT_LANGUAGES
+        ):
+            # The index names a symbol it does not define, such as a
+            # package importing itself by name, which scip-typescript leaves
+            # to node_modules; the TypeScript compiler resolves that import
+            # to a workspace file and binds the call there. Or the index
+            # names a local it does not follow, such as a name destructured
+            # from require(), which scip-typescript records as a variable of
+            # its own and the compiler as an alias of the module's export.
+            chosen = parser
+            compiler_kept.add(site.id)
         else:
             producers[site.id] = (view.tool, view.receipt)
         resolutions.append(chosen)
@@ -165,8 +250,160 @@ def bind_calls(
         if disagreement is not None:
             disagreements.append(disagreement)
     return CallBinding(
-        tuple(resolutions), producers, tuple(disagreements), frozenset(kept)
+        tuple(resolutions),
+        producers,
+        tuple(disagreements),
+        frozenset(kept),
+        frozenset(compiler_kept),
     )
+
+
+def _bind_pyright(site, pyright, lines, in_file, by_symbol) -> CallResolution:
+    """A Python call bound by where pyright says its callee is defined."""
+    if site.callee_at is None:
+        return CallResolution(site.id, "unresolved", reason=PYRIGHT_NO_DEFINITION)
+    line, column = site.callee_at
+    text = lines.get(site.file, line)
+    places = pyright.definitions(site.file, line, _to_index(text, column, "utf-16"))
+    rule = PYRIGHT_CALL_DEFINITION
+    for _ in range(_ALIAS_HOPS):
+        targets, external = _pyright_targets(places, lines, in_file)
+        if targets or len(places) != 1 or places[0][0] is None:
+            break
+        # One definition that is no declaration: a local. Pyright gives a
+        # local's own assignment, so a call through an alias (``get =
+        # console.get_style``; ``S = Segment``) asks again at the value, and
+        # a classmethod's ``cls``, which pyright types as the class itself
+        # without a place, is that class.
+        (file, target_line, target_column) = places[0]
+        found = _python_local(lines, file, target_line, target_column)
+        if found is None:
+            break
+        kind, (value_line, value_column) = found
+        if kind == "class":
+            places = [(file, value_line, value_column)]
+            rule = PYRIGHT_CALL_CLASS_PARAMETER
+            continue
+        value_text = lines.get(file, value_line)
+        places = pyright.definitions(
+            file, value_line, _to_index(value_text, value_column, "utf-16")
+        )
+        rule = PYRIGHT_CALL_ALIAS
+    if not targets:
+        return CallResolution(
+            site.id,
+            "unresolved",
+            reason=PYRIGHT_EXTERNAL
+            if external
+            else PYRIGHT_NOT_DECLARATION
+            if places
+            else PYRIGHT_NO_DEFINITION,
+        )
+    chosen = _choose(site, list(targets.values()), False, by_symbol)
+    if chosen.rule_id == SCIP_CALL_OCCURRENCE:
+        return replace(chosen, rule_id=rule)
+    return chosen
+
+
+def _pyright_targets(places, lines, in_file):
+    """({id: parsed declaration} at pyright's places, whether one is outside
+    the workspace)."""
+    targets, external = {}, False
+    for file, target_line, target_column in places:
+        if file is None:
+            external = True
+            continue
+        target_text = lines.get(file, target_line)
+        start = _to_utf8(target_text, target_column, "utf-16")
+        name = re.match(rb"\w*", target_text[start:]).group().decode("utf-8")
+        parsed = _innermost(in_file, file, (target_line, start), name)
+        if parsed is not None:
+            targets[parsed.id] = parsed
+    return targets, external
+
+
+def _python_local(lines, file, line, column):
+    """What the Python local pyright places at ``line`` and UTF-16 ``column``
+    of ``file`` stands for, read with Python's own parser: ("value", (line,
+    UTF-8 column)) of the last name of a dotted name a function's local is
+    alone assigned (``x = a.b``, ``x: T = b``), ("class", (line, UTF-8 column)) of the
+    class name when it is a classmethod's first parameter; None otherwise."""
+    column = _to_utf8(lines.get(file, line), column, "utf-16")
+    return lines.python_locals(file).get((line, column))
+
+
+def _python_locals(tree, lines, file):
+    """{(line, UTF-8 column) of a local: what ``_python_local`` reads it as}."""
+    found = {}
+    # Only a function's own locals: a class attribute (``context_class =
+    # Context``) or a module global can be replaced from elsewhere.
+    assignments = [
+        node
+        for function in ast.walk(tree)
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in _function_statements(function)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+    ]
+    for node in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)] + (
+        assignments
+    ):
+        if isinstance(node, ast.ClassDef):
+            text = lines.get(file, node.lineno)
+            named = re.search(rb"\bclass\s+" + re.escape(node.name.encode()), text)
+            for method in node.body:
+                if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                arguments = method.args.posonlyargs + method.args.args
+                if (
+                    named is not None
+                    and arguments
+                    and any(
+                        isinstance(d, ast.Name) and d.id == "classmethod"
+                        for d in method.decorator_list
+                    )
+                ):
+                    found[(arguments[0].lineno, arguments[0].col_offset)] = (
+                        "class",
+                        (node.lineno, named.end() - len(node.name.encode())),
+                    )
+            continue
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            continue
+        place = (targets[0].lineno, targets[0].col_offset)
+        if isinstance(value, ast.Name):
+            found[place] = ("value", (value.lineno, value.col_offset))
+        elif isinstance(value, ast.Attribute) and _dotted_name(value):
+            # The attribute's name ends the expression.
+            found[place] = (
+                "value",
+                (value.end_lineno, value.end_col_offset - len(value.attr.encode())),
+            )
+    return found
+
+
+def _function_statements(function):
+    """The nodes in a function's body, without those of the classes and
+    functions it declares."""
+    stack = list(function.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(
+            node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+        ):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _dotted_name(node):
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name)
 
 
 class ScipReferences:
@@ -270,13 +507,73 @@ class ScipReferences:
                 sites.add((d.file, d.line, _to_utf8(text, d.column, view.encoding(d))))
         return tuple(sorted(sites))
 
+    def references_matching(self, wanted):
+        """(file, line, UTF-8 byte column, symbol) of each reference, in the
+        files the indexes cover, to a symbol ``wanted(symbol)`` is true of,
+        definitions left out; sorted."""
+        found = set()
+        for view in {id(v): v for v in self.covering.values()}.values():
+            for (file, _, _), occurrences in view.references.items():
+                if self.covering.get(file) is not view:
+                    continue
+                for reference in occurrences:
+                    if reference.symbol_roles & 1 or not wanted(reference.native_id):
+                        continue
+                    line = self.lines.get(file, reference.line)
+                    found.add(
+                        (
+                            file,
+                            reference.line,
+                            _to_utf8(line, reference.column, view.encoding(reference)),
+                            reference.native_id,
+                        )
+                    )
+        return sorted(found)
+
+    def references_to(self, sites):
+        """(file, line, UTF-8 byte column, definition site) of each
+        reference, in the files the indexes cover, to a symbol an index
+        defines at one of ``sites`` ((file, line, UTF-8 byte column)),
+        definitions themselves left out; sorted."""
+        sites = set(sites)
+        found = set()
+        for view in {id(v): v for v in self.covering.values()}.values():
+            for (file, _, _), occurrences in view.references.items():
+                if self.covering.get(file) is not view:
+                    continue
+                for reference in occurrences:
+                    if reference.symbol_roles & 1:
+                        continue
+                    for d in view.definitions.get(_key(file, reference.native_id), ()):
+                        text = self.lines.get(d.file, d.line)
+                        site = (
+                            d.file,
+                            d.line,
+                            _to_utf8(text, d.column, view.encoding(d)),
+                        )
+                        if site in sites:
+                            line = self.lines.get(file, reference.line)
+                            found.add(
+                                (
+                                    file,
+                                    reference.line,
+                                    _to_utf8(
+                                        line,
+                                        reference.column,
+                                        view.encoding(reference),
+                                    ),
+                                    site,
+                                )
+                            )
+        return sorted(found)
+
     def declarations(self, file, line, column, name):
         """The parsed declarations named ``name`` that the reference written
         at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None
         when no index covers the file or it records no reference there, else
         a tuple (empty for a symbol declared outside the repository). A
         declaration of another name is dropped, since an index may follow a
-        star re-export to a wrong one."""
+        star re-export to a wrong one; a ``name`` of None keeps every one."""
         view = self.covering.get(file)
         if view is None:
             return None
@@ -295,7 +592,9 @@ class ScipReferences:
         for reference in found:
             for scip in view.definitions.get(_key(file, reference.native_id), ()):
                 parsed = _declaration(scip, view, self.lines, self.in_file)
-                if parsed is not None and parsed.symbol.rsplit(".", 1)[-1] == name:
+                if parsed is not None and (
+                    name is None or parsed.symbol.rsplit(".", 1)[-1] == name
+                ):
                     targets[parsed.id] = parsed
         return tuple(sorted(targets.values(), key=lambda d: d.id))
 
@@ -304,7 +603,18 @@ class _Lines:
     """Source lines of the analyzed files, read when first needed."""
 
     def __init__(self, root):
-        self.root, self.cache = root, {}
+        self.root, self.cache, self.trees = root, {}, {}
+
+    def python_locals(self, file):
+        """``_python_locals`` of the file, parsed by Python's own parser
+        (empty if it does not parse)."""
+        if file not in self.trees:
+            try:
+                tree = ast.parse((self.root / file).read_bytes())
+            except (OSError, SyntaxError, ValueError):
+                tree = None
+            self.trees[file] = {} if tree is None else _python_locals(tree, self, file)
+        return self.trees[file]
 
     def get(self, file, line):
         if file not in self.cache:
@@ -439,10 +749,15 @@ def _declaration(scip, view, lines, in_file):
         else len(text)
     )
     name = text[start:end].decode("utf-8", "replace")
-    point = (scip.line, start)
+    return _innermost(in_file, scip.file, (scip.line, start), name)
+
+
+def _innermost(in_file, file, point, name):
+    """The innermost parsed declaration of ``file`` whose span holds
+    ``point`` (line, UTF-8 column) and whose own name is ``name``."""
     holding = [
         d
-        for d in in_file.get(scip.file, ())
+        for d in in_file.get(file, ())
         if (d.line, d.column) <= point <= (d.end_line, d.end_column)
         and d.symbol.rsplit(".", 1)[-1] == name
     ]

@@ -8,9 +8,12 @@ the module's top-level names (Python assignments, JavaScript ``const``/
 ``let``/``var``, Go ``var``/``const``/``:=``), and Python ``self.NAME`` for a
 class attribute assigned once in the class body and never through an
 attribute assignment in the class. A name bound more than once in
-that scope, or assigned anywhere else, is unknown text. A name no scope
-binds (an import, or a global a bundler defines) takes the value
-``externals`` gives it. JavaScript/TypeScript ``this.NAME`` is the
+that scope, or assigned anywhere else, is unknown text. In
+JavaScript/TypeScript a name or member access the TypeScript compiler gives
+a value (``ts_facts``: imports, re-exports, tsconfig paths, enum members,
+const objects) takes that value first. A name no scope binds (a global a
+bundler defines) takes the value ``externals`` gives it. JavaScript/
+TypeScript ``this.NAME`` is the
 initializer of the instance field NAME of the enclosing class, or of a base
 class declared in the same file, when no class of the file assigns
 ``this.NAME``, no constructor parameter property is named NAME and no class
@@ -19,9 +22,31 @@ subclass in another file is not seen). Everything else is unknown text
 (PLACEHOLDER).
 """
 
+from contextlib import contextmanager
 import re
 
 from .http import PLACEHOLDER
+
+# {id(file content): {(start byte, end byte): value}}: the TypeScript
+# compiler's values (``ts_facts``) of names and member accesses in the
+# JavaScript/TypeScript files being analyzed, set by ``compiler_values``.
+_COMPILER = {}
+
+
+@contextmanager
+def compiler_values(contents):
+    """Within the block, folders of the files whose contents are keys of
+    ``contents`` ({content bytes: {(start, end): value}}) take the compiler's
+    value for a name or member access it gives one: the checker resolves
+    imports, re-exports, tsconfig paths, enums and const objects."""
+    keep = list(contents)  # the ids stay valid while the block runs
+    _COMPILER.update({id(content): values for content, values in contents.items()})
+    try:
+        yield
+    finally:
+        for content in keep:
+            _COMPILER.pop(id(content), None)
+
 
 _FUNCTIONS = {
     "python": ("function_definition", "lambda"),
@@ -88,6 +113,11 @@ class Folder:
         self.content = content
         self.root = root
         self.externals = externals or {}
+        self.compiler = (
+            _COMPILER.get(id(content), {})
+            if language in ("javascript", "typescript")
+            else {}
+        )
         self._bindings = {}
         self._active = set()
         # JavaScript/TypeScript parameters: {function id: {index: value}}
@@ -651,7 +681,18 @@ class Folder:
         if node is None:
             return PLACEHOLDER
         content, kind = self.content, node.type
-        if kind == "parenthesized_expression":
+        if kind in ("identifier", "member_expression", "subscript_expression"):
+            value = self.compiler.get((node.start_byte, node.end_byte))
+            if value is not None:
+                return value
+        # TypeScript's type assertions and checks (``x as T``,
+        # ``x satisfies T``, ``x!``) have the value of their expression.
+        if kind in (
+            "parenthesized_expression",
+            "as_expression",
+            "satisfies_expression",
+            "non_null_expression",
+        ):
             return (
                 self.evaluate(node.named_children[0], depth)
                 if node.named_children
