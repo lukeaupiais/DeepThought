@@ -3442,9 +3442,17 @@ which only client requests are read:
   optional parts dropped), and any other construct is `path_not_literal`.
   A URLconf no other includes is at `/`; one included at a pattern the code
   does not fix keeps an unknown base. A view the index does not resolve to
-  the repository (`admin.site.urls`) is `view_not_resolved`; Django REST
-  framework routers (`include(router.urls)`) are not read yet
-  (`include_not_resolved`). Express `get`/`post`/.../`all` calls on an app or Router
+  the repository (`admin.site.urls`) is `view_not_resolved`. Django REST
+  framework routers (`service_contracts/drf_routers.py`, rule
+  `drf-router-route`) are read where a URLconf includes `router.urls` of a
+  value whose `register` the index resolves to DRF's: each registered
+  ViewSet has the routes `SimpleRouter` generates for its actions
+  (`{prefix}/` GET list and POST create, `{prefix}/{lookup}/` GET retrieve,
+  PUT update, PATCH partial_update, DELETE destroy, and each `@action` with
+  its `detail`, `methods` and `url_path`), the actions read from the class,
+  its repository bases and the DRF ViewSet and mixin classes the index
+  resolves among them. A ViewSet with any other base is
+  `viewset_base_not_resolved`. Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
