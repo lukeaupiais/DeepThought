@@ -190,9 +190,16 @@ parser rule. One that the compiler follows to another file is
 file with no analyzed implementation is `typescript.call-declaration-file`
 (resolved): it names what the call is typed against, not the code that runs.
 The IMPORTS edge still names the file the compiler resolves, declaration file
-included. Where the language rejects a program, as with two `export *` that
-give one name or two exports of one name, the compiler reports an error and
-binds the first or later declaration it keeps; the call follows that binding.
+included. Where the language rejects an export on the way, the compiler
+reports an error and keeps one declaration, and the call links to it with its
+own rule, `typescript.call-export-conflict` (resolved). The cases are two
+export clauses, or a clause and a declaration, that give one name (TS2300,
+TS2323, TS2484), and a name that two of a module's `export *` give as
+different symbols while the module does not export it itself (TS2308). They
+are found in the imported module, in each module the compiler follows the
+export through, and in the implementation beside a declaration file. The
+program does not link at run time, so the link names what the compiler kept,
+not code that runs.
 
 The compiler is required. `analyze_repository` itself never starts a process,
 so its result carries no compiler view: callers attach one with
@@ -293,7 +300,12 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 `reason` it gives and, when ambiguous, the
 `candidates`' qualified names. Its caller (the innermost enclosing declaration,
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
-`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. The
+`line` and `column` of a CALLS edge, an `UnresolvedCall` and its
+`HAS_UNRESOLVED_CALL` edge are where the callee's last name is written
+(`CallSite.callee_at`), so each call of a member chain over several lines
+(`new Hono()` then `.basePath('/api')` lines later) sits on its own line;
+`end_line` and `end_column` still close the whole call. So one
 query counts the linked, ambiguous and unresolved calls of a name:
 `get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
@@ -356,7 +368,9 @@ their global symbols, so a call in one links to a declaration another defines:
 | `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
 | `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
 | `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
-| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, to the declaration pyright's go-to-definition gives |
+| `pyright.call-definition` | a Python call whose index target is suspect, or that the index records no occurrence for, or whose target no declaration names, to the declaration pyright's go-to-definition gives |
+| `pyright.call-alias` | a Python call through a function local assigned once from a name or dotted name (`get = self.fetch`, `S = Segment`) to the declaration pyright gives for that name |
+| `pyright.call-class-parameter` | `cls(...)` in a classmethod to its class |
 
 A covered call the index does not link stays unlinked, with `resolver: scip`,
 the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
@@ -371,11 +385,17 @@ follow a star re-export to the wrong function), an external target for
 index may name a builtin), and more than one target (the index names a
 function nested in a method by the class alone, `Group#decorator().`, so
 same-named nested functions in different methods share one symbol). Those calls, and Python calls the index records no
-occurrence for (scip-python skips code it treats as unreachable), are answered
+occurrence for (scip-python skips code it treats as unreachable) or whose
+target no declaration names (a local variable), are answered
 by pinned pyright 1.1.409 instead (`deepthought.pyright_calls`): its
 language server's go-to-definition at the callee's last name gives the
 declaration, linked as `pyright.call-definition` with `producer:
-pyright@1.1.409`, or the call stays unlinked as `pyright_no_definition`,
+pyright@1.1.409`. When pyright names a local instead (its own assignment), a
+function local assigned exactly once from a name or dotted name is followed to
+that name, up to three hops (`pyright.call-alias`), and a classmethod's first
+parameter to its class (`pyright.call-class-parameter`); locals assigned more
+than once, parameters, call results, module globals and class attributes stay
+unlinked, or the call stays unlinked as `pyright_no_definition`,
 `pyright_external` or `pyright_target_not_declaration`. The parser's link is
 never kept over the index. Pyright is required: binding a covered Python file
 without it fails (`$DEEPTHOUGHT_PYRIGHT` names the `pyright` executable, with
@@ -1163,8 +1183,12 @@ calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with
-the variable's name, so calls inside it belong to it. A named function
-expression keeps no declaration of its own.
+the variable's name, so calls inside it belong to it. A class field that holds
+one (`fetch = async () => {}`, `static make = function () {}`, a `#private`
+field too) is a `Method` of the class with the field's name (`static` when the
+field is), so calls inside it belong to the field, impact reaches its
+callers, and `this.fetch()` links to it. A named function expression keeps no
+declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
@@ -1193,6 +1217,116 @@ Tree-sitter missed in either corpus. Tarball sha256: execa
 indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
+
+### Calls through function values
+
+Some calls go through a value rather than a declared name: a callback
+parameter, a function taken from an array, a map or an object of plugins, or
+a hook registered and run later. What such a call runs is whatever function
+flows to it. The engine reads that from the pinned Jelly call graph
+(`@cs-au-dk/jelly` 0.13.0: `DEEPTHOUGHT_JELLY`, else `jelly` on PATH at that
+version, else the engine installs it itself, see "Pinned tools" below;
+`src/deepthought/js_callgraph.py`). Jelly is a static
+points-to analysis of the analyzed JavaScript and TypeScript files (declaration
+files left out). It is required where those languages are analyzed.
+
+Jelly runs with these options:
+
+- `--ignore-dependencies`: the result depends on the repository's files
+  alone, with or without node_modules.
+- `--no-callgraph-external`, `--no-callgraph-native`,
+  `--no-callgraph-implicit` and `--no-callgraph-require`: Jelly reports only
+  calls whose callee value its analysis finds. It reports no callbacks it
+  assumes unanalyzed or native code makes, and no getter, setter or
+  module-load calls.
+
+Each call that no other rule links gets a CALLS edge `jelly.call-points-to`
+(`resolved`, `dispatch: points-to`, `producer: jelly@0.13.0`) to each
+function Jelly finds. A call whose import the TypeScript compiler finds binds
+nothing (`imported_name_not_declared`) gets none. The call must be a parsed
+call site that starts and ends where Jelly's call expression does. The
+function must be a parsed function or method that ends where Jelly's function
+does and holds its start; `const f = () => {}` counts. An anonymous callback
+is not a declaration and adds nothing. A run that fails or reaches its
+900-second limit adds no edges and is a `jelly_failed` warning. The metadata
+counts `js_points_to_calls` (`sites`, `edges`, `error`).
+
+On ky, 971 call sites gain 987 edges. Most are calls of the `ky` instance that
+`createInstance` returns. On preact, 133 sites gain 139 edges: `h` aliased to
+`createElement`, factory-made `suspend` functions and `c.render` on
+components. Jelly takes about 3 seconds on each. Which callbacks Jelly
+attributes to unanalyzed libraries (`expect(fn)`) was checked on preact's
+tests before those options were set: such edges named the library call as the
+caller, so they are left out.
+
+### NestJS injection
+
+A call `this.p.m()` in a class whose constructor parameter property `p`
+NestJS injects reaches whatever class the module's providers bind to `p`'s
+token. Before this, such a call linked only to the interface or abstract
+method it names, so "who calls" the method the application actually runs
+came back empty. The TypeScript compiler (`tsmodules/resolve.js`, in the same
+programs as module resolution) reads:
+
+- the token of each parameter property: the argument of its
+  `@Inject(token)` (`Inject` imported from `@nestjs/common`; the import is
+  read, so the package need not be installed), or else the class its type
+  names (an interface names none, as in Nest's `design:paramtypes`);
+- each class provider `{provide: token, useClass: C}` written anywhere in
+  the program, including in arrays spread into a module's `providers`.
+
+Tokens and classes are the symbols the checker resolves the names to
+(imports, re-exports and a `const`/`interface` pair of one name followed),
+never their spelling. Each such call then gets a CALLS edge
+`typescript.call-nest-injected-provider` (`resolved`, `dispatch:
+nest-injection`, `producer: typescript@<version>`) to `m` declared by each
+provided class, or inherited through `extends`. This edge sits beside the
+call's own link. A token bound in two modules to two classes links to both.
+`useValue`, `useFactory` and `useExisting` providers, parameters that are
+not properties, and properties assigned in the constructor body are not
+read. The tool metadata counts `nest_injected_calls` (`sites`, `edges`).
+On immich's server, 254 injected properties are bound and 603 call sites
+gain an edge, each to one class.
+
+### Pinned tools
+
+The engine installs the pinned tools it runs when they are not configured or
+installed at the pinned version: `@vue/compiler-sfc` 3.5.45 and
+`@cs-au-dk/jelly` 0.13.0 with `npm install --ignore-scripts`, and x/tools
+`callgraph` v0.31.0 with `go install` (`GOFLAGS` cleared, so the analysis
+environment's `-mod=readonly` does not reach it), into `<cache>/tools`
+(`src/deepthought/tool_provisioning.py`). The cache is `$DEEPTHOUGHT_CACHE`,
+else `$XDG_CACHE_HOME/deepthought`, else `~/.cache/deepthought`. An install
+goes into a scratch directory and is renamed into place, so concurrent runs
+never see half of one, and a second run reuses it. A tool named by its
+environment variable is used as named and never replaced. When an install
+cannot run (no npm or go on PATH, no network, a failed install), the run
+fails with the installer's error: no tool is skipped.
+
+### Vue single-file components
+
+A Vue component (`.vue`) is a TypeScript source: what the engine reads of it
+is its script. Vue's own parser, `@vue/compiler-sfc` 3.5.45 (the parser Vue's
+build tools and language tools use: `DEEPTHOUGHT_VUE_COMPILER_SFC` naming its
+package directory, else the global package beside node at that version, else
+the engine installs it itself, see "Pinned tools" above), finds the
+`<script>` and `<script setup>` blocks and their `lang`
+(`src/deepthought/vue_sfc.py`, `vuesfc/blocks.js`). Every byte outside those
+blocks is blanked, line breaks kept, so every line and column of a fact is the
+component's own. The source is read as TypeScript, or as TSX when a block is
+`lang="tsx"` or `"jsx"`. The template and styles are not read, and a block
+written with `src` has no content in the component. The package is required
+when a workspace has a component: a missing or different version is an error,
+not an empty result.
+
+The TypeScript compiler reads the same script as a file `X.vue.ts` (or
+`X.vue.tsx`) beside the component, as Vue's language tools once did, and a
+config's `include` matches components. Its own resolver then resolves
+`import Comp from "./Comp.vue"` and aliases (`@/components/Comp.vue`) to the
+component, and resolves the component's own imports with the options of the
+config that includes it. Every path the compiler writes names the component.
+scip-typescript does not index components, so their calls are bound as in any
+file no index covers.
 
 ## Go
 
@@ -1457,6 +1591,40 @@ tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
 interface, and each interface method DISPATCHES_TO the type's method, so
 impact reaches the callers of an interface method from a changed
 implementation (see "Impact").
+
+Each call through an interface method or a function value also gets the
+targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
+call graph (`callgraph@v0.31.0 -algo=vta -test`, run per package offline from
+the module cache, `deepthought.go_callgraph`) gives, for each dynamic call
+site, the functions and methods that variable type analysis says may run
+there. Each becomes a CALLS edge from the caller with rule `go.call-vta`,
+`dispatch: vta` and `producer: callgraph@v0.31.0`; the site is the parsed
+call whose callee's last name ends at the call's opening parenthesis, and the
+target the parsed function or method of the callee's name whose span holds
+the callee's position. Calls of function values (handlers, callbacks) are
+linked this way only. The tool is required where the analyzed files include a
+`go.mod`. `$DEEPTHOUGHT_GO_CALLGRAPH` names it, else `callgraph` on PATH if
+built from x/tools v0.31.0 (`go version -m`), else the engine builds it itself
+(see "Pinned tools" under JavaScript); a binary it cannot have, or one not
+built from that version, fails the run. Each
+package of an analyzed Go file is its own program, loaded with its tests,
+since a Go binary is one main package or one package's tests and what they
+import: values of two programs never meet, so a type of one example's main
+package cannot reach a call in another package's tests. VTA follows values
+through every function of a program, code nothing calls included, so each
+package is also run with `-algo=rta` (rapid type analysis from the program's
+main or its tests) and only the edges both report are kept: on chi this drops
+the example handlers' writes into the Compress middleware, which no example
+installs. A library package with neither a main nor tests has nothing to
+reach it from and keeps the VTA edges; any other RTA failure fails the
+package. Packages are named
+one by one, so directories `./...` skips (`_examples/`) are included;
+`testdata` is not. A package the tool cannot load (a dependency missing from
+the module cache, a type error) yields no edges and is reported in the
+warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
+`failed_packages`). The
+method-set DISPATCHES_TO edges above stay until impact is switched to these
+per-site edges.
 
 Nothing is guessed. An interface is left out when an embedded element is a
 type constraint, another module's or a third-party interface, or names no one
@@ -2885,7 +3053,21 @@ repository of separate packages with no lockfile (grpc-node's `packages/*`)
 gets each package's dependencies. Every install also runs with
 `npm_config_script_shell` set to `true`: npm 10.9 runs a `file:`
 dependency's `prepare` script even with `--ignore-scripts`, and a shell
-that does nothing keeps it from running. On grpc-node (ca7f83f) the
+that does nothing keeps it from running. After a directory installs, each
+package its package.json declares that ships no declarations (no `types`
+or `typings`, no `types` export condition, no `index.d.ts`) and has no
+`@types` package installed gets its DefinitelyTyped package, as the
+TypeScript language server's automatic type acquisition gives one: the
+pinned `types-registry` 0.1.794 (installed into the engine's cache) says
+which packages DefinitelyTyped has and the exact version tagged `ts6.0`
+(else `latest`); those are installed with npm, scripts off, into a scratch
+prefix and moved into `node_modules` where nothing of that name is. The
+install records them under `types`; a failed acquisition makes the run
+`partial`, so its files carry `dependencies_unavailable`. Without it a
+plain JavaScript Express or koa-router app has no library symbol at any
+route call: node-express-boilerplate then gets 15 Express route methods
+resolved in the index (0 before), koa-knex-realworld 19 koa-router ones (0
+before). On grpc-node (ca7f83f) the
 `grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
 tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
 files `indexer_failed`; now every file is covered. A directory without a
@@ -3231,7 +3413,38 @@ which only client requests are read:
   `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
   imported from `flask` or `fastapi` and bound once in its scope, joined with a
   Blueprint's `url_prefix` or an APIRouter's `prefix` (Flask's `route` without
-  `methods` is GET); Express `get`/`post`/.../`all` calls on an app or Router
+  `methods` is GET). A decorator whose receiver is not bound in its file
+  (`from app.api import bp`, then `@bp.route(...)`) is read when the
+  scip-python index resolves the name to one such router another module
+  binds; the route takes that router's full prefix, mounts included (rules
+  `flask-route-imported-router`, `fastapi-route-imported-router`). Without
+  an index those decorators are not read. A JavaScript or TypeScript call
+  whose method the scip-typescript index resolves to a router library's
+  registration method is a route whatever its receiver is called or
+  where it was made: Express `get`/`post`/.../`all` of `IRouter`,
+  `Application` or an `IRoute` chain (`router.route(path).get(h).put(h)`,
+  path from `route`), and koa-router `get`/`post`/`put`/`patch`/`del`/
+  `all` (rules `express-route-resolved-method`, `koa-router-route`). A call
+  with no handler argument (`app.get("port")`) is none. koa-router routers
+  join their `prefix` option and the paths they are mounted at with `use`,
+  including `router.routes()` mounts and exports; the index decides what
+  is a koa-router `Router`. Plain JavaScript gets these symbols through
+  the DefinitelyTyped packages acquired before indexing. Django routes are
+  URLconf entries (`service_contracts/django_urls.py`, rule
+  `django-urlconf-route`): from a module's `urlpatterns` (with `+=` and
+  `+` and the module's own lists), a call the scip-python index resolves
+  to Django's `path`, `re_path` or `url` whose view the index resolves to
+  a function or class of the repository (`View.as_view()` names its
+  class) is a route for any method, and an `include` of a dotted module
+  or of a list joins its pattern before the included entries. `path`
+  converters are parameters; a regex is read with Python's own regex
+  parser the way Django reverses it (groups are parameters, anchors and
+  optional parts dropped), and any other construct is `path_not_literal`.
+  A URLconf no other includes is at `/`; one included at a pattern the code
+  does not fix keeps an unknown base. A view the index does not resolve to
+  the repository (`admin.site.urls`) is `view_not_resolved`; Django REST
+  framework routers (`include(router.urls)`) are not read yet
+  (`include_not_resolved`). Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
   `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Gin, Echo, chi
@@ -3862,8 +4075,8 @@ linked by the usual HTTP resolution:
   read against the site root.
 
 A path that is not literal is `route:path_not_literal`. Scripts inside HTML
-pages and `.vue` files are not parsed, so clients written there are not
-found.
+pages are not parsed, so clients written there are not found; the script
+blocks of `.vue` components are read (Vue single-file components, above).
 
 Results on 15 repositories (13 cloned for this slice, plus the
 apssouza22/java-microservice corpus):
@@ -4674,6 +4887,81 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   reflection test inputs, and Prisma's gRPC example names an rpc and a
   message `Post`, which protoc rejects (protobuf.js loads it at run time),
   so that example's 14 server links are no longer drawn.
+- **Messages, fields and enums.** Each `.proto` file protoc compiles is a
+  `File` node (`language` `protobuf`, `file_sha256`; the Repository
+  `CONTAINS` it, rule `service-contracts.proto-file`), and the message and
+  enum types its descriptor declares are nodes: `ProtoMessage`
+  (`{repo}::proto::message::{full name}`), `ProtoEnum`
+  (`{repo}::proto::enum::{full name}`, with `values` as `NAME=number`) and,
+  for each field of a message, `ProtoField`
+  (`{message}::field::{name}`) with `number`, `type` (a scalar's name, or
+  the full name of the message or enum it holds), `type_kind` (`scalar`,
+  `message` or `enum`), `label` (`repeated`, `optional`, `required`),
+  `map_key` (a `map<k, v>` field: `type` is the value's), `oneof`,
+  `json_name`, `deprecated` and the line of the field. Edges, all
+  `resolved` from the descriptor (rule `service-contracts.proto-type`
+  unless named): the File `DECLARES` each top-level type; a message
+  `CONTAINS` its nested types and `HAS_FIELD` each field; a field
+  `USES_TYPE` the message or enum it holds when a compiled file of the
+  repository declares it (rule `service-contracts.proto-field-type`;
+  well-known types such as `google.protobuf.Timestamp` stay a name in
+  `type`); and a `GrpcMethod` `CARRIES` its request and response messages
+  with `direction` `request` or `response` (rule
+  `service-contracts.grpc-method-message`). Like methods, the copies of one
+  type that services vendor are one node with every copy in `declared_in`
+  and a `DECLARES` from each file; when the copies' fields or values
+  disagree the node has `copies_disagree` and no fields. Map entry messages
+  are their field's map, not types. The `proto_types` metric counts the
+  types read and `grpc_proto_message_edges` the `CARRIES` edges.
+- **Generated Go types.** The Go type that protoc-gen-go generates for a
+  message or enum is `GENERATED_FROM` that type (rule
+  `service-contracts.go-generated-proto-type`, resolved, with the Go type's
+  `file_path` and `line`). The Go type checker reads the
+  `protoimpl.TypeBuilder` in the generated file's init. Its `DescBuilder`
+  holds the file's serialized descriptor (a `[]byte` literal, or since
+  protoc-gen-go 1.36 a string constant through `unsafe.Slice`), which
+  protobuf decodes. Its `GoTypes` gives the Go type of each enum and then
+  each message, in protobuf-go's flattened ordering: top-level
+  declarations first, then, for each message in depth-first order, the
+  enums or messages nested directly in it. Map entries have no Go type.
+  `NumEnums` and `NumMessages` must match the descriptor. So the link does
+  not depend on how protoc-gen-go names types, or on where the code was
+  generated to (`go_package` often names another import path than the
+  directory the code is committed in). A type links only when a compiled
+  `.proto` file of the repository declares its full name. The
+  `proto_generated_types` metric counts the links.
+- **Generated Python modules.** A module that protoc's Python generator
+  writes registers its file's serialized descriptor: a bytes literal passed
+  to `AddSerializedFile` of a descriptor pool (protobuf 3.20 and later), or
+  as `serialized_pb` to `FileDescriptor` (earlier), on a name the module
+  imports from `google.protobuf`, read with Python's `ast`. protobuf
+  decodes it, and the module's File is `GENERATED_FROM` each message and
+  enum of that descriptor that the repository's `.proto` files declare
+  (rule `service-contracts.python-generated-proto-module`, resolved). The
+  classes are built at import time, so no class declaration links.
+- **Generated JavaScript and TypeScript.** The TypeScript compiler reads
+  each generator's own registrations, with names bound to their modules
+  through the checker:
+  - protoc-gen-js (google-protobuf, as grpc-web and grpc-tools use it):
+    the module's File is `GENERATED_FROM` each type it registers with
+    `goog.exportSymbol('proto.<full name>')`, `goog` bound to
+    `require('google-protobuf')` (rule
+    `service-contracts.js-generated-proto-module`, resolved).
+  - protobuf-es 2: `fileDesc` embeds the file's descriptor (base64, which
+    protobuf decodes), and `messageDesc(file, i, ...)` /
+    `enumDesc(file, i, ...)` index into it; the type that schema's
+    `GenMessage<X>` / `GenEnum<X>` names is `GENERATED_FROM` the indexed
+    message or enum, as is a type alias `Message<"<full name>">`.
+    protobuf-es 1: a class extending `Message` with
+    `static typeName = "<full name>"`, and an enum passed to
+    `proto3.util.setEnumType` (rule
+    `service-contracts.ts-generated-proto-type`, resolved). The schema
+    consts are no graph symbols.
+  - ts-proto embeds no descriptor or type names, only
+    `export const protobufPackage`. A type, interface or enum of that file
+    named as ts-proto names a type of that package (nested path joined
+    with `_`) is `GENERATED_FROM` it (rule
+    `service-contracts.ts-proto-generated-type`, name_matched).
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
@@ -5383,8 +5671,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-db-table` | pattern_matched | a Django model (a `django.db.models.Model` base, directly or through repository models named by unique class name) whose own `Meta.db_table` names the table |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-default-table-name` | pattern_matched | a concrete model without `db_table`: `{app_label}_{class name lower case}`, the app label being `Meta.app_label`, else the literal `label` of the app's `AppConfig` in `apps.py`, else the package holding the models module; a proxy uses its concrete base's table, an abstract model has none |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-scip-manager-call` | resolved | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, where a scip-python index resolves the written `Model` to a Django model class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial. Instance `save()`/`delete()`, other managers and raw SQL are not read |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-scip-manager-call` | resolved | a `Model.objects...` call chain (the model may be module-qualified, `models.Post.objects`) with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, where a scip-python index resolves the written `Model` to a Django model class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial. Instance `save()`/`delete()` (and `save(update_fields=...)`), custom and related managers (`post.comments`), many-to-many `through` models (`Post.tags.through.objects`), querysets and `Q()` objects held in variables or built by helpers, and raw SQL are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-historical-manager-call` | pattern_matched | the same call chain where the index resolves `Model` to a variable assigned `<registry>.get_model("label", "Model")` (or `"label.Model"`), as data migrations take historical models from the migration state: the model of that app label and class name. Why not a tool: the migration state's registry is built at run time and no index types it; `get_model`'s arguments name the model |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.django-column` | resolved | a field of a Django model, or of an abstract model it extends, assigned a Django field class (`django.db.models` or `django.contrib`; a project's own `...Field` class counts as Django's `Field`). Its column is what Django's own `Field.get_attname_column()` gives (`db_column`, else the attname: `author_id` for a `ForeignKey` named `author`), run by `deepthought.django_naming` (`djangonames/names.py`) with the Django release the project declares (lockfile pin, else the requirement pip resolves), installed from wheels with `pip install --only-binary :all: --target` into the cache; only Django is imported. A model without a `primary_key=True` field (and no concrete parent) gets Django's implicit `id`. `ManyToManyField`, `GenericForeignKey` and `GenericRelation` hold no column of the table. Fields a model inherits from an installed package's abstract model (django-taggit's `TagBase.name`) are not read. Columns are declared, as Django migrations are Python, unless SQL migrations give the table's columns, which they then map to. A project declaring no Django gets no columns and a `django_naming_unread` warning. Counted in `django_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-scip-column-access` | resolved | an attribute the scip-python index resolves to a model field (`django-column`): an assignment to it (`post.title = ...`) writes the column, an augmented assignment (`post.views += 1`) reads and writes it, any other access reads it; a relation field reads its foreign key column. Attributes reached through a relation (`post.author.name`) read the related column only where the index resolves them. A field an abstract model declares for several tables is not attributed (`reads_unattributed` on its columns) |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-column-key` | pattern_matched | the lookups and field names of a manager call chain (`django-scip-manager-call`) or of a `Model(...)` constructor the index resolves to a model. Keyword lookups of `filter`, `exclude`, `get` and of `Q()`, and field names of `values`, `values_list`, `only`, `defer`, `order_by`, `distinct`, `select_related`, `prefetch_related`, `earliest`, `latest`, `F()` and aggregates (`Count`, `Sum`...) read; a path follows relations (`author__name` reads `author_id` and the author's column) and reverse relations by `related_query_name`, else `related_name`, else the model name (`Count("post")` reads `post.author_id`; a `+` name has none); `pk` is the primary key and `author_id` the foreign key. Keywords of `update` and `create`, the `defaults` of `get_or_create`, `bulk_update`'s field names and a constructor's keywords write; the lookups of `get_or_create` and `update_or_create` both read and write (they filter, and create a row with them). scip-python does not resolve keyword lookups or field-name strings, so they are read against the model's fields. The chain's READS/WRITES edge carries `columns_resolved: true` when every argument was read (no `**kwargs`, variables or unknown methods) and the chain returns no whole rows (`values`, `values_list`, `only`, `count`, `exists`, `aggregate`, `update`, `delete`, `create`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlalchemy-tablename` | pattern_matched | a class in a module importing SQLAlchemy, Flask-SQLAlchemy or SQLModel that sets `__tablename__` (plain or annotated) to a string literal |
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
@@ -5393,6 +5684,9 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and `x` is a mapped class: the type scip-python documents for the local, else its declared type (a parameter's or variable's annotation, through `Annotated`, `Optional`, `T \| None` and module-level aliases, the return annotation of the function it is assigned from, or `Session.get(Model, ...)`), every name resolved through the index; there is no name rule for it |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.sqlalchemy-column` | pattern_matched | an attribute of a mapped class (`sqlalchemy-tablename`, SQLModel's default name, or a single-table subclass: no `__tablename__` and no primary key of its own, mapped to its base's table), or of a mixin or single-table base it inherits, assigned `Column(...)` or `mapped_column(...)` (also wrapped in `column_property(...)` or `deferred(...)`), annotated `Mapped[...]` alone, or an annotated field of a SQLModel `table=True` class (including the fields of the non-table SQLModel classes it extends; `sa_column=Column(...)` names its column). The column is the name written in the call (first string argument or `name=`), else the attribute's name: SQLAlchemy computes no column name, and running its declarative mapper would import the project's models. `relationship`, `synonym`, `association_proxy`, `ClassVar`, dunder names and SQLModel private attributes hold no column (an underscored column attribute such as `_password = Column("password")` is a column); a joined-inheritance base keeps its own table's columns. Columns are declared unless SQL migrations give the table's columns, which they then map to. Counted in `sqlalchemy_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.sqlalchemy-scip-column-access` | resolved | an attribute the scip-python index resolves to a column attribute (`sqlalchemy-column`): an assignment to it (`user.name = ...`) or a key of a dict passed to `values()` or `update()` (`update(User).values({User.name: x})`) writes the column, an augmented assignment reads and writes it, any other access (`select(User.name)`, `.where(User.id == x)`, `user.email`) reads it. A keyword the index resolves to the attribute (a synthesized `__init__`) is left to `sqlalchemy-column-key`. A mixin column several tables share is not attributed (`reads_unattributed`) |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.sqlalchemy-column-key` | pattern_matched | the keywords and dict keys of a query or statement on one mapped class the index resolves (`sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`): `filter_by` keywords read; `values()` keywords and dict string keys of `insert`/`update` and the string keys of `Query.update({...})` write. Reading stops at a `join` (`filter_by` then names the joined entity), and several entities (`select(A, B)`) give none. Keywords of a mapped class's constructor the index resolves write, unless the class or a base defines `__init__` (counted `constructor_custom_init`). A key is read against the class's column attributes and those of its joined-inheritance bases (`Solve.query.filter_by(ip=...)` reads the base table's `ip`), as scip-python does not resolve keyword names. Hybrid properties, `table.c.name` columns of `Table(...)` objects, querysets held in variables and the columns of `__table__ = Table(...)` classes are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
@@ -5401,8 +5695,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-mapper-xml` | pattern_matched | a `<select>`, `<insert>`, `<update>` or `<delete>` of a MyBatis mapper XML file (root `<mapper namespace>`), with every dynamic branch (`<if>`, `<choose>`, `<foreach>`, `<where>`, `<set>`, `<trim>`) kept, `<sql>` fragments of the same mapper included and `<selectKey>` left out; `#{}` is a bind marker and `${}` text the code does not fix; the edge starts at the mapper interface method that the namespace and id name, else at the XML file |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-annotation` | pattern_matched | a mapper method's `@Select`, `@Insert`, `@Update` or `@Delete` (`org.apache.ibatis.annotations`), array strings joined with spaces and a `<script>` value read as mapper XML |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` or `new(T)` (T of the file's package or another, `new(models.User)`) to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: the name GORM's own `schema.NamingStrategy{}.TableName` gives (`UserModel` is `user_models`, `Human` is `humen`), computed by a helper (`deepthought.gorm_naming`, `gormnames/main.go`) built in a scratch copy of the model's module's go.mod and go.sum, so it runs the gorm.io/gorm and jinzhu/inflection versions that module selects; nothing of the module is compiled or run. None when the repository configures a `NamingStrategy`. A module whose graph selects no gorm.io/gorm or whose helper does not build gets none, named in a `gorm_naming_unread` warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.gorm-column` | resolved | a field of a GORM model struct (one mapped by `gorm-table-name`, `-table-name-types` or `-default-table-name`), or of a struct it embeds, that GORM's schema parser stores. The Go type checker (gofacts' `struct` facts) gives each field's name, tag, embedding and type: a data type is a bool, number or string kind, `[]byte`, `time.Time` (or a type defined on it), or a type with a `Value` or `GormDataType` method; a `type:` or `serializer:` tag makes any field a column; other structs and slices of structs are relations. GORM's own `schema.ParseTagSetting` and `NamingStrategy{}.ColumnName`, built at the gorm.io/gorm version the module selects (`gorm_naming`, `gormnames/main.go`), give the column (`column:` tag, else the default name), `embedded` and `embeddedPrefix` (the prefix is put before every embedded column) and ignored fields (`-`, `-:all`). Unexported fields hold no column; `gorm.Model` gives `id`, `created_at`, `updated_at`, `deleted_at`. A NamingStrategy that is not a `schema.NamingStrategy{...}` literal, or that sets `NoLowerCase` or `NameReplacer`, leaves every column unread (`naming_strategy_configured`); table settings such as `SingularTable` do not. Columns are declared unless SQL migrations give the table's columns, which they then map to. Counted in `gorm_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.gorm-scip-column-access` | resolved | a field selector (`u.Name`) or composite literal key (`User{Name: x}`) the scip-go index resolves to a column field (`gorm-column`): an assignment (`=`) writes, `++`, `--` and `op=` read and write, and any other selector reads. A literal key writes, except in a literal passed to `Where`, `Not`, `Or` or `Having`, or after the destination of `First`, `Last`, `Take`, `Find`, `Delete` or `FirstOrInit` (inline conditions), where it reads; after the destination of `FirstOrCreate` it reads and writes. A field of a struct several models embed (`gorm.Model`'s fields, a shared base) is not attributed (`reads_unattributed`). `_test.go` files are not read |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.gorm-column-key` | pattern_matched | a column a `*gorm.DB` call (gofacts: the method GORM declares on `DB`) names in a string, in a chain whose model `gorm-call` gives (every call of a chain starts where the chain does; a chain with several models gives none). The SQL fragments of `Where`, `Or`, `Not`, `Having` (`SELECT 1 FROM t WHERE ...`), `Select`, `Pluck`, `Distinct` (`SELECT ... FROM t`), `Group` and `Order`, with the string values the Go type checker folds, are parsed by sqlglot and their columns resolved by its optimizer against the model table's columns: they read, and `Select` in a chain that writes names written columns. `Update` and `UpdateColumn`'s column and the string keys of a `map[string]...` literal passed to `Updates`, `UpdateColumns` or `Create` write; those of one passed to `Where`, `Not`, `Or`, `First`, `Last`, `Take` or `Find` read. Chains continued through a variable (`tx := db.Model(&u); tx.Where(...)`) and `Joins` fragments are not read (`chain_model_unknown`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local whose value is followed through the function's statements (`=`, `:=`, `+=`, `if`/`switch`/`select` branches; each path's text kept), `+` joins (other operands unfixed) or sqlx's `Rebind`; one of its texts starts with a reading or writing verb, and the call links the tables of every such text |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
@@ -5430,12 +5727,18 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a model of a `.prisma` schema as Prisma's own schema engine reads it (`get_dmmf` of the `@prisma/prisma-schema-wasm` build the project's Prisma pins): its `@@map` name, else the model name. A schema with no Prisma version up its tree, a build npm cannot fetch, or a schema the engine rejects is unread and named in a `prisma_schema_unread` warning, and the run is partial |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.prisma-foreign-key` | resolved | a relation field with `fields` and `references` as Prisma's schema engine reads it (`relationFromFields`, `relationToFields`, `relationOnDelete` of `get_dmmf`): the model's table holds a foreign key to the related model's table. Column names are the `@map` names. Implicit many-to-many join tables (`_AToB`) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.prisma-column` | resolved | a scalar field of a Prisma model as Prisma's schema engine lists it in the DMMF, under its `@map` name, for a model table whose migrations give no columns (no Prisma Migrate SQL, `db push` projects). The DMMF leaves out `Unsupported(...)` and `@ignore` fields, so the table is not marked `columns_read`. Where the migrations give the columns, each field maps to the table's column of its `@map` name (exactly, else case-insensitively) and none is declared; a field with no such column is counted `field_not_a_table_column`. Counted in `prisma_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.prisma-column-key` | pattern_matched | a key of a Prisma Client call's arguments (`data-contracts.prisma-client`) that names a field of the model in Prisma's DMMF. Keys of `where`, `cursor`, `having` (with `AND`/`OR`/`NOT`, compound unique keys and relation filters `some`/`every`/`none`/`is`/`isNot` on the related model), `select`, `orderBy`, `distinct`, `by` and aggregates read; keys of `data`, `create` and `update` write, and a relation key there writes the foreign key fields the model holds, its nested `create`, `createMany`, `connectOrCreate`, `upsert`, `update` and `updateMany` writing (and `connect`, `delete`, `disconnect`, `set` reading) the related model's fields. A relation in a `select` or `include` reads its foreign key fields. Objects are read through conditionals (both branches), spreads of object literals and `.map` callbacks returning them. The same keys are read in objects written for a Prisma input type outside a call, where a scip-typescript index resolves the type name to the client's (`const where: Prisma.UserWhereInput = {...}`, later `where = ...`/`where.name = ...` assignments to it, a function declared to return one, `satisfies`, `Prisma.validator<...>()`; counted `typed_inputs`). Prisma Client types these objects by the model's fields, which scip-typescript records as local keys, not references. The call's READS or WRITES edge carries `columns_resolved: true` when every key is read and names a field, and, for a read, the call returns only selected fields (a `select` without whole relations, or a count, aggregate or groupBy). Counted in `prisma_columns` |
+| Symbol\|File -[:READS_COLUMN]-> DbColumn | `data-contracts.prisma-scip-column-read` | resolved | a reference a scip-typescript index resolves to a scalar of a model's payload type in the Prisma Client `prisma generate` writes (`$UserPayload` scalars: `user.email` on any row type of the model) or of its groupBy row (`UserGroupByOutputType`); the model of the reader's namespace wins. A row read through a `select` has no such symbol and is covered by the select's keys |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: the name TypeORM's own `DefaultNamingStrategy.tableName` gives the class (`HTTPRequestLog` is `http_request_log`), run by `deepthought.typeorm_naming` (`typeormnames/names.js`) at the typeorm release the entity's project pins: installed `node_modules/typeorm`, else a lockfile entry (npm, pnpm, yarn, bun), else the newest release of the declared range (`npm view`), installed into the cache with `npm install --ignore-scripts`. Custom naming strategies are not read. An entity whose release cannot be found or installed gets no table, named in a `typeorm_naming_unread` warning, and the run is partial |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-child-entity` | pattern_matched | a class decorated with `@ChildEntity` (single-table inheritance): the table of the entity it extends by name, through any number of child levels |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name. A repository called with a read method (`find`, `findOne`, `count` and the like) only READS, one called with a write method (`save`, `update`, `delete`, `remove` and the like) only WRITES, and any other use does both. Not used where a scip-typescript index resolves the `getRepository` or `@InjectRepository` name (`typeorm_name_rule_replaced` counts them), where `typeorm-scip` reads each call; where the index covers the file but records no symbol, or only a local one, there (its imports did not resolve) it read nothing, and the use is counted as `typeorm_index_unresolved` |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-scip` | resolved | each call whose method the scip-typescript index resolves to a read (READS) or write (WRITES) method of TypeORM's `Repository`, `TreeRepository`, `MongoRepository` or `EntityManager`, at the method's name; the entity is the receiver's declared type `Repository<E>` (a property, constructor parameter property, parameter or variable, or `this` in a class extending it), TypeORM's `getRepository(E)` called on a `DataSource`, `Connection` or `EntityManager` (or a variable holding it), or an entity manager method's first argument, every name resolved through the index. `create`, `merge` and other methods that touch no table give no edge. A query builder (`createQueryBuilder` that the index resolves to TypeORM's, on a repository, entity manager, data source, connection or query runner) gives one edge on that line to its root table: the repository's entity, the entity argument, else the entity class or literal table name of the chain's first `from`, `into` or `update` (a name the chain declares with `addCommonTableExpression` is not a table). It is WRITES when the chain calls TypeORM's `insert`, `update`, `delete`, `softDelete` or `restore`, else READS; joined relations give no edge. A `relation(...)` builder writes the related side (a foreign key, or a many-to-many junction table), not its root, so it gives no edge (`relation_builders`). The metric `typeorm_scip` counts `linked`, `no_scip_index`, `not_typeorm`, `entity_unknown`, `not_an_entity`, `builders` (linked query builders) and `relation_builders`. An `@Entity` imported from a `typeorm/...` deep path counts as TypeORM's |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-scip` | resolved | each call whose method the scip-typescript index resolves to a read (READS) or write (WRITES) method of TypeORM's `Repository`, `TreeRepository`, `MongoRepository` or `EntityManager`, at the method's name; the entity is the receiver's declared type `Repository<E>`, or a project class the index resolves it to that extends `Repository<E>` (a property, constructor parameter property, parameter or variable, or `this` in a class extending it), TypeORM's `getRepository(E)` called on a `DataSource`, `Connection` or `EntityManager` (or a variable holding it), or an entity manager method's first argument, every name resolved through the index. `create`, `merge` and other methods that touch no table give no edge. A query builder (`createQueryBuilder` that the index resolves to TypeORM's, on a repository, entity manager, data source, connection or query runner) gives one edge on that line to its root table: the repository's entity, the entity argument, else the entity class or literal table name of the chain's first `from`, `into` or `update` (a name the chain declares with `addCommonTableExpression` is not a table). It is WRITES when the chain calls TypeORM's `insert`, `update`, `delete`, `softDelete` or `restore`, else READS; joined relations give no edge. A `relation(...)` builder writes the related side (a foreign key, or a many-to-many junction table), not its root, so it gives no edge (`relation_builders`). The metric `typeorm_scip` counts `linked`, `no_scip_index`, `not_typeorm`, `entity_unknown`, `not_an_entity`, `builders` (linked query builders) and `relation_builders`. An `@Entity` imported from a `typeorm/...` deep path counts as TypeORM's |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-sql` | resolved | a `query` call that the scip-typescript index resolves to TypeORM's (`Repository`, `EntityManager`, `DataSource`, `Connection` or `QueryRunner`), whose SQL (string literals, template strings and `+` joins, unfixed parts dropped) names the table, read by the statement reader; no SQL driver import is needed |
+| DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.typeorm-column` | resolved | a property of a TypeORM entity, or of a class it extends, decorated with a column decorator (`@Column`, `@PrimaryGeneratedColumn`, `@CreateDateColumn` and the like), or a `@ManyToOne` (or `@OneToOne` with `@JoinColumn`) holding a foreign key. Its column is the name its options give, else the name TypeORM's own `DefaultNamingStrategy` gives at the release the project pins (`columnName`, or `joinColumnName` of the related entity's single primary column: `role` gives `roleId`), run by `deepthought.typeorm_naming`. Where the table's migrations give its columns, the property maps to one of them (exactly, else case-insensitively; else counted `not_a_table_column`) and none is declared; else the column is declared. A project that sets a `namingStrategy` gets only the names its options give (`named_by_project_strategy`). Counted in `typeorm_columns` |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.typeorm-scip-column-access` | resolved | a reference the scip-typescript index resolves to a column property (`typeorm-column`): an assignment to it writes the column; an object key naming it reads it under a find option (`where`, `order`, `select`...), in an object a TypeORM find option type is declared for (an annotation, `as`, `satisfies`, or the parameter type of the project function called, as the index resolves them: `FindOptions*`, `Find*Options`), and in the criteria or arguments of a method the index resolves to TypeORM's `Repository` or `EntityManager` that reads (`update`'s first argument after the entity); it writes in values (`save`, `create`, `update`'s second, `DeepPartial`/`QueryDeepPartialEntity`, or a project's own method such as `update(values)`); a destructured name and any other access read it; a reference inside `typeof` is a type, not an access. A property a base class declares for several entities is not attributed (`reads_unattributed` on its columns) |
+| Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.typeorm-column-key` | pattern_matched | a key of a TypeORM repository call's arguments (`typeorm-scip`) naming a column property of the call's entity: find options `where` (arrays of objects too, relations followed to the related entity), `select` (objects and string arrays), `order` and `relations` (the foreign key a joined relation holds) read; an `EntityManager` call's arguments are read after its entity argument; the criteria of `findBy`, `countBy`, `delete`, `softDelete`, `update` and the like read; the values of `save`, `insert`, `upsert` (through a nested `create(...)`) and `update` write, a relation there writing the foreign key it holds. A query builder's `values()` and `set()` objects write and an object given to `where()`, `andWhere()` or `orWhere()` reads (SQL text is not read). Objects are read through conditionals and `...(cond && {...})` spreads. scip-typescript does not resolve keys of TypeORM's mapped option types (FindOptionsWhere and the like) to the entity's properties, so they are read against the entity's metadata; a key the index already resolved is not repeated. The call's READS or WRITES edge carries `columns_resolved: true` when every argument is an object literal whose keys name properties or find options, and, for a find, a `select` limits the row; a query builder's edge carries it only for a write |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository-wrapper` | pattern_matched | a project's own `getRepository`, called with more arguments than TypeORM's or in a file that does not import `typeorm`, where exactly one argument is an imported or declared class that is an entity (vendure's `connection.getRepository(ctx, Product)`); reads and writes as above. Kept where an index covers the file: the entity of a project's generic wrapper needs the type checker's inference, which the index does not record |
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository. Not used in files a scip-typescript index covers, where `drizzle-scip` reads each use; there it runs only where the index records no symbol, or only a local one, at the method (it could not type the call), and the metric `drizzle_scip` counts those as `index_unresolved` |

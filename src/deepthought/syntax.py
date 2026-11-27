@@ -7,6 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 import posixpath
+from pathlib import PurePosixPath
 import re
 
 from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supertype
@@ -14,7 +15,9 @@ from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supe
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
     "typescript": (
-        (".ts", ".tsx", ".mts", ".cts"),
+        # A Vue single-file component is read as its script blocks
+        # (deepthought.vue_sfc).
+        (".ts", ".tsx", ".mts", ".cts", ".vue"),
         "tree_sitter_typescript",
         "language_typescript",
     ),
@@ -151,6 +154,22 @@ def _rust_kind(node, kind):
     return kind
 
 
+# JavaScript and TypeScript class fields, by the field naming them.
+_JS_FIELDS = {"field_definition": "property", "public_field_definition": "name"}
+
+
+def _js_function_value(value):
+    """Whether a declared value is a function: an arrow function, or a
+    function expression without its own name."""
+    return value is not None and (
+        value.type == "arrow_function"
+        or (
+            value.type in {"function_expression", "function", "generator_function"}
+            and value.child_by_field_name("name") is None
+        )
+    )
+
+
 def identifier(
     repository_id: str, file: str, symbol: str, kind: str, ordinal: int | str
 ) -> str:
@@ -219,23 +238,22 @@ def extract(
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
             name = node.child_by_field_name("name")
+            # An anonymous function expression (`function* () {}`); a named
+            # one keeps its own name.
             if (
-                value is not None
-                and (
-                    value.type == "arrow_function"
-                    # An anonymous function expression (`function* () {}`);
-                    # a named one keeps its own name.
-                    or (
-                        value.type
-                        in {"function_expression", "function", "generator_function"}
-                        and value.child_by_field_name("name") is None
-                    )
-                )
+                _js_function_value(value)
                 and name is not None
                 and name.type == "identifier"
             ):
                 kind = "Function"
         name_node = node.child_by_field_name("name") if kind else None
+        if node.type in _JS_FIELDS and _js_function_value(
+            node.child_by_field_name("value")
+        ):
+            # A class field holding a function (`fetch = async () => {}`)
+            # declares a method: its body's calls are the field's.
+            kind = "Method"
+            name_node = node.child_by_field_name(_JS_FIELDS[node.type])
         if node.type == "type_spec":
             kind = _GO_TYPE_KINDS.get(
                 getattr(node.child_by_field_name("type"), "type", None), "Type"
@@ -328,7 +346,7 @@ def extract(
                 arity = {"overload": True}
                 if any(c.type == "static" for c in node.children):
                     arity["static"] = True
-            elif node.type == "method_definition" and any(
+            elif node.type in {"method_definition", *_JS_FIELDS} and any(
                 c.type == "static" for c in node.children
             ):
                 arity = {"static": True}
@@ -757,6 +775,24 @@ def prepare_source(language: str, content: bytes) -> bytes:
 _JSX_CLASS = re.compile(rb"(?<=\s)class(?=\s*=[^=>])")
 
 
+def script_source(file, content: bytes):
+    """(suffix, source): what ``make_parser`` and ``parse_source`` read the
+    file ``file`` with ``content`` as. A Vue component (``.vue``) is read as
+    its script blocks, every other byte blanked (``vue_sfc.script_source``),
+    in TypeScript, or TSX when a block is written in TSX or JSX; every
+    offset of a block is the component's own. Any other file is itself."""
+    file = str(file)
+    if not file.endswith(".vue"):
+        return PurePosixPath(file).suffix, content
+    from . import vue_sfc
+
+    component = vue_sfc.component(content)
+    return (
+        ".tsx" if component.jsx else ".ts",
+        vue_sfc.script_source(content, component),
+    )
+
+
 def parse_source(parser, language: str, suffix: str, content: bytes):
     """The tree of ``content``, parsed from ``prepare_source``. In a
     TypeScript file (not TSX) the grammar reads a type member that starts
@@ -765,7 +801,8 @@ def parse_source(parser, language: str, suffix: str, content: bytes):
     So the blank before each such ``<`` on a line an innermost error spans
     (or ends the line before) is read as ``;``, which keeps every offset,
     and that tree is used when it has fewer errors. JavaScript JSX
-    attributes named ``class`` are read the same way (below)."""
+    attributes named ``class`` are read the same way (below). A Vue
+    component is read as ``script_source`` gives it."""
     source = prepare_source(language, content)
     tree = parser.parse(source)
     if not tree.root_node.has_error:
@@ -2985,7 +3022,17 @@ def _js_import_names(node):
     return names
 
 
-_SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+_SCRIPT_SUFFIXES = (
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".vue",
+)
 # The test runners' (Jest, Vitest, Mocha, node:test, Jasmine, Bun) functions
 # that declare a test case or a group of them, and the modifiers written
 # between the function and its arguments (``it.only``, ``test.each(rows)``,

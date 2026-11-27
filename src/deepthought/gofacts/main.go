@@ -23,6 +23,9 @@
 //     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
+//   - "model": every named struct type the file declares, with each field's
+//     name, tag, whether it is embedded, and how GORM's schema parser would
+//     take its type (see gormKind).
 //   - "error": a package that did not type-check completely; its facts are
 //     still printed where go/types could type them.
 //
@@ -129,6 +132,68 @@ type element struct {
 	argument
 }
 
+// modelField is one field of a "model" fact.
+type modelField struct {
+	Name     string     `json:"name"`
+	Embedded bool       `json:"embedded,omitempty"`
+	Tag      string     `json:"tag,omitempty"`
+	Line     int        `json:"line"`
+	Column   int        `json:"column"`
+	Kind     string     `json:"kind"`
+	Type     *namedType `json:"type,omitempty"`
+}
+
+// gormKind says how GORM's schema parser takes a field of type t (through
+// pointers): "value" when it gets a data type (a bool, number or string
+// kind, []byte, time.Time or a type converting to it, or a type with a
+// Value or GormDataType method); "struct" for another struct, an
+// embedded struct or a relation; "many" for a slice of structs, a relation;
+// "other" for anything else (no column unless a tag gives a type).
+func gormKind(t types.Type) string {
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
+	for _, name := range []string{"Value", "GormDataType"} {
+		if obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(t), false, nil, name); obj != nil {
+			if _, ok := obj.(*types.Func); ok {
+				return "value"
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		if u.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0 {
+			return "value"
+		}
+	case *types.Struct:
+		// time.Time, or a type defined on it (its fields are time's).
+		if u.NumFields() > 0 && u.Field(0).Pkg() != nil && u.Field(0).Pkg().Path() == "time" {
+			return "value"
+		}
+		return "struct"
+	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+		elem := u.Elem()
+		if p, ok := types.Unalias(elem).(*types.Pointer); ok {
+			elem = p.Elem()
+		}
+		if _, ok := elem.Underlying().(*types.Struct); ok {
+			return "many"
+		}
+	case *types.Array:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+	}
+	return "other"
+}
+
 type fact struct {
 	Kind      string        `json:"kind"`
 	File      string        `json:"file,omitempty"`
@@ -162,10 +227,18 @@ type fact struct {
 	NameLine    int          `json:"name_line,omitempty"`
 	NameColumn  int          `json:"name_column,omitempty"`
 	Types       []*namedType `json:"types,omitempty"`
+	// model: its fields.
+	ModelFields []modelField `json:"model_fields,omitempty"`
 	// "pass": the arguments given to interface parameters.
 	Typed []typedArgument `json:"typed,omitempty"`
 	// "pass": the type assertions the call runs behind.
 	Guards []guard `json:"guards,omitempty"`
+	// protofile: the serialized FileDescriptorProto protoc-gen-go embeds
+	// (RawDescriptor), the numbers of enums and messages it declares, and
+	// Types, the Go type of each GoTypes entry (nil for map entries).
+	Raw          []byte `json:"raw,omitempty"`
+	Enums        int    `json:"enums,omitempty"`
+	MessageCount int    `json:"message_count,omitempty"`
 }
 
 func ignored(name string) bool {
@@ -454,6 +527,46 @@ func messagesIn(t types.Type, named func(types.Type) *namedType) []*namedType {
 // facts prints the call, signature and TableName facts of one file.
 func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
 	structs(file, info, emit, where)
+	protoFiles(file, info, emit, where, named)
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			obj, ok := info.Defs[ts.Name].(*types.TypeName)
+			if !ok || ts.TypeParams != nil {
+				continue
+			}
+			st, ok := obj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			out := fact{Kind: "model", Type: named(obj.Type())}
+			if out.Type == nil {
+				continue
+			}
+			out.File, out.Line, out.Column = where(ts.Name.Pos())
+			for i := 0; i < st.NumFields(); i++ {
+				v := st.Field(i)
+				_, line, column := where(v.Pos())
+				out.ModelFields = append(out.ModelFields, modelField{
+					Name:     v.Name(),
+					Embedded: v.Embedded(),
+					Tag:      st.Tag(i),
+					Line:     line,
+					Column:   column,
+					Kind:     gormKind(v.Type()),
+					Type:     named(v.Type()),
+				})
+			}
+			emit(out)
+		}
+	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -2038,4 +2151,162 @@ func structs(file *ast.File, info *types.Info, emit func(fact), where func(token
 			}
 		}
 	}
+}
+
+const protoimplPath = "google.golang.org/protobuf/runtime/protoimpl"
+
+// protoimplType reports whether a composite literal's type is written as
+// protoimpl.<name> of protobuf-go's runtime package.
+func protoimplType(lit *ast.CompositeLit, info *types.Info, name string) bool {
+	sel, ok := lit.Type.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	obj, ok := info.Uses[sel.Sel].(*types.TypeName)
+	return ok && obj.Name() == name && obj.Pkg() != nil && obj.Pkg().Path() == protoimplPath
+}
+
+// protoFiles emits a "protofile" fact for each protoimpl.TypeBuilder that
+// protoc-gen-go writes in a generated file's init: the raw descriptor its
+// DescBuilder holds, NumEnums and NumMessages, and the Go types its GoTypes
+// lists, which protobuf-go orders as the file's enums then its messages in
+// its flattened ordering.
+func protoFiles(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType) {
+	// Package-level variables of the file and their initial values.
+	values := map[types.Object]ast.Expr{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.VAR && gen.Tok != token.CONST) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok || len(vs.Values) != len(vs.Names) {
+				continue
+			}
+			for i, name := range vs.Names {
+				if obj := info.Defs[name]; obj != nil {
+					values[obj] = vs.Values[i]
+				}
+			}
+		}
+	}
+	initial := func(e ast.Expr) ast.Expr {
+		if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+			if v, ok := values[info.Uses[id]]; ok {
+				return v
+			}
+		}
+		return e
+	}
+	// The bytes of a RawDescriptor: a string constant, a []byte literal of
+	// constants, or either passed through a conversion or
+	// unsafe.Slice(unsafe.StringData(s), len(s)).
+	var raw func(e ast.Expr, depth int) ([]byte, bool)
+	raw = func(e ast.Expr, depth int) ([]byte, bool) {
+		if depth > 4 {
+			return nil, false
+		}
+		e = ast.Unparen(e)
+		if tv, ok := info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+			return []byte(constant.StringVal(tv.Value)), true
+		}
+		switch x := initial(e).(type) {
+		case *ast.CompositeLit:
+			out := make([]byte, 0, len(x.Elts))
+			for _, elt := range x.Elts {
+				tv, ok := info.Types[elt]
+				if !ok || tv.Value == nil {
+					return nil, false
+				}
+				b, exact := constant.Uint64Val(constant.ToInt(tv.Value))
+				if !exact || b > 255 {
+					return nil, false
+				}
+				out = append(out, byte(b))
+			}
+			return out, true
+		case *ast.CallExpr:
+			for _, arg := range x.Args {
+				if b, ok := raw(arg, depth+1); ok {
+					return b, true
+				}
+			}
+		case *ast.Ident:
+			if x != e {
+				return raw(x, depth+1)
+			}
+		}
+		return nil, false
+	}
+	count := func(e ast.Expr) int {
+		if tv, ok := info.Types[e]; ok && tv.Value != nil {
+			if n, exact := constant.Int64Val(constant.ToInt(tv.Value)); exact {
+				return int(n)
+			}
+		}
+		return -1
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || !protoimplType(lit, info, "TypeBuilder") {
+			return true
+		}
+		out := fact{Kind: "protofile", Enums: -1, MessageCount: -1}
+		out.File, out.Line, _ = where(lit.Pos())
+		goTypes := false
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, _ := kv.Key.(*ast.Ident)
+			if key == nil {
+				continue
+			}
+			switch key.Name {
+			case "File":
+				desc, ok := ast.Unparen(kv.Value).(*ast.CompositeLit)
+				if !ok || !protoimplType(desc, info, "DescBuilder") {
+					continue
+				}
+				for _, d := range desc.Elts {
+					field, ok := d.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					name, _ := field.Key.(*ast.Ident)
+					if name == nil {
+						continue
+					}
+					switch name.Name {
+					case "RawDescriptor":
+						out.Raw, _ = raw(field.Value, 0)
+					case "NumEnums":
+						out.Enums = count(field.Value)
+					case "NumMessages":
+						out.MessageCount = count(field.Value)
+					}
+				}
+			case "GoTypes":
+				list, ok := initial(kv.Value).(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				goTypes = true
+				for _, item := range list.Elts {
+					tv := info.Types[item]
+					if tv.IsNil() || tv.Type == nil {
+						out.Types = append(out.Types, nil)
+						continue
+					}
+					out.Types = append(out.Types, named(tv.Type))
+				}
+			}
+		}
+		if out.Raw != nil && goTypes && out.Enums >= 0 && out.MessageCount >= 0 {
+			emit(out)
+		}
+		return true
+	})
 }

@@ -26,6 +26,7 @@ puts it), since an older go/types does not know newer language features. Files t
 are listed with a reason, for the tree-sitter rules to read.
 """
 
+import base64
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cache
@@ -176,6 +177,23 @@ class GoStruct:
 
 
 @dataclass(frozen=True)
+class GoProtoFile:
+    """A protoimpl.TypeBuilder protoc-gen-go writes in a generated file:
+    the serialized FileDescriptorProto it embeds, how many enums and
+    messages that file declares, and the Go type of each GoTypes entry as
+    (file, line of its name, name), None for a map entry or a library's
+    type. protobuf-go lists the file's enums, then its messages, in its
+    flattened ordering, then the types they depend on."""
+
+    file: str
+    line: int
+    descriptor: bytes
+    enums: int
+    messages: int
+    types: tuple
+
+
+@dataclass(frozen=True)
 class GoSignature:
     """The named types a function's parameters and results are built from
     (``namedIn`` in gofacts), at the function's name."""
@@ -195,6 +213,31 @@ class GoTableName:
     type_name: str
     type_file: str
     table: str
+
+
+@dataclass(frozen=True)
+class GoModelField:
+    name: str
+    embedded: bool
+    tag: str  # the raw struct tag
+    line: int
+    column: int  # 0-based
+    # How GORM's schema parser takes its type: "value", "struct", "many" or
+    # "other" (gormKind in gofacts).
+    kind: str
+    type: tuple[str, str] | None  # (import path, type name), when named
+
+
+@dataclass(frozen=True)
+class GoModel:
+    """A named struct type a file declares, with all its fields, as GORM's
+    schema parser would read it ("model" in gofacts)."""
+
+    file: str
+    line: int
+    column: int  # 0-based, where its name is written
+    type: tuple[str, str]  # (import path, type name)
+    fields: tuple[GoModelField, ...]
 
 
 @dataclass(frozen=True)
@@ -225,7 +268,9 @@ class GoFacts:
     # that return a library-typed variable (a router they build).
     returns: list[tuple] = field(default_factory=list)
     structs: list[GoStruct] = field(default_factory=list)
+    proto_files: list[GoProtoFile] = field(default_factory=list)
     signatures: list[GoSignature] = field(default_factory=list)
+    models: list[GoModel] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -831,6 +876,53 @@ def _read(text, directory, members, facts):
                             bool(f.get("interface")),
                         )
                         for f in item.get("fields") or ()
+                    ),
+                )
+            )
+        elif kind == "model":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "model")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.models.append(
+                GoModel(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    tuple(
+                        GoModelField(
+                            f["name"],
+                            bool(f.get("embedded")),
+                            f.get("tag", ""),
+                            f["line"],
+                            f["column"] - 1,
+                            f["kind"],
+                            _type(f.get("type")),
+                        )
+                        for f in item.get("model_fields") or ()
+                    ),
+                )
+            )
+        elif kind == "protofile":
+            file = relative(item["file"])
+            key = (file, item["line"], "protofile")
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.proto_files.append(
+                GoProtoFile(
+                    file,
+                    item["line"],
+                    base64.b64decode(item.get("raw") or ""),
+                    item.get("enums", 0),
+                    item.get("message_count", 0),
+                    tuple(
+                        (relative(t["file"]), t["line"], t["name"])
+                        if t and t.get("file")
+                        else None
+                        for t in item.get("types") or ()
                     ),
                 )
             )

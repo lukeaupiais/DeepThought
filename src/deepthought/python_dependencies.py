@@ -310,6 +310,23 @@ def _setup_cfg(path):
     return [r.strip() for r in found if r.strip() and _REQUIREMENT.match(r.strip())]
 
 
+def _typing_stubs(packages):
+    """The django-stubs release for the Django installed (its newest for
+    that Django feature release), unless the project installs them."""
+    names = {p.split("==")[0].lower().replace("_", "-"): p for p in packages}
+    django = names.get("django")
+    if django is None or "django-stubs" in names:
+        return []
+    version = django.split("==")[1].split(".")
+    if len(version) < 2 or not all(v.isdigit() for v in version[:2]):
+        return []
+    major, minor = int(version[0]), int(version[1])
+    return [
+        f"django-stubs<{major}.{minor + 1}",
+        f"django-stubs-ext<{major}.{minor + 1}",
+    ]
+
+
 def workspace_distributions(workspace):
     """The distributions the workspace's own projects build
     (``[project].name``, ``[tool.poetry].name``), by normalized name, each
@@ -346,7 +363,9 @@ def install(root, scratch, *, environ=None, timeout=600, provided=()):
     """Install the declared dependencies under ``scratch``.
 
     Returns ``{"status", "python", "projects", "lockfiles", "requirements",
-    "packages", "failed", "without_dependencies", "detail", "bin", "site"}``;
+    "packages", "failed", "without_dependencies", "stubs", "detail", "bin",
+    "site"}``; ``stubs`` names the type stubs added for a library that types
+    itself only through them (django-stubs for Django);
     ``projects`` names the directories the requirements were read from,
     ``lockfiles`` those pinned by a lockfile. ``without_dependencies`` names
     the requirements installed from their own wheel although one of their
@@ -398,6 +417,7 @@ def install(root, scratch, *, environ=None, timeout=600, provided=()):
         "packages": [],
         "failed": [],
         "without_dependencies": [],
+        "stubs": [],
         "provided": skipped,
         "detail": None,
         "bin": str(environment / ("Scripts" if os.name == "nt" else "bin")),
@@ -483,11 +503,26 @@ def install(root, scratch, *, environ=None, timeout=600, provided=()):
             if own is None or own.returncode:
                 outcome["without_dependencies"].remove(requirement)
                 outcome["failed"].append(requirement)
-    listed = pip("list", "--path", str(site), "--format", "freeze")
-    if listed is not None and not listed.returncode:
-        outcome["packages"] = sorted(
+
+    def installed():
+        listed = pip("list", "--path", str(site), "--format", "freeze")
+        if listed is None or listed.returncode:
+            return []
+        return sorted(
             line.strip() for line in listed.stdout.splitlines() if "==" in line
         )
+
+    outcome["packages"] = installed()
+    stubs = _typing_stubs(outcome["packages"])
+    if stubs:
+        # Django types its managers and querysets only in django-stubs: with
+        # them the indexer types Check.objects.create() as a Check, and its
+        # fields' accesses resolve. Type stubs only, so nothing runs; their
+        # own dependencies are not installed, so the project's Django stays.
+        added = install_all(stubs, "--no-deps")
+        if added is not None and not added.returncode:
+            outcome["stubs"] = stubs
+            outcome["packages"] = installed()
     if outcome["failed"] == requirements:
         outcome["status"] = "failed"
     else:

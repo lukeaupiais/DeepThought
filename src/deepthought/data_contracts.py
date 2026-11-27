@@ -2274,6 +2274,17 @@ DJANGO_READS = {
     "latest",
     "values",
     "values_list",
+    # Methods that start a chain as often as they continue one.
+    "order_by",
+    "only",
+    "defer",
+    "select_related",
+    "prefetch_related",
+    "distinct",
+    "reverse",
+    "select_for_update",
+    "dates",
+    "datetimes",
 }
 DJANGO_WRITES = {
     "bulk_create",
@@ -2299,6 +2310,32 @@ class DjangoModel:
     m2m: tuple[tuple[str, str | None, bool], ...]  # (field, db_table, through)
     line: int
     column: int
+    fields: tuple = ()  # DjangoField, in class order
+
+
+# Django's relation fields: those holding a foreign key column, and those
+# whose column is on another table (or a join table).
+DJANGO_FOREIGN_KEYS = frozenset({"ForeignKey", "OneToOneField"})
+DJANGO_NO_COLUMN = frozenset(
+    {"ManyToManyField", "GenericForeignKey", "GenericRelation", "ForeignObject"}
+)
+
+
+@dataclass(frozen=True)
+class DjangoField:
+    """A field assigned in a Django model class body: ``kind`` is the Django
+    field class (django.db.models or django.contrib), or ``Field`` for a
+    project's own field class; ``target`` the related model's written name
+    (last dotted part, ``self`` for the model itself) for a relation."""
+
+    name: str
+    kind: str
+    db_column: str | None
+    target: str | None
+    primary: bool
+    line: int
+    column: int
+    related_query: str | None = None  # related_query_name, else related_name
 
 
 @dataclass(frozen=True)
@@ -2434,6 +2471,71 @@ def extract_django(tree, content, file, definitions):
                     meta = dict(
                         _assignments(statement.child_by_field_name("body"), content)
                     )
+        fields = []
+        for statement in body.named_children if body is not None else ():
+            if statement.type != "expression_statement" or not statement.named_children:
+                continue
+            assignment = statement.named_children[0]
+            left = assignment.child_by_field_name("left")
+            value = assignment.child_by_field_name("right")
+            if (
+                assignment.type != "assignment"
+                or left is None
+                or left.type != "identifier"
+                or value is None
+                or value.type != "call"
+            ):
+                continue
+            callee = re.sub(
+                r"\s+", "", _text(value.child_by_field_name("function"), content)
+            )
+            head = callee.partition(".")[0]
+            last = callee.rpartition(".")[2]
+            origin = imports.get(head) or ""
+            if origin.startswith("django.") or origin == "django":
+                if not (
+                    last.endswith("Field")
+                    or last in DJANGO_FOREIGN_KEYS
+                    or last in DJANGO_NO_COLUMN
+                ):
+                    continue
+                kind = last
+            elif last.endswith("Field"):
+                kind = "Field"
+            else:
+                continue
+            keywords = _keyword_arguments(value, content)
+            target = keywords.get("to")
+            if target is None:
+                arguments = value.child_by_field_name("arguments")
+                positional = [
+                    a
+                    for a in (arguments.named_children if arguments else ())
+                    if a.type not in ("keyword_argument", "comment")
+                ]
+                target = positional[0] if positional else None
+            related = None
+            if kind in DJANGO_FOREIGN_KEYS or kind in DJANGO_NO_COLUMN:
+                if target is not None and target.type == "string":
+                    related = (_string(target, content) or "").rpartition(".")[2]
+                elif target is not None and target.type in ("identifier", "attribute"):
+                    related = _text(target, content).rpartition(".")[2]
+            primary = keywords.get("primary_key")
+            related_query = _string(
+                keywords.get("related_query_name"), content
+            ) or _string(keywords.get("related_name"), content)
+            fields.append(
+                DjangoField(
+                    _text(left, content),
+                    kind,
+                    _string(keywords.get("db_column"), content),
+                    related or None,
+                    primary is not None and _text(primary, content) == "True",
+                    left.start_point.row + 1,
+                    left.start_point.column,
+                    related_query,
+                )
+            )
         for field, value in _assignments(body, content):
             if value.type != "call":
                 continue
@@ -2469,6 +2571,7 @@ def extract_django(tree, content, file, definitions):
                 tuple(m2m),
                 node.start_point.row + 1,
                 node.start_point.column,
+                tuple(fields),
             )
         )
     stack = [root]
@@ -2479,12 +2582,13 @@ def extract_django(tree, content, file, definitions):
             continue
         target = node.child_by_field_name("object")
         name = node.child_by_field_name("attribute")
-        if (
-            target is None
-            or target.type != "identifier"
-            or name is None
-            or _text(name, content) != "objects"
-        ):
+        if name is None or _text(name, content) != "objects":
+            continue
+        # ``Model.objects`` or a module-qualified ``models.Model.objects``:
+        # the model is the last name, where the index resolves it.
+        while target is not None and target.type == "attribute":
+            target = target.child_by_field_name("attribute")
+        if target is None or target.type != "identifier":
             continue
         methods, current = [], node
         while (
@@ -2507,8 +2611,8 @@ def extract_django(tree, content, file, definitions):
                 _text(target, content),
                 reads,
                 writes,
-                node.start_point.row + 1,
-                node.start_point.column,
+                target.start_point.row + 1,
+                target.start_point.column,
             )
         )
     return models, accesses
@@ -2660,6 +2764,24 @@ class SaAccess:
     method: str = ""
     method_line: int = 0
     method_column: int = 0
+    # Column names the chain names by keyword or dict key: (name, writes,
+    # line, byte column), for a query or statement on one mapped class.
+    keys: tuple = ()
+
+
+@dataclass(frozen=True)
+class SaField:
+    """An attribute of a class body that may map a column: ``Column(...)``
+    or ``mapped_column(...)`` ("column"), ``x: Mapped[T]`` alone
+    ("mapped"), or any other annotated attribute ("annotated", a column
+    when the class is a SQLModel table)."""
+
+    name: str
+    column_name: str | None  # the name written in the call, else None
+    kind: str
+    primary: bool
+    line: int
+    column: int
 
 
 @dataclass(frozen=True)
@@ -2676,6 +2798,8 @@ class SaClass:
     bases: tuple[tuple[str, int, int, str | None], ...]
     table: bool  # SQLModel's ``table=True`` class keyword
     tablename: str | None
+    fields: tuple = ()
+    init: bool = False  # the class defines __init__
 
 
 SQLMODEL_BASE = "sqlmodel.SQLModel"
@@ -2709,6 +2833,198 @@ def _module_aliases(root, content):
                 module = _text(child, content)
                 aliases[module.split(".")[0]] = module.split(".")[0]
     return aliases
+
+
+# Class-body calls that map something other than a column of the table.
+_SA_NOT_COLUMNS = {
+    "relationship",
+    "Relationship",
+    "relation",
+    "backref",
+    "column_property",
+    "synonym",
+    "association_proxy",
+    "composite",
+    "deferred",
+    "query_expression",
+    "dynamic_loader",
+}
+_SA_MAPPED = re.compile(r"(?:\w+\.)*Mapped\[")
+
+
+def _sa_fields(body, content):
+    """The SaFields of a class body."""
+    found = []
+    for statement in body.named_children if body is not None else ():
+        if statement.type != "expression_statement" or not statement.named_children:
+            continue
+        node = statement.named_children[0]
+        if node.type != "assignment":
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "identifier":
+            continue
+        name = _text(left, content)
+        # Dunder names are SQLAlchemy's own settings; an underscored name is
+        # a column like any other (``_password = Column("password")``).
+        if (name.startswith("__") and name.endswith("__")) or name == "model_config":
+            continue
+        annotation = node.child_by_field_name("type")
+        written = _text(annotation, content) if annotation is not None else ""
+        if "ClassVar" in written:
+            continue
+        right = node.child_by_field_name("right")
+        kind, column_name, primary = None, None, False
+        if right is not None and right.type == "call":
+            function = right.child_by_field_name("function")
+            last = function
+            if function is not None and function.type == "attribute":
+                last = function.child_by_field_name("attribute")
+            called = _text(last, content) if last is not None else ""
+            keywords = _keyword_arguments(right, content)
+            if called in ("column_property", "deferred"):
+                # column_property(Column(...), ...): the attribute maps the
+                # column it wraps.
+                arguments = right.child_by_field_name("arguments")
+                inner = next(
+                    (
+                        c
+                        for c in arguments.named_children
+                        if c.type not in ("keyword_argument", "comment")
+                    ),
+                    None,
+                )
+                function = (
+                    inner.child_by_field_name("function")
+                    if (inner is not None and inner.type == "call")
+                    else None
+                )
+                last = function
+                if function is not None and function.type == "attribute":
+                    last = function.child_by_field_name("attribute")
+                if last is None or _text(last, content) not in (
+                    "Column",
+                    "mapped_column",
+                ):
+                    continue
+                right, called = inner, _text(last, content)
+                keywords = _keyword_arguments(right, content)
+            if called in ("Column", "mapped_column"):
+                kind = "column"
+                arguments = right.child_by_field_name("arguments")
+                first = next(
+                    (
+                        c
+                        for c in arguments.named_children
+                        if c.type not in ("keyword_argument", "comment")
+                    ),
+                    None,
+                )
+                column_name = _string(first, content) or _string(
+                    keywords.get("name"), content
+                )
+            elif called in _SA_NOT_COLUMNS or _SA_MAPPED.match(written):
+                continue
+            elif annotation is not None:
+                kind = "annotated"
+                column = keywords.get("sa_column")
+                if column is not None and column.type == "call":
+                    inner = _keyword_arguments(column, content)
+                    arguments = column.child_by_field_name("arguments")
+                    first = next(
+                        (
+                            c
+                            for c in arguments.named_children
+                            if c.type not in ("keyword_argument", "comment")
+                        ),
+                        None,
+                    )
+                    column_name = _string(first, content) or _string(
+                        inner.get("name"), content
+                    )
+                    keywords = {**keywords, **inner}
+            value = keywords.get("primary_key")
+            primary = value is not None and value.type == "true"
+        elif annotation is not None:
+            kind = "mapped" if _SA_MAPPED.match(written) else "annotated"
+        if kind is None or (kind == "annotated" and name.startswith("_")):
+            # A SQLModel (Pydantic) private attribute is no field.
+            continue
+        found.append(
+            SaField(
+                name,
+                column_name,
+                kind,
+                primary,
+                left.start_point.row + 1,
+                left.start_point.column,
+            )
+        )
+    return tuple(found)
+
+
+def _sa_chain_keys(node, writes, how, content):
+    """The column names a query or statement chain names after ``node``:
+    keywords of filter_by (read); keywords and dict keys of values (written
+    by insert and update); string keys of Query.update's dict (written). It
+    stops at a join, after which filter_by names another entity."""
+    keys = []
+
+    def strings(argument, sets):
+        dicts = [argument]
+        if argument.type == "list":
+            dicts = list(argument.named_children)
+        for item in dicts:
+            if item.type != "dictionary":
+                continue
+            for pair in item.named_children:
+                key = pair.child_by_field_name("key") if pair.type == "pair" else None
+                text = _string(key, content)
+                if text:
+                    keys.append(
+                        (text, sets, key.start_point.row + 1, key.start_point.column)
+                    )
+
+    current = node
+    while True:
+        parent = current.parent
+        if (
+            parent is None
+            or parent.type != "attribute"
+            or parent.child_by_field_name("object") != current
+        ):
+            break
+        call = parent.parent
+        if (
+            call is None
+            or call.type != "call"
+            or call.child_by_field_name("function") != parent
+        ):
+            break
+        method = _text(parent.child_by_field_name("attribute"), content)
+        if method in ("join", "outerjoin", "join_from", "select_from"):
+            break
+        arguments = call.child_by_field_name("arguments")
+        children = arguments.named_children if arguments is not None else ()
+        if method in ("filter_by", "values") or (
+            method == "update" and how in ("query", "model_query")
+        ):
+            sets = method != "filter_by" and (writes or method == "update")
+            for child in children:
+                if child.type == "keyword_argument" and method != "update":
+                    name = child.child_by_field_name("name")
+                    keys.append(
+                        (
+                            _text(name, content),
+                            sets,
+                            name.start_point.row + 1,
+                            name.start_point.column,
+                        )
+                    )
+                elif method != "filter_by":
+                    strings(child, sets)
+        current = call
+    return tuple(keys)
 
 
 def _from_sqlalchemy(origin):
@@ -2797,6 +3113,25 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     tuple(bases),
                     table,
                     name.lower() if name else None,
+                    _sa_fields(node.child_by_field_name("body"), content),
+                    any(
+                        (
+                            c.child_by_field_name("definition")
+                            if c.type == "decorated_definition"
+                            else c
+                        ).type
+                        == "function_definition"
+                        and _text(
+                            (
+                                c.child_by_field_name("definition")
+                                if c.type == "decorated_definition"
+                                else c
+                            ).child_by_field_name("name"),
+                            content,
+                        )
+                        == "__init__"
+                        for c in node.child_by_field_name("body").named_children
+                    ),
                 )
             )
         if importing and definition is not None and name:
@@ -2811,7 +3146,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 )
             )
 
-    def access(node, model, writes, how, method=None):
+    def access(node, model, writes, how, method=None, keys=False):
         accesses.append(
             SaAccess(
                 file,
@@ -2830,8 +3165,9 @@ def extract_sqlalchemy(tree, content, file, definitions):
                         method.start_point.column,
                     )
                     if method is not None
-                    else ()
+                    else ("", 0, 0)
                 ),
+                _sa_chain_keys(node, writes, how, content) if keys else (),
             )
         )
 
@@ -2853,7 +3189,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     and parent.child_by_field_name("function") == node
                 )
             ):
-                access(node, target, False, "model_query")
+                access(node, target, False, "model_query", keys=True)
             continue
         if node.type != "call":
             continue
@@ -2915,7 +3251,9 @@ def extract_sqlalchemy(tree, content, file, definitions):
             while argument.type == "attribute":
                 argument = argument.child_by_field_name("object")
             if argument.type == "identifier":
-                access(node, argument, writes, how)
+                # Keys are read for a chain on one class: filter_by names
+                # the last entity, so several are ambiguous.
+                access(node, argument, writes, how, keys=len(considered) == 1)
     return mappings, tables, accesses, classes
 
 
@@ -3018,6 +3356,254 @@ def _call_result_classes(references, trees, file, node, depth):
                 parent.child_by_field_name("return_type"),
                 depth - 1,
             )
+    return found
+
+
+@dataclass
+class DjangoColumns:
+    """The model fields a Django query names: ``uses`` are (model key,
+    field, writes, line, column); ``complete`` is False where an argument
+    is not read here (a variable, ``**kwargs``, an unknown method or
+    lookup); ``rows`` is True when the query returns model rows whose
+    columns are not all named (no values(), values_list(), only(), count()
+    and the like)."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+# QuerySet methods by what their arguments name.
+_DJANGO_LOOKUPS = frozenset("filter exclude get get_or_create update_or_create".split())
+_DJANGO_FIELD_LISTS = frozenset(
+    "values values_list only defer order_by distinct select_related earliest "
+    "latest".split()
+)
+_DJANGO_SETS = frozenset("update create".split())
+_DJANGO_EXPRESSIONS = frozenset("annotate aggregate alias".split())
+_DJANGO_PLAIN = frozenset(
+    "all none count exists first last delete iterator reverse using "
+    "select_for_update prefetch_related in_bulk bulk_create".split()
+)
+_DJANGO_NOT_ROWS = frozenset(
+    "values values_list only count exists aggregate update delete in_bulk create "
+    "bulk_create bulk_update".split()
+)
+_DJANGO_AGGREGATES = frozenset(
+    "F Count Sum Avg Max Min StdDev Variance ArrayAgg StringAgg Coalesce "
+    "Lower Upper Length Trunc TruncDate TruncDay ExtractYear Cast".split()
+)
+
+
+def django_chain(node):
+    """(method, call node) of the QuerySet methods chained on ``node``
+    (a ``Model.objects`` attribute), in order."""
+    chain, current = [], node
+    while (
+        current.parent is not None
+        and current.parent.type == "attribute"
+        and current.parent.child_by_field_name("object") == current
+        and current.parent.parent is not None
+        and current.parent.parent.type == "call"
+    ):
+        name = current.parent.child_by_field_name("attribute")
+        current = current.parent.parent
+        chain.append((name.text.decode("utf-8", "replace"), current))
+    return chain
+
+
+def django_columns(chain, content, model, models, constructor=None):
+    """The ``DjangoColumns`` of a QuerySet ``chain`` (django_chain) on
+    ``model``, or of a ``constructor`` call ``Model(field=...)``.
+    ``models`` maps a model key to {"fields": {field: (column or None,
+    related model key or None)}, "pk": primary key field, "reverse":
+    {lookup name: (related model key, its foreign key field)}}. Django
+    takes lookups as keyword arguments and field paths as strings, which
+    scip-python does not resolve to the model's fields, so they are read
+    against the model's own fields."""
+    found = DjangoColumns()
+
+    def use(key, field, writes, node):
+        column, _ = models.get(key, {}).get("fields", {}).get(field, (None, None))
+        if column is not None:
+            found.uses.append(
+                (key, field, writes, node.start_point.row + 1, node.start_point.column)
+            )
+
+    def path(text, node, writes=False):
+        key, parts = model, text.split("__")
+        for index, part in enumerate(parts):
+            entry = models.get(key, {})
+            fields = entry.get("fields", {})
+            if part == "pk":
+                part = entry.get("pk") or part
+            if part in fields:
+                use(key, part, writes, node)
+                related = fields[part][1]
+                if writes or related is None or index + 1 == len(parts):
+                    return
+                key = related
+                continue
+            if part.endswith("_id") and fields.get(part[:-3], (None, None))[1]:
+                use(key, part[:-3], writes, node)
+                return
+            if part in entry.get("reverse", {}) and not writes:
+                key, foreign = entry["reverse"][part]
+                use(key, foreign, False, node)
+                continue
+            if index == 0:
+                found.complete = False
+            return
+
+    def keywords(arguments, writes=False):
+        for argument in arguments.named_children:
+            if argument.type == "keyword_argument":
+                name = argument.child_by_field_name("name")
+                path(name.text.decode("utf-8", "replace"), name, writes)
+                expression(argument.child_by_field_name("value"))
+            elif argument.type == "dictionary_splat":
+                found.complete = False
+
+    def expression(node):
+        if node is None:
+            return
+        if node.type == "call":
+            function = node.child_by_field_name("function")
+            name = (function.text or b"").decode("utf-8", "replace").rpartition(".")[2]
+            arguments = node.child_by_field_name("arguments")
+            if arguments is None:
+                return
+            if name == "Q":
+                keywords(arguments)
+                for argument in arguments.named_children:
+                    if argument.type not in ("keyword_argument", "comment"):
+                        expression(argument)
+                return
+            if name in _DJANGO_AGGREGATES:
+                first = next(
+                    (a for a in arguments.named_children if a.type != "comment"),
+                    None,
+                )
+                if first is not None and first.type == "string":
+                    text = _string(first, content)
+                    if text is not None:
+                        path(text, first)
+                elif first is not None:
+                    expression(first)
+                for argument in arguments.named_children:
+                    if argument.type == "keyword_argument":
+                        expression(argument.child_by_field_name("value"))
+                return
+            if name == "OuterRef":
+                # A field of the outer query's model.
+                found.complete = False
+                return
+            return
+        if node.type in (
+            "binary_operator",
+            "boolean_operator",
+            "unary_operator",
+            "parenthesized_expression",
+            "not_operator",
+        ):
+            for child in node.named_children:
+                expression(child)
+
+    def strings(arguments, writes=False):
+        for argument in arguments.named_children:
+            if argument.type == "string":
+                text = _string(argument, content)
+                if text is None:
+                    found.complete = False
+                    continue
+                text = text.lstrip("-")
+                if text and text != "?":
+                    path(text, argument, writes)
+            elif argument.type == "keyword_argument":
+                continue
+            elif argument.type != "comment":
+                expression(argument)
+                if argument.type != "call":
+                    found.complete = False
+
+    if constructor is not None:
+        arguments = constructor.child_by_field_name("arguments")
+        if arguments is not None:
+            keywords(arguments, True)
+            if any(
+                a.type not in ("keyword_argument", "comment")
+                for a in arguments.named_children
+            ):
+                found.complete = False
+        return found
+    rows = True
+    for method, call in chain:
+        arguments = call.child_by_field_name("arguments")
+        if arguments is None:
+            continue
+        if method in _DJANGO_NOT_ROWS:
+            rows = False
+        if method in _DJANGO_LOOKUPS:
+            for argument in arguments.named_children:
+                if argument.type == "keyword_argument":
+                    name = argument.child_by_field_name("name")
+                    text = name.text.decode("utf-8", "replace")
+                    value = argument.child_by_field_name("value")
+                    if text in ("defaults", "create_defaults"):
+                        if value is not None and value.type == "dictionary":
+                            for pair in value.named_children:
+                                key = pair.child_by_field_name("key")
+                                key_text = _string(key, content) if key else None
+                                if pair.type != "pair" or key_text is None:
+                                    found.complete = False
+                                    continue
+                                path(key_text, key, True)
+                                expression(pair.child_by_field_name("value"))
+                        else:
+                            found.complete = False
+                        continue
+                    path(text, name)
+                    if method in ("get_or_create", "update_or_create"):
+                        # Not found, the lookups are written with the row.
+                        path(text, name, True)
+                    expression(value)
+                elif argument.type == "dictionary_splat":
+                    found.complete = False
+                elif argument.type != "comment":
+                    expression(argument)
+                    if argument.type not in (
+                        "call",
+                        "binary_operator",
+                        "unary_operator",
+                        "parenthesized_expression",
+                    ):
+                        found.complete = False
+        elif method in _DJANGO_SETS:
+            keywords(arguments, True)
+        elif method in _DJANGO_FIELD_LISTS:
+            strings(arguments)
+        elif method in _DJANGO_EXPRESSIONS:
+            for argument in arguments.named_children:
+                if argument.type == "keyword_argument":
+                    expression(argument.child_by_field_name("value"))
+                elif argument.type != "comment":
+                    expression(argument)
+        elif method == "bulk_update":
+            positional = [a for a in arguments.named_children if a.type != "comment"]
+            if len(positional) > 1 and positional[1].type in ("list", "tuple"):
+                for element in positional[1].named_children:
+                    text = (
+                        _string(element, content) if element.type == "string" else None
+                    )
+                    if text is None:
+                        found.complete = False
+                    else:
+                        path(text, element, True)
+            else:
+                found.complete = False
+        elif method not in _DJANGO_PLAIN:
+            found.complete = False
+    found.rows = rows
     return found
 
 
@@ -3410,6 +3996,14 @@ class PrismaModel:
     # Foreign keys this model holds: (referenced table, columns, referenced
     # columns, onDelete), column names as @map gives them.
     foreign_keys: tuple = ()
+    # (field, column) of each scalar field the engine's DMMF lists (it
+    # leaves out Unsupported and @ignore fields), column as @map gives it.
+    columns: tuple = ()
+    # (field, related model, fields of this model holding its foreign key)
+    # of each relation field.
+    links: tuple = ()
+    # (name, fields) of compound unique and primary keys.
+    compounds: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -3428,6 +4022,9 @@ class ModelUse:
     # column).
     callee_line: int = 0
     callee_column: int = 0
+    # Prisma: the client method, and its call expression.
+    method: str = ""
+    call: object = _field(default=None, compare=False, repr=False)
 
 
 def prisma_accessor(model):
@@ -3777,6 +4374,7 @@ class TypeormBuilder:
     entities: tuple
     table: str | None
     writes: bool
+    chain: tuple = ()  # (method, call node) of TypeORM's builder methods
 
 
 def typeorm_builder(references, trees, call):
@@ -3865,7 +4463,7 @@ def typeorm_builder(references, trees, call):
     entities = tuple(sorted(found, key=lambda d: d.id))
     if not entities and table is None:
         return "entity_unknown", None
-    return "resolved", TypeormBuilder(entities, table, writes)
+    return "resolved", TypeormBuilder(entities, table, writes, tuple(chain))
 
 
 def _typeorm_literal_table(call, content, position=0):
@@ -3984,14 +4582,42 @@ def _enclosing_class_extends(node):
     return None
 
 
-def _typeorm_type_entity(references, trees, file, node):
+def _typeorm_type_entity(references, trees, file, node, depth=3):
     """Entity classes of a type ``Repository<E>`` (also an ``extends``
     clause ``Repository<E>``), where the index resolves the type to
-    TypeORM's repository class and E to a class."""
-    if node is None:
+    TypeORM's repository class and E to a class; or of a project class the
+    index resolves the type to, through what it extends (``class
+    UserRepository extends Repository<User>``)."""
+    if node is None or depth <= 0:
         return set()
     if node.type == "type_annotation" and node.named_children:
         node = node.named_children[0]
+    if node.type == "type_identifier":
+        found = set()
+        for site in (
+            references.definition_sites(
+                file, node.start_point.row + 1, node.start_point.column
+            )
+            or ()
+        ):
+            entry = trees.get(site[0])
+            if entry is None:
+                continue
+            point = (site[1] - 1, site[2])
+            target = entry[1].root_node.descendant_for_point_range(point, point)
+            if target is None or target.parent is None:
+                continue
+            found |= _typeorm_type_entity(
+                references,
+                trees,
+                site[0],
+                _enclosing_class_extends(target.parent.child_by_field_name("body"))
+                if target.parent.type
+                in ("class_declaration", "abstract_class_declaration")
+                else None,
+                depth - 1,
+            )
+        return found
     if node.type == "extends_clause":
         value = node.child_by_field_name("value")
         arguments = node.child_by_field_name("type_arguments")
@@ -4032,6 +4658,203 @@ class TypeormChild:
     column: int
 
 
+# TypeORM's property decorators that map a property to a column of its
+# entity's table, and the relations that hold a foreign key column.
+_TYPEORM_COLUMNS = frozenset(
+    {
+        "Column",
+        "PrimaryColumn",
+        "PrimaryGeneratedColumn",
+        "CreateDateColumn",
+        "UpdateDateColumn",
+        "DeleteDateColumn",
+        "VersionColumn",
+        "ObjectIdColumn",
+        "ViewColumn",
+    }
+)
+_TYPEORM_PRIMARY = frozenset(
+    {"PrimaryColumn", "PrimaryGeneratedColumn", "ObjectIdColumn"}
+)
+_TYPEORM_OWNING = frozenset({"ManyToOne", "OneToOne"})
+_TYPEORM_RELATIONS = frozenset({"ManyToOne", "OneToOne", "OneToMany", "ManyToMany"})
+
+
+@dataclass(frozen=True)
+class TypeormProperty:
+    """A property of a class in a file importing typeorm, by its
+    decorators: a column (``kind`` "column" or "primary", ``custom`` the
+    name its options give), or a relation (``kind`` "relation", ``target``
+    the related class's name, ``custom`` and ``referenced`` its
+    @JoinColumn's name and referencedColumnName; ``owning`` when it holds a
+    foreign key: a ManyToOne, or a OneToOne with a @JoinColumn)."""
+
+    name: str
+    kind: str
+    custom: str | None
+    line: int
+    column: int
+    target: str | None = None
+    owning: bool = False
+    referenced: str | None = None
+
+
+@dataclass(frozen=True)
+class TypeormClass:
+    file: str
+    name: str
+    base: str | None
+    properties: tuple
+    # False where a column's name or an embedded column is not fixed in
+    # the file (a name from a variable, @Column(() => Embedded)).
+    complete: bool
+    line: int
+
+
+def _typeorm_options(args, content):
+    """The object literal of a decorator's options: its first object
+    argument (``@Column("varchar", { name })`` or ``@Column({ name })``)."""
+    return next((a for a in args if a.type == "object"), None)
+
+
+def _typeorm_option(options, key, content):
+    """(found, value): a string option of a decorator's options object;
+    found True with value None when it is written but not a string."""
+    if options is None:
+        return False, None
+    for pair in options.named_children:
+        if pair.type != "pair":
+            continue
+        name = pair.child_by_field_name("key")
+        if name is None or _text(name, content).strip("\"'") != key:
+            continue
+        return True, _script_string(pair.child_by_field_name("value"), content)
+    return False, None
+
+
+def extract_typeorm_classes(tree, content, file):
+    """The ``TypeormClass`` of each class of a file importing typeorm that
+    has a property decorated with one of its column or relation
+    decorators: entities, and the base classes entities extend."""
+    root = tree.root_node
+    imports = _script_imports(root, content)
+    typeorm = {
+        local: name
+        for local, (module, name) in imports.items()
+        if module in _TYPEORM or module.startswith("typeorm/")
+    }
+    if not typeorm:
+        return []
+    found = []
+    for node in [
+        *_descendants(root, "class_declaration"),
+        *_descendants(root, "abstract_class_declaration"),
+    ]:
+        body = node.child_by_field_name("body")
+        name = node.child_by_field_name("name")
+        if body is None or name is None:
+            continue
+        properties, complete = [], True
+        for member in body.named_children:
+            if member.type != "public_field_definition":
+                continue
+            key = member.child_by_field_name("name")
+            if key is None or key.type != "property_identifier":
+                continue
+            decorators = {}
+            for decorator in member.named_children:
+                if decorator.type != "decorator" or not decorator.named_children:
+                    continue
+                call = decorator.named_children[0]
+                if call.type == "identifier":
+                    callee, args = _text(call, content), []
+                elif call.type == "call_expression":
+                    callee, receiver, args = _call_parts(call, content)
+                    if receiver is not None:
+                        continue
+                else:
+                    continue
+                if callee in typeorm:
+                    decorators[typeorm[callee]] = args
+            columns = _TYPEORM_COLUMNS & set(decorators)
+            relations = _TYPEORM_RELATIONS & set(decorators)
+            at = (key.start_point.row + 1, key.start_point.column)
+            prop = _text(key, content)
+            if columns:
+                kind = next(iter(columns))
+                args = decorators[kind]
+                if args and args[0].type in ("arrow_function", "function_expression"):
+                    # An embedded entity's columns: not read here.
+                    complete = False
+                    continue
+                written, custom = _typeorm_option(
+                    _typeorm_options(args, content), "name", content
+                )
+                if written and custom is None:
+                    complete = False
+                    continue
+                properties.append(
+                    TypeormProperty(
+                        prop,
+                        "primary" if kind in _TYPEORM_PRIMARY else "column",
+                        custom,
+                        *at,
+                    )
+                )
+            elif relations:
+                kind = next(iter(relations))
+                args = decorators[kind]
+                target = None
+                if args and args[0].type == "arrow_function":
+                    body_node = args[0].child_by_field_name("body")
+                    if body_node is not None and body_node.type == "identifier":
+                        target = _text(body_node, content)
+                elif args and args[0].type == "string":
+                    target = _script_string(args[0], content)
+                join = decorators.get("JoinColumn")
+                owning = kind == "ManyToOne" or (
+                    kind == "OneToOne" and "JoinColumn" in decorators
+                )
+                custom = referenced = None
+                if join is not None:
+                    options = _typeorm_options(join, content)
+                    written, custom = _typeorm_option(options, "name", content)
+                    if written and custom is None:
+                        complete = False
+                    written, referenced = _typeorm_option(
+                        options, "referencedColumnName", content
+                    )
+                    if written and referenced is None:
+                        complete = False
+                    if join and join[0].type == "array":
+                        # Several join columns: not read here.
+                        complete = False
+                        continue
+                properties.append(
+                    TypeormProperty(
+                        prop,
+                        "relation",
+                        custom,
+                        *at,
+                        target=target,
+                        owning=owning,
+                        referenced=referenced,
+                    )
+                )
+        if properties or _script_base_class(node, content):
+            found.append(
+                TypeormClass(
+                    file,
+                    _text(name, content),
+                    _script_base_class(node, content),
+                    tuple(properties),
+                    complete,
+                    node.start_point.row + 1,
+                )
+            )
+    return found
+
+
 def _script_base_class(node, content):
     """The name a class declaration extends, when it is a plain name."""
     for heritage in node.named_children:
@@ -4057,6 +4880,135 @@ _TYPEORM_WRITES = frozenset(
     "save insert update upsert delete remove softDelete softRemove restore "
     "recover increment decrement clear".split()
 )
+
+
+# Keys of TypeORM's find options whose objects name columns read, not set.
+_TYPEORM_READ_OPTIONS = frozenset(
+    "where order select relations relationLoadStrategy loadRelationIds "
+    "lock withDeleted cache comment".split()
+)
+_TYPEORM_SETTERS = frozenset("create save insert upsert merge preload update".split())
+_KEY_NODES = frozenset(
+    {"property_identifier", "shorthand_property_identifier", "string_fragment"}
+)
+
+
+def typeorm_key_access(
+    tree, content, line, column, typeorm_method=None, annotation=None, parameter=None
+):
+    """Whether the object key or destructured name at 1-based ``line`` and
+    0-based ``column`` sets ("write") or reads ("read") the property it
+    names, or None when the site is not such a key.
+
+    A key reads in a destructuring pattern, under one of TypeORM's find
+    options (``where``, ``order``, ``select``...), in an object a type
+    annotation, ``as`` or ``satisfies`` gives one of TypeORM's read option
+    types, and in the argument of a project function whose parameter has
+    such a type. In the arguments of a TypeORM repository or entity
+    manager method, it reads unless the method sets values (``save``,
+    ``create``, ``update``'s second argument...). Any other object key
+    sets the property of the value it builds.
+
+    The callbacks are the index's: ``typeorm_method(name node)`` the TypeORM
+    class (Repository, EntityManager...) a called method is of, else None; ``annotation(type node)`` "read", "write"
+    or None for a type TypeORM gives (FindOptions* and Find*Options read,
+    DeepPartial and QueryDeepPartialEntity write); ``parameter(name node,
+    index)`` the same for the declared type of that parameter of the
+    function called."""
+    node = tree.root_node.descendant_for_point_range(
+        (line - 1, column), (line - 1, column)
+    )
+    if node is None:
+        return None
+    if node.type == "shorthand_property_identifier_pattern":
+        return "read"
+    if node.type == "string_fragment":
+        node = node.parent
+    if node is None or node.type not in (_KEY_NODES | {"string"}):
+        return None
+    parent = node.parent
+    if node.type == "shorthand_property_identifier" and parent.type == "object":
+        current = parent
+    elif (
+        parent is not None
+        and parent.type == "pair"
+        and parent.child_by_field_name("key") == node
+    ):
+        current = parent.parent
+    elif parent is not None and parent.type == "pair_pattern":
+        return "read"
+    else:
+        return None
+
+    def typed(type_node):
+        if annotation is None or type_node is None:
+            return None
+        if type_node.type == "type_annotation" and type_node.named_children:
+            type_node = type_node.named_children[0]
+        if type_node.type == "generic_type":
+            type_node = type_node.child_by_field_name("name")
+        if type_node is not None and type_node.type == "nested_type_identifier":
+            type_node = type_node.named_children[-1]
+        if type_node is None or type_node.type != "type_identifier":
+            return None
+        return annotation(type_node)
+
+    while current is not None:
+        up = current.parent
+        if up is None:
+            break
+        if up.type == "pair":
+            key = up.child_by_field_name("key")
+            name = (
+                content[key.start_byte : key.end_byte]
+                .decode("utf-8", "replace")
+                .strip("'\"`")
+            )
+            if name in _TYPEORM_READ_OPTIONS:
+                return "read"
+            current = up.parent
+            continue
+        if up.type in ("as_expression", "satisfies_expression"):
+            kind = typed(up.named_children[-1] if up.named_children else None)
+            if kind is not None:
+                return kind
+            current = up
+            continue
+        if up.type in ("array", "parenthesized_expression", "spread_element", "object"):
+            current = up
+            continue
+        if up.type == "variable_declarator":
+            kind = typed(up.child_by_field_name("type"))
+            if kind is not None:
+                return kind
+            break
+        if up.type == "arguments":
+            call = up.parent
+            function = call.child_by_field_name("function") if call else None
+            index = [c for c in up.named_children if c.type != "comment"].index(current)
+            name = function
+            if function is not None and function.type == "member_expression":
+                name = function.child_by_field_name("property")
+            if name is None:
+                break
+            method = content[name.start_byte : name.end_byte].decode("utf-8", "replace")
+            owner = "Repository" if typeorm_method is None else typeorm_method(name)
+            if owner:
+                if owner in ("EntityManager", "MongoEntityManager"):
+                    index -= 1  # the entity comes first
+                if method == "update" and index == 0:
+                    return "read"
+                if method in _TYPEORM_SETTERS:
+                    return "write"
+                if method in _TYPEORM_READS or method in _TYPEORM_WRITES:
+                    return "read"
+                break
+            kind = parameter(name, index) if parameter is not None else None
+            if kind is not None:
+                return kind
+            break
+        break
+    return "write"
 
 
 def _chained_method(call, content):
@@ -4103,9 +5055,848 @@ def extract_prisma_client(tree, content, file, definitions, accessors):
                 method in PRISMA_WRITES,
                 node.start_point.row + 1,
                 node.start_point.column,
+                method=method,
+                call=node,
             )
         )
     return found
+
+
+# The query argument keys Prisma Client takes, by what their values are.
+_PRISMA_FILTERS = {"where", "having", "cursor"}
+_PRISMA_WRITES = {"data", "create", "update"}
+_PRISMA_FIELD_LISTS = {"distinct", "by"}
+_PRISMA_AGGREGATES = {"_count", "_avg", "_sum", "_min", "_max"}
+_PRISMA_IGNORED = {"take", "skip", "skipDuplicates", "relationLoadStrategy"}
+_PRISMA_LOGICAL = {"AND", "OR", "NOT"}
+_PRISMA_RELATION_FILTERS = {"some", "every", "none", "is", "isNot"}
+# Methods whose result is not rows of the model: a count, or an aggregate.
+_PRISMA_NO_ROWS = {
+    "count",
+    "aggregate",
+    "groupBy",
+    "createMany",
+    "updateMany",
+    "deleteMany",
+}
+
+
+@dataclass
+class PrismaColumns:
+    """The fields a Prisma Client call names: ``uses`` are (model, field,
+    writes, line, column); ``complete`` is False where an argument is not an
+    object literal, or names a key that is neither Prisma Client's nor a
+    field; ``rows`` is True when the call returns rows of the model whose
+    fields are not all named (no ``select``, or an ``include``)."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+def prisma_columns(call, content, method, model, models):
+    """The ``PrismaColumns`` of a Prisma Client call on ``model`` (a
+    ``PrismaModel``); ``models`` gives a related model by name. Prisma
+    Client types every argument by the model's fields (its WhereInput,
+    Select, CreateInput, ...), which scip-typescript records as local
+    object-literal keys, not as references; the keys are read against the
+    model's fields in Prisma's own DMMF."""
+    found = PrismaColumns()
+    arguments = _call_parts(call, content)[2]
+    if not arguments:
+        found.rows = method not in _PRISMA_NO_ROWS
+        return found
+    _prisma_arguments(arguments[0], content, model, models, found, True, method)
+    return found
+
+
+def _prisma_object(node):
+    while node is not None and node.type in (
+        "parenthesized_expression",
+        "as_expression",
+        "satisfies_expression",
+    ):
+        node = node.named_children[0] if node.named_children else None
+    return node
+
+
+def _prisma_alternatives(node):
+    """The values an argument may be: both branches of a conditional, none
+    for undefined or null, else the node itself."""
+    node = _prisma_object(node)
+    if node is None or node.type in ("undefined", "null"):
+        return []
+    if node.type == "identifier" and node.text == b"undefined":
+        return []
+    if node.type == "ternary_expression":
+        return _prisma_alternatives(
+            node.child_by_field_name("consequence")
+        ) + _prisma_alternatives(node.child_by_field_name("alternative"))
+    if (
+        node.type == "binary_expression"
+        and node.child_by_field_name("operator") is not None
+        and node.child_by_field_name("operator").type == "&&"
+    ):
+        # ``...(cond && { key })``: the object, or nothing.
+        return _prisma_alternatives(node.child_by_field_name("right"))
+    return [node]
+
+
+def _prisma_pairs(node, content, found):
+    """(key, line, column, value node) of the properties of an object
+    literal (of each, for a conditional), spread object literals included;
+    marks ``found`` incomplete for anything else."""
+    pairs = []
+    for node in _prisma_alternatives(node):
+        if node.type != "object":
+            found.complete = False
+            continue
+        for item in node.named_children:
+            if item.type == "comment":
+                continue
+            if item.type == "spread_element":
+                spread = item.named_children[0] if item.named_children else None
+                pairs.extend(_prisma_pairs(spread, content, found))
+                continue
+            key = item.child_by_field_name("key") if item.type == "pair" else None
+            if item.type == "shorthand_property_identifier":
+                key = item
+            if key is None or key.type not in (
+                "property_identifier",
+                "shorthand_property_identifier",
+                "string",
+            ):
+                found.complete = False
+                continue
+            name = (
+                _script_string(key, content)
+                if key.type == "string"
+                else _text(key, content)
+            )
+            if name is None:
+                found.complete = False
+                continue
+            # A shorthand property's value is the variable it names, which
+            # is not an object literal read here.
+            value = item.child_by_field_name("value") if item.type == "pair" else item
+            pairs.append((name, key.start_point.row + 1, key.start_point.column, value))
+    return pairs
+
+
+def _prisma_returned(function):
+    """The values an arrow or function expression returns: its expression
+    body, or its block's return statements (not nested functions')."""
+    body = function.child_by_field_name("body")
+    if body is None:
+        return []
+    if body.type != "statement_block":
+        return [body]
+    found, stack = [], list(body.named_children)
+    while stack:
+        node = stack.pop()
+        if node.type in _FUNCTION_NODES:
+            continue
+        if node.type == "return_statement":
+            found.extend(node.named_children[:1])
+            continue
+        stack.extend(node.named_children)
+    return found
+
+
+_FUNCTION_NODES = {
+    "arrow_function",
+    "function_expression",
+    "function_declaration",
+    "method_definition",
+}
+
+
+def _prisma_items(node, found):
+    """The elements of an array literal, the objects a ``.map`` callback
+    returns, or the node itself (each, for a conditional)."""
+    items = []
+    for node in _prisma_alternatives(node):
+        if node.type == "array":
+            for element in node.named_children:
+                if element.type == "comment":
+                    continue
+                if element.type == "spread_element":
+                    found.complete = False
+                    continue
+                items.append(element)
+            continue
+        if node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            callback = (
+                arguments.named_children[0]
+                if arguments is not None and arguments.named_children
+                else None
+            )
+            if (
+                function is not None
+                and function.type == "member_expression"
+                and (function.child_by_field_name("property").text or b"")
+                in (b"map", b"flatMap")
+                and callback is not None
+                and callback.type in ("arrow_function", "function_expression")
+            ):
+                items.extend(_prisma_returned(callback))
+                continue
+        items.append(node)
+    return items
+
+
+@dataclass
+class TypeormColumns:
+    """The entity properties a TypeORM repository call's arguments name:
+    ``uses`` are (entity, property, writes, line, column); ``complete`` is
+    False where an argument is not an object literal or names a key that is
+    neither one of TypeORM's find options nor a property; ``rows`` is True
+    when the call returns rows of the entity without a ``select``."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+# Find options that name no column.
+_TYPEORM_OPTIONS_IGNORED = frozenset(
+    "relations take skip cache withDeleted lock loadEagerRelations "
+    "relationLoadStrategy comment transaction loadRelationIds".split()
+)
+_TYPEORM_OPTION_METHODS = frozenset(
+    "find findOne findOneOrFail findAndCount count exist exists".split()
+)
+_TYPEORM_WHERE_METHODS = frozenset(
+    "findBy findOneBy findOneByOrFail findAndCountBy countBy existsBy exist "
+    "delete softDelete restore".split()
+)
+_TYPEORM_ROW_METHODS = frozenset(
+    "find findOne findOneOrFail findAndCount findBy findOneBy findOneByOrFail "
+    "findAndCountBy".split()
+)
+_TYPEORM_FIELD_METHODS = frozenset("sum average minimum maximum".split())
+
+
+def typeorm_columns(call, content, method, entity, entities, manager=False, chain=()):
+    """The ``TypeormColumns`` of a TypeORM repository ``call`` (a
+    call_expression) of ``method`` on ``entity``; ``entities`` maps an
+    entity to {property: (column or None, related entity or None)}, a
+    relation's column being its foreign key's when it holds one.
+    scip-typescript does not resolve the keys of TypeORM's mapped option
+    types (FindOptionsWhere, FindOptionsSelect, FindOptionsOrder) to the
+    entity's properties, so they are read against the entity's own
+    metadata, by the argument shapes of TypeORM's Repository API; an
+    EntityManager call (``manager``) takes the entity first."""
+    found = TypeormColumns()
+    arguments = call.child_by_field_name("arguments") if call is not None else None
+    args = [
+        a
+        for a in (arguments.named_children if arguments else [])
+        if a.type != "comment"
+    ]
+    if manager:
+        args = args[1:]
+
+    def use(ent, name, writes, line, column):
+        column_of, _ = entities.get(ent, {}).get(name, (None, None))
+        if column_of is not None:
+            found.uses.append((ent, name, writes, line, column))
+
+    def where(node, ent):
+        for item in _prisma_items(node, found):
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields:
+                    found.complete = False
+                    continue
+                use(ent, name, False, line, column)
+                related = fields[name][1]
+                value = _prisma_object(value)
+                if related is not None and value is not None and value.type == "object":
+                    where(value, related)
+
+    def select(node, ent):
+        for item in _prisma_alternatives(node):
+            if item.type == "array":
+                for element in item.named_children:
+                    name = (
+                        _script_string(element, content)
+                        if element.type == "string"
+                        else None
+                    )
+                    if name is None or name not in entities.get(ent, {}):
+                        found.complete = False
+                        continue
+                    use(
+                        ent,
+                        name,
+                        False,
+                        element.start_point.row + 1,
+                        element.start_point.column + 1,
+                    )
+                continue
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields:
+                    found.complete = False
+                    continue
+                use(ent, name, False, line, column)
+                related = fields[name][1]
+                value = _prisma_object(value)
+                if related is not None:
+                    if value is not None and value.type == "object":
+                        select(value, related)
+                    else:
+                        found.complete = False
+
+    def order(node, ent):
+        for name, line, column, value in _prisma_pairs(node, content, found):
+            fields = entities.get(ent, {})
+            if name not in fields:
+                found.complete = False
+                continue
+            use(ent, name, False, line, column)
+            related = fields[name][1]
+            value = _prisma_object(value)
+            if related is not None and value is not None and value.type == "object":
+                order(value, related)
+
+    def values(node, ent):
+        for item in _prisma_items(node, found):
+            item = _prisma_object(item)
+            if (
+                item is not None
+                and item.type == "call_expression"
+                and (item.child_by_field_name("function") or item).type
+                == "member_expression"
+                and item.child_by_field_name("function")
+                .child_by_field_name("property")
+                .text
+                == b"create"
+            ):
+                inner = item.child_by_field_name("arguments")
+                inner = [a for a in inner.named_children if a.type != "comment"]
+                if len(inner) == 1:
+                    values(inner[0], ent)
+                else:
+                    found.complete = False
+                continue
+            for name, line, column, _ in _prisma_pairs(item, content, found):
+                if name not in entities.get(ent, {}):
+                    found.complete = False
+                    continue
+                # A relation sets the foreign key it holds; what its object
+                # gives the related entity is written only by a cascade.
+                use(ent, name, True, line, column)
+
+    def relations(node, ent):
+        # Joining a relation reads the foreign key the entity holds; a
+        # string array names relations too.
+        for item in _prisma_alternatives(node):
+            if item.type == "array":
+                continue
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields or fields[name][1] is None:
+                    continue
+                use(ent, name, False, line, column)
+                value = _prisma_object(value)
+                if value is not None and value.type == "object":
+                    relations(value, fields[name][1])
+
+    def options(node):
+        selected = False
+        for name, line, column, value in _prisma_pairs(node, content, found):
+            if name == "where":
+                where(value, entity)
+            elif name == "select":
+                selected = True
+                select(value, entity)
+            elif name == "order":
+                order(value, entity)
+            elif name == "relations":
+                relations(value, entity)
+            elif name not in _TYPEORM_OPTIONS_IGNORED:
+                found.complete = False
+        return selected
+
+    def field(node, writes):
+        name = _script_string(node, content) if node.type == "string" else None
+        if name is None or name not in entities.get(entity, {}):
+            found.complete = False
+            return
+        use(entity, name, writes, node.start_point.row + 1, node.start_point.column + 1)
+
+    selected = False
+    if method == "builder":
+        # A query builder's values() and set() objects write; an object
+        # given to where() and its kin reads; SQL text is not read here.
+        for name, node in chain:
+            inner = node.child_by_field_name("arguments")
+            first = next(
+                (
+                    a
+                    for a in (inner.named_children if inner else ())
+                    if a.type != "comment"
+                ),
+                None,
+            )
+            if first is None:
+                continue
+            if name in ("values", "set"):
+                values(first, entity)
+            elif name in ("where", "andWhere", "orWhere"):
+                alternatives = _prisma_alternatives(first)
+                if alternatives and all(
+                    a.type in ("object", "array") for a in alternatives
+                ):
+                    where(first, entity)
+                else:
+                    found.complete = False
+        found.rows = False
+        return found
+    if method in _TYPEORM_OPTION_METHODS and method not in ("exist",):
+        if args:
+            selected = options(args[0])
+    elif method in _TYPEORM_WHERE_METHODS:
+        if args:
+            where(args[0], entity)
+        else:
+            found.complete = False
+    elif method in _TYPEORM_FIELD_METHODS:
+        if args:
+            field(args[0], False)
+        if len(args) > 1:
+            where(args[1], entity)
+    elif method in ("increment", "decrement"):
+        if len(args) >= 2:
+            where(args[0], entity)
+            field(args[1], True)
+        else:
+            found.complete = False
+    elif method == "update":
+        if len(args) == 2:
+            where(args[0], entity)
+            values(args[1], entity)
+        else:
+            found.complete = False
+    elif method in ("save", "insert", "upsert"):
+        if args:
+            values(args[0], entity)
+        if method == "upsert" and len(args) > 1:
+            paths = _prisma_object(args[1])
+            if paths is not None and paths.type == "array":
+                for element in paths.named_children:
+                    field(element, False)
+            else:
+                found.complete = False
+        elif method != "upsert" and len(args) > 1:
+            pass  # SaveOptions / no further argument names a column
+    else:
+        found.complete = False
+    found.rows = method in _TYPEORM_ROW_METHODS and not selected
+    return found
+
+
+def prisma_typed_inputs(tree):
+    """(line, column, name, value node, binding) of each object a Prisma
+    Client input type is written for outside a call: ``const where:
+    Prisma.UserWhereInput = {...}``, what a function declared to return one
+    returns, ``{...} satisfies Prisma.UserWhereInput`` and
+    ``Prisma.validator<Prisma.UserWhereInput>()({...})``. Line and column
+    are the type name's (``UserWhereInput``), for the index to resolve;
+    binding is (line, column) of a declared variable's name, else None."""
+    found = []
+
+    def named(node):
+        if node is None:
+            return []
+        if node.type == "nested_type_identifier":
+            name = node.named_children[-1]
+            return [name] if name.type == "type_identifier" else []
+        if node.type in (
+            "type_annotation",
+            "union_type",
+            "type_arguments",
+            "array_type",
+        ):
+            return [n for c in node.named_children for n in named(c)]
+        return []
+
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        pairs = []
+        binding = None
+        if node.type == "variable_declarator":
+            pairs = [
+                (name, node.child_by_field_name("value"))
+                for name in named(node.child_by_field_name("type"))
+            ]
+            target = node.child_by_field_name("name")
+            if target is not None and target.type == "identifier":
+                binding = (target.start_point.row + 1, target.start_point.column)
+        elif node.type in _FUNCTION_NODES:
+            # A function declared to return an input type: what it returns.
+            pairs = [
+                (name, value)
+                for name in named(node.child_by_field_name("return_type"))
+                for value in _prisma_returned(node)
+            ]
+        elif node.type == "satisfies_expression" and len(node.named_children) == 2:
+            pairs = [
+                (name, node.named_children[0]) for name in named(node.named_children[1])
+            ]
+        elif node.type == "call_expression":
+            inner = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if (
+                inner is not None
+                and inner.type == "call_expression"
+                and arguments is not None
+                and arguments.named_children
+            ):
+                function = inner.child_by_field_name("function")
+                if (
+                    function is not None
+                    and function.type == "member_expression"
+                    and function.child_by_field_name("property").text == b"validator"
+                ):
+                    pairs = [
+                        (name, arguments.named_children[0])
+                        for name in named(inner.child_by_field_name("type_arguments"))
+                    ]
+        for name, value in pairs:
+            found.append(
+                (
+                    name.start_point.row + 1,
+                    name.start_point.column,
+                    name.text.decode(),
+                    value,
+                    binding,
+                )
+            )
+    return found
+
+
+def prisma_assignments(tree, content):
+    """(variable line, column, key or None, key line, column, value node)
+    of each assignment to a variable (``where = {...}``) or to one of its
+    properties (``where.name = {...}``)."""
+    found = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type != "assignment_expression":
+            continue
+        left = node.child_by_field_name("left")
+        value = node.child_by_field_name("right")
+        if left is None or value is None:
+            continue
+        if left.type == "identifier":
+            found.append(
+                (left.start_point.row + 1, left.start_point.column, None, 0, 0, value)
+            )
+        elif left.type == "member_expression":
+            target = left.child_by_field_name("object")
+            key = left.child_by_field_name("property")
+            if (
+                target is not None
+                and target.type == "identifier"
+                and key is not None
+                and key.type == "property_identifier"
+            ):
+                found.append(
+                    (
+                        target.start_point.row + 1,
+                        target.start_point.column,
+                        _text(key, content),
+                        key.start_point.row + 1,
+                        key.start_point.column,
+                        value,
+                    )
+                )
+    return found
+
+
+# What a Prisma Client input type's object holds, by its name's suffix.
+PRISMA_INPUT_KINDS = {
+    "WhereInput": "where",
+    "WhereUniqueInput": "where",
+    "Select": "select",
+    "Include": "include",
+    "OrderByWithRelationInput": "order",
+    "CreateInput": "write",
+    "UncheckedCreateInput": "write",
+    "UpdateInput": "write",
+    "UncheckedUpdateInput": "write",
+    "CreateManyInput": "write",
+    "UpdateManyMutationInput": "write",
+    "UncheckedUpdateManyInput": "write",
+}
+
+
+def prisma_input_columns(kind, value, content, model, models, key=None):
+    """The ``PrismaColumns`` of an object written for one of Prisma
+    Client's input types (``PRISMA_INPUT_KINDS``) of ``model``; with
+    ``key`` ((name, line, column)), ``value`` is that one property's."""
+    found = PrismaColumns()
+    if key is not None:
+        pairs = [(*key, value)]
+        if kind == "where":
+            _prisma_filter(None, content, model, models, found, pairs)
+        elif kind == "write":
+            _prisma_write(None, content, model, models, found, pairs)
+        else:
+            found.complete = False
+        return found
+    for item in _prisma_items(value, found):
+        if kind == "where":
+            _prisma_filter(item, content, model, models, found)
+        elif kind == "select":
+            _prisma_select(item, content, model, models, found, True)
+        elif kind == "include":
+            _prisma_select(item, content, model, models, found, True, True)
+        elif kind == "order":
+            _prisma_order(item, content, model, models, found)
+        else:
+            _prisma_write(item, content, model, models, found)
+    return found
+
+
+def _prisma_arguments(node, content, model, models, found, root, method=""):
+    """A query argument object (the call's, or a relation's in a select or
+    include)."""
+    selected = False
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        if key in _PRISMA_FILTERS:
+            _prisma_filter(value, content, model, models, found)
+        elif key in _PRISMA_WRITES:
+            for item in _prisma_items(value, found):
+                _prisma_write(item, content, model, models, found)
+        elif key == "select":
+            selected = True
+            _prisma_select(value, content, model, models, found, root)
+        elif key == "include":
+            if root:
+                found.rows = True
+            _prisma_select(value, content, model, models, found, root, True)
+        elif key == "omit":
+            pass
+        elif key == "orderBy":
+            for item in _prisma_items(value, found):
+                _prisma_order(item, content, model, models, found)
+        elif key in _PRISMA_FIELD_LISTS:
+            for item in _prisma_items(value, found):
+                name = _script_string(item, content) if item is not None else None
+                if name is None or not _prisma_field(model, name, found):
+                    found.complete = False
+                    continue
+                found.uses.append(
+                    (
+                        model.model,
+                        name,
+                        False,
+                        item.start_point.row + 1,
+                        item.start_point.column,
+                    )
+                )
+        elif key in _PRISMA_AGGREGATES:
+            value = _prisma_object(value)
+            if value is not None and value.type == "true":
+                continue
+            for name, at_line, at_column, _ in _prisma_pairs(value, content, found):
+                if name == "_all":
+                    continue
+                if not _prisma_field(model, name, found):
+                    found.complete = False
+                    continue
+                found.uses.append((model.model, name, False, at_line, at_column))
+        elif key not in _PRISMA_IGNORED:
+            found.complete = False
+    if root and not selected and method not in _PRISMA_NO_ROWS:
+        found.rows = True
+
+
+def _prisma_field(model, name, found):
+    return any(field == name for field, _ in model.columns)
+
+
+def _prisma_link(model, name):
+    return next((link for link in model.links if link[0] == name), None)
+
+
+def _prisma_filter(node, content, model, models, found, pairs=None):
+    """A WhereInput: fields, compound keys, AND/OR/NOT and relation filters."""
+    if pairs is None:
+        pairs = _prisma_pairs(node, content, found)
+    for key, line, column, value in pairs:
+        if key in _PRISMA_LOGICAL:
+            for item in _prisma_items(value, found):
+                _prisma_filter(item, content, model, models, found)
+        elif _prisma_field(model, key, found):
+            found.uses.append((model.model, key, False, line, column))
+        elif (compound := dict(model.compounds).get(key)) is not None:
+            inner = {
+                k: (at_line, at_column)
+                for k, at_line, at_column, _ in (
+                    _prisma_pairs(value, content, PrismaColumns())
+                )
+            }
+            for name in compound:
+                at_line, at_column = inner.get(name, (line, column))
+                found.uses.append((model.model, name, False, at_line, at_column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            value = _prisma_object(value)
+            if related is None:
+                found.complete = False
+            elif value is None or value.type == "null":
+                # A to-one relation that is null: its foreign key is read.
+                for name in link[2]:
+                    found.uses.append((model.model, name, False, line, column))
+            else:
+                pairs = _prisma_pairs(value, content, PrismaColumns())
+                if pairs and all(k in _PRISMA_RELATION_FILTERS for k, *_ in pairs):
+                    for _, _, _, inner in pairs:
+                        if _prisma_object(inner) is not None and (
+                            _prisma_object(inner).type == "null"
+                        ):
+                            continue
+                        _prisma_filter(inner, content, related, models, found)
+                else:
+                    _prisma_filter(value, content, related, models, found)
+        else:
+            found.complete = False
+
+
+def _prisma_select(node, content, model, models, found, root, include=False):
+    """A Select or Include: fields read, and relations with their own
+    query arguments."""
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        value_node = _prisma_object(value)
+        if _prisma_field(model, key, found) and not include:
+            if value_node is not None and value_node.type == "false":
+                continue
+            found.uses.append((model.model, key, False, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            # The relation's own foreign key fields are read to join it.
+            for name in link[2]:
+                found.uses.append((model.model, name, False, line, column))
+            if value_node is not None and value_node.type == "true":
+                # Every field of the related rows comes back.
+                found.rows = True
+            elif value_node is not None and value_node.type != "false":
+                inner = PrismaColumns()
+                _prisma_arguments(value_node, content, related, models, inner, False)
+                found.uses.extend(inner.uses)
+                found.complete = found.complete and inner.complete
+                selects = {k for k, *_ in _prisma_pairs(value_node, content, inner)}
+                if "select" not in selects:
+                    found.rows = True
+        elif key == "_count":
+            continue
+        else:
+            found.complete = False
+
+
+def _prisma_order(node, content, model, models, found):
+    """An OrderByInput: a field, or a relation's own order."""
+    for key, line, column, value in _prisma_pairs(node, content, found):
+        if _prisma_field(model, key, found):
+            found.uses.append((model.model, key, False, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            _prisma_order(value, content, related, models, found)
+        elif key not in ("_count", "_relevance"):
+            found.complete = False
+
+
+def _prisma_write(node, content, model, models, found, pairs=None):
+    """A CreateInput or UpdateInput: fields written. A relation key writes
+    the foreign key fields this model holds, and its nested writes
+    (create, connect, update, ...) name the related model's fields."""
+    if pairs is None:
+        pairs = _prisma_pairs(node, content, found)
+    for key, line, column, value in pairs:
+        if _prisma_field(model, key, found):
+            found.uses.append((model.model, key, True, line, column))
+        elif (link := _prisma_link(model, key)) is not None:
+            for name in link[2]:
+                found.uses.append((model.model, name, True, line, column))
+            related = models(link[1])
+            if related is None:
+                found.complete = False
+                continue
+            _prisma_nested(value, content, related, models, found)
+        else:
+            found.complete = False
+
+
+def _prisma_nested(node, content, model, models, found):
+    """A relation's nested writes in a data object, on its related model."""
+
+    def write(value):
+        for item in _prisma_items(value, found):
+            _prisma_write(item, content, model, models, found)
+
+    def where(value):
+        for item in _prisma_items(value, found):
+            _prisma_filter(item, content, model, models, found)
+
+    def parts(value, *names):
+        """Each element's values of ``names``, as a dict of lists."""
+        for item in _prisma_items(value, found):
+            pairs = _prisma_pairs(item, content, found)
+            if any(k not in names for k, *_ in pairs):
+                found.complete = False
+            yield {k: v for k, _, _, v in pairs}
+
+    for key, _, _, value in _prisma_pairs(node, content, found):
+        flag = _prisma_object(value)
+        if flag is not None and flag.type in ("true", "false"):
+            continue
+        if key == "create":
+            write(value)
+        elif key == "createMany":
+            for item in parts(value, "data", "skipDuplicates"):
+                write(item.get("data"))
+        elif key == "connectOrCreate":
+            for item in parts(value, "where", "create"):
+                where(item.get("where"))
+                write(item.get("create"))
+        elif key in ("connect", "delete", "deleteMany", "disconnect", "set"):
+            where(value)
+        elif key == "upsert":
+            for item in parts(value, "where", "create", "update"):
+                if "where" in item:
+                    where(item["where"])
+                write(item.get("create"))
+                write(item.get("update"))
+        elif key in ("update", "updateMany"):
+            for item in _prisma_items(value, found):
+                keys = {k for k, *_ in _prisma_pairs(item, content, PrismaColumns())}
+                if "data" in keys and keys <= {"where", "data"}:
+                    for k, _, _, v in _prisma_pairs(item, content, found):
+                        if k == "where":
+                            where(v)
+                        else:
+                            write(v)
+                else:
+                    _prisma_write(item, content, model, models, found)
+        else:
+            found.complete = False
 
 
 # Go: database/sql, sqlx, pgx and GORM ---------------------------------------
@@ -5185,6 +6976,8 @@ class GormModel:
     how: str  # "embeds" (gorm.Model) or "migrated" (AutoMigrate) or "model"
     line: int
     column: int
+    # The import path of a type named from another package (models.User).
+    package: str | None = None
 
 
 @dataclass(frozen=True)
@@ -5343,6 +7136,40 @@ def _go_variables(function, content, imports):
     return {k: v for k, v in found.items() if v is not None}
 
 
+# NamingStrategy settings that change GORM's column names (ColumnName's
+# toDBName): table settings (SingularTable, TablePrefix) do not.
+GORM_COLUMN_NAMING = {"NoLowerCase", "NameReplacer"}
+
+
+def gorm_column_naming(tree, content):
+    """Whether a file configures a NamingStrategy that may rename columns:
+    one that is not a ``schema.NamingStrategy{...}`` literal, or one setting
+    NoLowerCase or NameReplacer."""
+    for element in _descendants(tree.root_node, "keyed_element"):
+        children = element.named_children
+        if len(children) < 2 or _text(children[0], content) != "NamingStrategy":
+            continue
+        value = children[1]
+        if value.type == "literal_element" and value.named_children:
+            value = value.named_children[0]
+        written = (
+            value.child_by_field_name("type")
+            if value.type == "composite_literal"
+            else None
+        )
+        if written is None or _text(written, content).rpartition(".")[2] != (
+            "NamingStrategy"
+        ):
+            return True
+        body = value.child_by_field_name("body")
+        for keyed in _descendants(body, "keyed_element") if body else ():
+            if keyed.named_children and _text(keyed.named_children[0], content) in (
+                GORM_COLUMN_NAMING
+            ):
+                return True
+    return False
+
+
 def extract_gorm(tree, content, file, definitions):
     """(models, uses, naming) of one Go file. In a file importing
     gorm.io/gorm: structs that embed ``gorm.Model``, types passed to
@@ -5413,7 +7240,7 @@ def extract_gorm(tree, content, file, definitions):
         if method == "AutoMigrate" and gorm:
             for value in values:
                 kind = _go_value_type(value, content, imports, {})
-                if kind is not None and kind.package is None:
+                if kind is not None:
                     models.append(
                         GormModel(
                             file,
@@ -5421,6 +7248,7 @@ def extract_gorm(tree, content, file, definitions):
                             "migrated",
                             value.start_point.row + 1,
                             value.start_point.column,
+                            kind.package,
                         )
                     )
             continue
@@ -5447,7 +7275,7 @@ def extract_gorm(tree, content, file, definitions):
                 node = node.parent.parent
             reads = any(m in GORM_CHAIN_READS | GORM_READ_WRITES for m in chain)
             writes = any(m in GORM_CHAIN_WRITES | GORM_READ_WRITES for m in chain)
-            if kind.package is None and gorm:
+            if gorm:
                 models.append(
                     GormModel(
                         file,
@@ -5455,6 +7283,7 @@ def extract_gorm(tree, content, file, definitions):
                         "model",
                         call.start_point.row + 1,
                         call.start_point.column,
+                        kind.package,
                     )
                 )
         elif method in GORM_READS | GORM_WRITES | GORM_READ_WRITES:

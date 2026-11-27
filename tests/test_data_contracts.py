@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -86,6 +87,94 @@ DJANGO = {
     "shop/migrations/0002_close.py": "def close(apps, schema_editor):\n"
     '    Order = apps.get_model("store", "Order")\n'
     "    Order.objects.filter(open=True).update(open=False)\n",
+}
+
+DJANGO_COLUMNS = {
+    "requirements.txt": "Django==5.2.8\n",
+    "blog/models.py": "from django.db import models\n"
+    "class Stamped(models.Model):\n"
+    "    created = models.DateTimeField()\n"
+    "    class Meta:\n"
+    "        abstract = True\n"
+    "class Author(Stamped):\n"
+    '    name = models.CharField(max_length=10, db_column="full_name")\n'
+    "class Post(Stamped):\n"
+    "    author = models.ForeignKey(Author, on_delete=models.CASCADE)\n"
+    "    title = models.CharField(max_length=10)\n"
+    '    tags = models.ManyToManyField("Tag")\n'
+    "class Tag(models.Model):\n"
+    "    label = models.SlugField(primary_key=True)\n"
+    "class Comment(models.Model):\n"
+    '    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="notes")\n'
+    "    body = models.TextField()\n",
+    "blog/views.py": "from django.db.models import Q, F, Count\n"
+    "from .models import Author, Post\n"
+    "def recent(name):\n"
+    '    return Post.objects.filter(author__name=name, title__icontains="x").values("title", "created")\n'
+    "def rename(post):\n"
+    '    post.title = "y"\n'
+    "    return post.author.name\n"
+    "def add(author):\n"
+    '    return Post.objects.create(author=author, title="z")\n'
+    "def counts():\n"
+    '    return Author.objects.annotate(n=Count("post")).filter(Q(name="a") | Q(pk=1)).order_by("-created")\n'
+    "def build():\n"
+    '    return Post(author_id=1, title=F("title"))\n'
+    "def touch(**kw):\n"
+    '    return Post.objects.filter(**kw).update(title="t")\n'
+    "from . import models\n"
+    "def tally(post):\n"
+    '    post.title += "!"\n'
+    '    return models.Post.objects.order_by("title").get_or_create(title="q")\n'
+    "def noted():\n"
+    '    return Post.objects.filter(notes__body="x").exists()\n',
+}
+
+SA_COLUMNS = {
+    "app/models.py": "from sqlalchemy import Column, Integer, String, ForeignKey\n"
+    "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship\n"
+    "class Base(DeclarativeBase):\n"
+    "    pass\n"
+    "class Stamped:\n"
+    "    created = Column(Integer)\n"
+    "class User(Stamped, Base):\n"
+    '    __tablename__ = "users"\n'
+    "    id: Mapped[int] = mapped_column(primary_key=True)\n"
+    '    name: Mapped[str] = mapped_column("full_name", String)\n'
+    "    email: Mapped[str]\n"
+    '    posts = relationship("Post")\n'
+    "class Post(Base):\n"
+    '    __tablename__ = "posts"\n'
+    "    id = Column(Integer, primary_key=True)\n"
+    '    author_id = Column(ForeignKey("users.id"))\n'
+    '    title = Column("headline", String)\n'
+    "class Admin(User):\n"
+    "    level = Column(Integer)\n"
+    "class Solve(Post):\n"
+    '    __tablename__ = "solves"\n'
+    '    id = Column(ForeignKey("posts.id"), primary_key=True)\n'
+    "    author_id = column_property(Column(Integer), Post.author_id)\n"
+    '    _password = Column("password", String)\n',
+    "app/views.py": "from sqlalchemy import select, update, insert\n"
+    "from .models import User, Post, Admin, Solve\n"
+    "def find(session, name):\n"
+    '    return session.query(User).filter_by(name=name, email="e").all()\n'
+    "def rename(user):\n"
+    '    user.name = "x"\n'
+    "    user.created += 1\n"
+    "    return user.email\n"
+    "def bulk(session):\n"
+    '    session.execute(update(Post).where(Post.id == 1).values(title="t", author_id=2))\n'
+    '    session.execute(insert(Post).values({"title": "u"}))\n'
+    '    return session.execute(update(User).values({User.email: "z"}))\n'
+    "def make():\n"
+    '    return Post(title="v", author_id=1)\n'
+    "def joined(session):\n"
+    '    return session.query(User).join(Post).filter_by(title="w")\n'
+    "def admins(session):\n"
+    "    return session.query(Admin).filter_by(level=2)\n"
+    "def solved(session):\n"
+    '    return session.query(Solve).filter_by(author_id=1, title="x")\n',
 }
 
 MODEL = "store/src/main/java/shop/model/"
@@ -1281,8 +1370,20 @@ class SqlModelTests(unittest.TestCase):
                 r.properties["rule_id"].split(".", 1)[1],
             )
             for r in output.relationships
+            if "column" not in r.properties["rule_id"]
+        )
+        self.columns = sorted(
+            r.target_match["qualified_name"].split("::db-table::")[-1]
+            for r in output.relationships
+            if r.type == "HAS_COLUMN"
         )
         return edges, output.metadata.custom_metrics
+
+    def test_sqlmodel_table_fields_are_columns(self):
+        # Item's own id and the title of the non-table SQLModel it extends;
+        # ItemPublic is no table.
+        self.analyze(False)
+        self.assertEqual(self.columns, ["item::column::id", "item::column::title"])
 
     def index(self, directory):
         """A scip-python index of SQLMODEL's names, ingested."""
@@ -1472,6 +1573,58 @@ TYPEORM_SCIP = {
     "  raw() { return this.repo.query('DELETE FROM sessions'); }\n"
     "  rel(u: User) { return this.repo.createQueryBuilder().relation('tags').of(u).add(1); }\n"
     "}\n",
+}
+
+
+TYPEORM_COLUMNS = {
+    "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    "src/base.entity.ts": "import { CreateDateColumn } from 'typeorm';\n"
+    "export abstract class Base {\n"
+    "  @CreateDateColumn() createdAt: Date;\n"
+    "}\n",
+    "src/role.entity.ts": "import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';\n"
+    "@Entity('roles')\n"
+    "export class Role {\n"
+    "  @PrimaryGeneratedColumn() id: number;\n"
+    "  @Column() name: string;\n"
+    "}\n",
+    "src/user.entity.ts": "import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';\n"
+    "import { Base } from './base.entity';\n"
+    "import { Role } from './role.entity';\n"
+    "@Entity('users')\n"
+    "export class User extends Base {\n"
+    "  @PrimaryGeneratedColumn() id: number;\n"
+    "  @Column({ name: 'email_address' }) email: string;\n"
+    "  @Column() firstName: string;\n"
+    "  @ManyToOne(() => Role) role: Role;\n"
+    "}\n",
+    "src/user.service.ts": "import { Repository } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserService {\n"
+    "  constructor(private repo: Repository<User>) {}\n"
+    "  byEmail(email: string) { return this.repo.findOne({ where: { email, role: { name: 'a' } }, select: { id: true, firstName: true } }); }\n"
+    "  rename(u: User) { u.firstName = 'x'; return u.email; }\n"
+    "  add() { return this.repo.save({ email: 'a', role: { id: 1 } }); }\n"
+    "  change(id: number) { return this.repo.update({ id }, { firstName: 'b' }); }\n"
+    "  dynamic(where: any) { return this.repo.find({ where }); }\n"
+    "}\n",
+    "src/more.ts": "import { Repository, EntityManager, FindOptionsWhere } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserRepository extends Repository<User> {}\n"
+    "export class More {\n"
+    "  constructor(private users: UserRepository, private repo: Repository<User>) {}\n"
+    "  named() { return this.users.findBy({ firstName: 'c' }); }\n"
+    "  managed(m: EntityManager) { return m.delete(User, { firstName: 'c', ...(1 && { id: 2 }) }); }\n"
+    "  built() { return this.repo.createQueryBuilder().update().set({ firstName: 'd' }).where({ id: 1 }).execute(); }\n"
+    "  typed(u: User): typeof u.email { return ''; }\n"
+    "  own(r: Own) { return r.update({ firstName: 'e' }); }\n"
+    "  rel() { const r: FindOptionsWhere<User> = { firstName: 'f' }; return r; }\n"
+    "  byIds(o: FindOptionsWhere<User>) { return o; }\n"
+    "  call() { return this.byIds({ firstName: 'g' }); }\n"
+    "}\n"
+    "export interface Own { update(u: Partial<User>): void; }\n",
+    "db/migrations/0001_init.sql": "CREATE TABLE users (id int, email_address text, "
+    '"firstName" text, "createdAt" timestamp, "roleId" int);\n',
 }
 
 
@@ -2615,8 +2768,228 @@ def _go_proxy():
 GORM_RELEASES = _go_proxy()
 
 
+PRISMA_COLUMNS = {
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
+    "prisma/schema.prisma": """datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id     Int    @id
+  email  String @map("email_address")
+  tenant Int
+  name   String
+  posts  Post[]
+  @@unique([email, tenant])
+  @@map("users")
+}
+
+model Post {
+  id       Int    @id
+  title    String
+  authorId Int    @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+}
+""",
+    "prisma/migrations/0_init/migration.sql": 'CREATE TABLE "Post" '
+    '("id" INTEGER, "title" TEXT, "author_id" INTEGER);\n',
+    "prisma/migrations/migration_lock.toml": 'provider = "postgresql"\n',
+    "src/repo.ts": """import { Prisma, PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
+export async function find(email: string, tenant: number) {
+  return prisma.user.findUnique({ where: { email_tenant: { email, tenant } }, select: { name: true } });
+}
+
+export async function list() {
+  const rows = await prisma.user.findMany({ where: { posts: { some: { title: "x" } } } });
+  return rows.map((r) => r.name);
+}
+
+export async function publish(authorId: number) {
+  await prisma.post.create({ data: { title: "t", author: { connect: { id: authorId } } } });
+}
+
+export async function odd(input: any) {
+  return prisma.user.count({ where: input });
+}
+
+export function named(name: string): Prisma.UserWhereInput {
+  return { name };
+}
+
+export async function seed(names: string[]) {
+  await prisma.user.createMany({ data: names.map((name, id) => ({ id, name, tenant: 1, email: name })) });
+  await prisma.user.update({
+    where: { id: 1 },
+    data: { posts: { create: { id: 2, title: "t" } }, ...(names.length ? { name: "x" } : {}) },
+  });
+  const groups = await prisma.user.groupBy({ by: ["tenant"], _count: true });
+  return groups.map((g) => g.tenant);
+}
+
+export async function short(where: Prisma.UserWhereInput) {
+  return prisma.user.count({ where });
+}
+""",
+}
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
+    def prisma_index(self, directory, per_model=False):
+        """A scip-typescript index of src/repo.ts, with the client symbols
+        of the prisma-client-js generator (namespace Prisma in index.d.ts),
+        or of the prisma-client generator (a file per model)."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        client = (
+            "scip-typescript npm app 1.0.0 src/generated/prisma/models/`User.ts`/"
+            if per_model
+            else "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
+        )
+        payload = (
+            client + "$UserPayload#typeLiteral10:scalars."
+            "`$Extensions.GetPayloadResult`:typeLiteral11:name."
+        )
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        document = index.documents.add(relative_path="src/repo.ts")
+        lines = PRISMA_COLUMNS["src/repo.ts"].split("\n")
+        for line, text, symbol in (
+            (9, "r.name", payload),
+            (20, "UserWhereInput", client + "UserWhereInput#"),
+            (31, "g.tenant", client + "UserGroupByOutputType#typeLiteral10:tenant."),
+        ):
+            start = lines[line].index(text) + (
+                2 if text.startswith(("r.", "g.")) else 0
+            )
+            end = start + len(text) - (2 if text.startswith(("r.", "g.")) else 0)
+            document.occurrences.add(symbol=symbol, range=[line, start, end])
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
+    def test_prisma_columns(self):
+        self.prisma_columns(per_model=False)
+
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
+    def test_prisma_columns_of_the_prisma_client_generator(self):
+        # Prisma 7's prisma-client generator declares its types per model.
+        self.prisma_columns(per_model=True)
+
+    def prisma_columns(self, per_model):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PRISMA_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r",
+                    languages=["typescript"],
+                    scip_indexes=(self.prisma_index(directory, per_model),),
+                )
+            )
+        edges = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[1],
+                r.properties["line"],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("columns_resolved", False),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES", "READS_COLUMN", "WRITES_COLUMN")
+        )
+        key, row = "prisma-column-key", "prisma-scip-column-read"
+        self.assertEqual(
+            edges,
+            [
+                # A compound unique key reads its fields' columns; the select
+                # names every column the rows hold.
+                ("find", "READS", "users", 5, "prisma-client", True),
+                ("find", "READS_COLUMN", "users::column::email_address", 5, key, False),
+                ("find", "READS_COLUMN", "users::column::name", 5, key, False),
+                ("find", "READS_COLUMN", "users::column::tenant", 5, key, False),
+                # Whole rows come back: their readers are the row reads.
+                ("list", "READS", "users", 9, "prisma-client", False),
+                # A relation filter names the related model's fields.
+                ("list", "READS_COLUMN", "post::column::title", 9, key, False),
+                ("list", "READS_COLUMN", "users::column::name", 10, row, False),
+                # What a function declared to return a WhereInput returns.
+                ("named", "READS_COLUMN", "users::column::name", 22, key, False),
+                # The where is not an object literal: unknown columns.
+                ("odd", "READS", "users", 18, "prisma-client", False),
+                # connect sets the foreign key the post holds, found by the
+                # user's id.
+                ("publish", "READS_COLUMN", "users::column::id", 14, key, False),
+                ("publish", "WRITES", "post", 14, "prisma-client", True),
+                ("publish", "WRITES_COLUMN", "post::column::author_id", 14, key, False),
+                ("publish", "WRITES_COLUMN", "post::column::title", 14, key, False),
+                # groupBy returns only its by fields; its rows' fields are
+                # read through the index.
+                ("seed", "READS", "users", 31, "prisma-client", True),
+                ("seed", "READS_COLUMN", "users::column::id", 28, key, False),
+                ("seed", "READS_COLUMN", "users::column::tenant", 31, key, False),
+                ("seed", "READS_COLUMN", "users::column::tenant", 32, row, False),
+                # createMany's data from a map callback; update's nested
+                # create writes the related model, and a conditional spread
+                # is read on both branches.
+                ("seed", "WRITES", "users", 26, "prisma-client", True),
+                ("seed", "WRITES", "users", 27, "prisma-client", True),
+                ("seed", "WRITES_COLUMN", "post::column::id", 29, key, False),
+                ("seed", "WRITES_COLUMN", "post::column::title", 29, key, False),
+                (
+                    "seed",
+                    "WRITES_COLUMN",
+                    "users::column::email_address",
+                    26,
+                    key,
+                    False,
+                ),
+                ("seed", "WRITES_COLUMN", "users::column::id", 26, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::name", 26, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::name", 29, key, False),
+                ("seed", "WRITES_COLUMN", "users::column::tenant", 26, key, False),
+                # The where is a variable: its columns are not known here.
+                ("short", "READS", "users", 36, "prisma-client", False),
+            ],
+        )
+        # users has no migration: its columns are the DMMF's; Post's are its
+        # migration's.
+        declared = sorted(
+            r.target_match["qualified_name"].split("::db-table::")[1]
+            for r in output.relationships
+            if r.type == "HAS_COLUMN"
+            and r.properties["rule_id"] == "data-contracts.prisma-column"
+        )
+        self.assertEqual(
+            declared,
+            [
+                "users::column::email_address",
+                "users::column::id",
+                "users::column::name",
+                "users::column::tenant",
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["prisma_columns"],
+            {
+                "columns_declared": 4,
+                "keys": 16,
+                "typed_inputs": 1,
+                "typed_input_keys": 1,
+                "row_reads": 2,
+            },
+        )
+
     @unittest.skipUnless(
         NODE, "Prisma schemas are read with node, npm and npm's registry"
     )
@@ -2634,7 +3007,8 @@ class ScriptOrmTests(unittest.TestCase):
                 r.properties["rule_id"].split(".", 1)[1],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type not in ("CONTAINS", "HAS_COLUMN", "READS_COLUMN", "WRITES_COLUMN")
+            and "::column::" not in r.target_match["qualified_name"]
         )
         self.assertEqual(
             edges,
@@ -3230,7 +3604,8 @@ def go_edges(output):
             r.properties["rule_id"].split(".", 1)[1],
         )
         for r in output.relationships
-        if r.type != "CONTAINS"
+        # GORM columns have their own test.
+        if r.type != "CONTAINS" and "gorm-column" not in r.properties["rule_id"]
     )
 
 
@@ -4217,6 +4592,98 @@ func Save(db DB, value interface{}, rows []models.Legacy) {
 }
 
 
+GORM_COLUMNS = {
+    "go.mod": "module example.com/shop\n\ngo 1.22\n\nrequire gorm.io/gorm v1.25.12\n",
+    "models/models.go": """\
+package models
+
+import (
+	"database/sql"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+type Audit struct {
+	CreatedBy string
+	Note      string `gorm:"column:audit_note"`
+}
+
+type User struct {
+	gorm.Model
+	Name     string
+	Email    sql.NullString `gorm:"column:mail"`
+	Visits   int
+	Seen     time.Time
+	Secret   string `gorm:"-"`
+	Audit    Audit  `gorm:"embedded;embeddedPrefix:a_"`
+	Orders   []Order
+	APIKey   string
+	internal int
+}
+
+type Order struct {
+	ID     uint
+	UserID uint
+	User   User
+	Total  int
+}
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(&User{}, &Order{})
+}
+
+type Tag struct {
+	Label string
+}
+""",
+    # A model migrated from another package, as new(T).
+    "db/migrate.go": """\
+package db
+
+import (
+	"example.com/shop/models"
+	"gorm.io/gorm"
+)
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(new(models.Tag))
+}
+""",
+    "store/store.go": """\
+package store
+
+import (
+	"example.com/shop/models"
+	"gorm.io/gorm"
+)
+
+func Touch(db *gorm.DB, u *models.User) string {
+	u.Visits++
+	u.Name = "x"
+	db.Where(&models.User{Name: "a"}).First(u)
+	db.Create(&models.Order{UserID: u.ID, Total: 3})
+	return u.Name
+}
+
+func Strings(db *gorm.DB, u *models.User) {
+	db.Model(u).Where("name = ? AND visits > ?", "a", 1).Order("seen desc").Update("mail", "x")
+	db.Model(&models.User{}).Updates(map[string]interface{}{"api_key": "k"})
+	var names []string
+	db.Model(&models.User{}).Pluck("name", &names)
+}
+
+func Multi(db *gorm.DB, flag bool) {
+	col := "name"
+	if flag {
+		col = "visits"
+	}
+	db.Model(&models.User{}).Where(col+" = ? and seen > ?", 1, 2).First(&models.User{})
+}
+""",
+}
+
+
 class GormTests(unittest.TestCase):
     @needs_go
     @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
@@ -4272,7 +4739,7 @@ class GormTests(unittest.TestCase):
                 r.properties["rule_id"].split(".", 1)[1],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type != "CONTAINS" and "column" not in r.properties["rule_id"]
         )
         self.assertEqual(
             edges,
@@ -4293,6 +4760,151 @@ class GormTests(unittest.TestCase):
         self.assertEqual(metrics["gorm_default_table_names"], 2)
         self.assertEqual(
             metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
+        )
+
+    @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
+    def test_columns_and_field_accesses(self):
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        m = "scip-go gomod example.com/shop v0 `example.com/shop/models`/"
+        documents = {
+            "models/models.go": [
+                (10, "CreatedBy", m + "Audit#CreatedBy.", True, 0),
+                (11, "Note", m + "Audit#Note.", True, 0),
+                (16, "Name", m + "User#Name.", True, 0),
+                (18, "Visits", m + "User#Visits.", True, 0),
+                (29, "UserID", m + "Order#UserID.", True, 0),
+                (31, "Total", m + "Order#Total.", True, 0),
+            ],
+            "store/store.go": [
+                (8, "Visits", m + "User#Visits.", False, 0),
+                (9, "Name", m + "User#Name.", False, 0),
+                (10, "Name", m + "User#Name.", False, 0),
+                (11, "UserID", m + "Order#UserID.", False, 0),
+                (11, "Total", m + "Order#Total.", False, 0),
+                (12, "Name", m + "User#Name.", False, 0),
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, GORM_COLUMNS)
+            index = wire.Index()
+            index.metadata.tool_info.name = "scip-go"
+            index.metadata.tool_info.version = "0.1.26"
+            for path, occurrences in documents.items():
+                lines = GORM_COLUMNS[path].split("\n")
+                document = index.documents.add(relative_path=path)
+                for line, text, symbol, definition, _ in occurrences:
+                    column = lines[line].index(text)
+                    document.occurrences.add(
+                        symbol=symbol,
+                        range=[line, column, column + len(text)],
+                        symbol_roles=wire.Definition if definition else 0,
+                    )
+            path = Path(directory) / ".index.scip"
+            path.write_bytes(index.SerializeToString())
+            ingested = deepthought.ingest_scip(path, repository_id="r")
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["go"], scip_indexes=[(ingested, "sha256:test")]
+                )
+            )
+        self.maxDiff = None
+        columns = sorted(
+            r.target_match["qualified_name"].split("::db-table::")[-1]
+            for r in output.relationships
+            if r.type == "HAS_COLUMN"
+        )
+        # gorm.Model's fields, the embedded Audit with its prefix, tags and
+        # GORM's default names; not the ignored, unexported or relation
+        # fields.
+        self.assertEqual(
+            columns,
+            [
+                "orders::column::id",
+                "orders::column::total",
+                "orders::column::user_id",
+                "tags::column::label",
+                "users::column::a_audit_note",
+                "users::column::a_created_by",
+                "users::column::api_key",
+                "users::column::created_at",
+                "users::column::deleted_at",
+                "users::column::id",
+                "users::column::mail",
+                "users::column::name",
+                "users::column::seen",
+                "users::column::updated_at",
+                "users::column::visits",
+            ],
+        )
+        access = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN")
+            and r.properties["rule_id"].endswith("access")
+        )
+        keys = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties["line"],
+                r.properties["method"],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.gorm-column-key"
+        )
+        # Where's SQL fragment and Order's read by sqlglot, Update's column
+        # and a map key written, Pluck's column read.
+        self.assertEqual(
+            keys,
+            [
+                ("READS_COLUMN", "users::column::name", 17, "Where"),
+                ("READS_COLUMN", "users::column::name", 20, "Pluck"),
+                # Both values of col; seen once, though both strings name it.
+                ("READS_COLUMN", "users::column::name", 28, "Where"),
+                ("READS_COLUMN", "users::column::seen", 17, "Order"),
+                ("READS_COLUMN", "users::column::seen", 28, "Where"),
+                ("READS_COLUMN", "users::column::visits", 17, "Where"),
+                ("READS_COLUMN", "users::column::visits", 28, "Where"),
+                ("WRITES_COLUMN", "users::column::api_key", 18, "Updates"),
+                ("WRITES_COLUMN", "users::column::mail", 17, "Update"),
+            ],
+        )
+        # Every edge once, by the graph writer's identity of an edge (it
+        # refuses a snapshot with a duplicate).
+        from deepthought.storage.graph.writer import _canonical
+
+        identities = [
+            _canonical(
+                [
+                    r.type,
+                    [
+                        r.source_match["qualified_name"],
+                        r.target_match["qualified_name"],
+                    ],
+                    dict(r.properties),
+                ]
+            )
+            for r in output.relationships
+        ]
+        self.assertEqual(len(identities), len(set(identities)))
+        self.assertEqual(
+            access,
+            [
+                ("READS_COLUMN", "users::column::name", 11),
+                ("READS_COLUMN", "users::column::name", 13),
+                ("READS_COLUMN", "users::column::visits", 9),
+                ("WRITES_COLUMN", "orders::column::total", 12),
+                ("WRITES_COLUMN", "orders::column::user_id", 12),
+                ("WRITES_COLUMN", "users::column::name", 10),
+                ("WRITES_COLUMN", "users::column::visits", 9),
+            ],
         )
 
     @needs_go
@@ -5894,6 +6506,536 @@ class Prefix
         metrics = output.metadata.custom_metrics
         self.assertEqual(metrics["doctrine_unresolved"], {"metadata_listener": 6})
         self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 11)
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+@unittest.skipUnless(
+    NODE, "TypeORM's naming strategy is installed with npm from its registry"
+)
+class TypeormColumnTests(unittest.TestCase):
+    """TypeORM entity properties: columns by TypeORM's own naming, accesses
+    through the index, repository call keys by the entity's metadata."""
+
+    def index(self, directory):
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        typeorm = "scip-typescript npm typeorm 0.3.28 "
+        repository = typeorm + "repository/`Repository.d.ts`/Repository#"
+        app = "scip-typescript npm app 1 src/"
+        user = app + "`user.entity.ts`/User#"
+        role = app + "`role.entity.ts`/Role#"
+        service = app + "`user.service.ts`/UserService#"
+        more = app + "`more.ts`/More#"
+        more_repo = app + "`more.ts`/UserRepository#"
+        own = app + "`more.ts`/Own#"
+        where = typeorm + "find-options/`FindOptionsWhere.d.ts`/FindOptionsWhere#"
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        builder = (
+            typeorm + "query-builder/`UpdateQueryBuilder.d.ts`/UpdateQueryBuilder#"
+        )
+        documents = {
+            "src/base.entity.ts": [
+                (2, "createdAt", app + "`base.entity.ts`/Base#createdAt.", True, 0)
+            ],
+            "src/role.entity.ts": [
+                (2, "Role", role, True, 0),
+                (3, "id", role + "id.", True, 0),
+                (4, "name", role + "name.", True, 0),
+            ],
+            "src/user.entity.ts": [
+                (4, "User", user, True, 0),
+                (5, "id", user + "id.", True, 0),
+                (6, "email", user + "email.", True, 0),
+                (7, "firstName", user + "firstName.", True, 0),
+                (8, "role", user + "role.", True, 0),
+            ],
+            "src/user.service.ts": [
+                (1, "User", user, False, 0),
+                (3, "repo", service + "repo.", True, 0),
+                (3, "Repository", repository, False, 0),
+                (3, "User", user, False, 0),
+                (4, "repo", service + "repo.", False, 0),
+                (4, "findOne", repository + "findOne().", False, 0),
+                (5, "User", user, False, 0),
+                (5, "firstName", user + "firstName.", False, 0),
+                (5, "email", user + "email.", False, 0),
+                (6, "repo", service + "repo.", False, 0),
+                (6, "save", repository + "save().", False, 0),
+                # The index resolves a DeepPartial key to the property.
+                (6, "email", user + "email.", False, 0),
+                (7, "repo", service + "repo.", False, 0),
+                (7, "update", repository + "update().", False, 0),
+                (8, "repo", service + "repo.", False, 0),
+                (8, "find", repository + "find().", False, 0),
+            ],
+            "src/more.ts": [
+                (1, "User", user, False, 0),
+                (2, "UserRepository", more_repo, True, 0),
+                (2, "Repository", repository, False, 0),
+                (2, "User", user, False, 0),
+                (4, "users", more + "users.", True, 0),
+                (4, "UserRepository", more_repo, False, 0),
+                (4, "repo", more + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 0),
+                (5, "users", more + "users.", False, 0),
+                (5, "findBy", repository + "findBy().", False, 0),
+                (6, "EntityManager", manager, False, 0),
+                (6, "m", "local 1", True, 0),
+                (6, "m", "local 1", False, 1),
+                (6, "delete", manager + "delete().", False, 0),
+                (6, "User", user, False, 0),
+                (7, "repo", more + "repo.", False, 0),
+                (
+                    7,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (7, "update", builder + "update().", False, 0),
+                (7, "set", builder + "set().", False, 0),
+                (7, "where", builder + "where().", False, 0),
+                (7, "execute", builder + "execute().", False, 0),
+                (8, "User", user, False, 0),
+                (8, "email", user + "email.", False, 0),
+                (9, "Own", own, False, 0),
+                (9, "update", own + "update().", False, 0),
+                (9, "firstName", user + "firstName.", False, 0),
+                (10, "FindOptionsWhere", where, False, 0),
+                (10, "User", user, False, 0),
+                (10, "firstName", user + "firstName.", False, 0),
+                (11, "byIds", more + "byIds().", True, 0),
+                (11, "FindOptionsWhere", where, False, 0),
+                (12, "byIds", more + "byIds().", False, 0),
+                (12, "firstName", user + "firstName.", False, 0),
+                (14, "Own", own, True, 0),
+                (14, "update", own + "update().", True, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = TYPEORM_COLUMNS[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_typeorm_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=[self.index(directory)]
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties.get("line"),
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN", "HAS_COLUMN")
+        )
+        users = "users::column::"
+        roles = "roles::column::"
+        key, access = "typeorm-column-key", "typeorm-scip-column-access"
+        self.assertEqual(
+            [e for e in edges if e[0] != "HAS_COLUMN"],
+            [
+                ("READS_COLUMN", "More.built", users + "id", 8, key),
+                # A FindOptionsWhere, declared or a parameter's type, reads.
+                ("READS_COLUMN", "More.call", users + "firstName", 13, access),
+                ("READS_COLUMN", "More.managed", users + "firstName", 7, key),
+                ("READS_COLUMN", "More.managed", users + "id", 7, key),
+                ("READS_COLUMN", "More.named", users + "firstName", 6, key),
+                ("READS_COLUMN", "More.rel", users + "firstName", 11, access),
+                ("READS_COLUMN", "UserService.byEmail", roles + "name", 5, key),
+                (
+                    "READS_COLUMN",
+                    "UserService.byEmail",
+                    users + "email_address",
+                    5,
+                    key,
+                ),
+                ("READS_COLUMN", "UserService.byEmail", users + "firstName", 5, key),
+                ("READS_COLUMN", "UserService.byEmail", users + "id", 5, key),
+                ("READS_COLUMN", "UserService.byEmail", users + "roleId", 5, key),
+                ("READS_COLUMN", "UserService.change", users + "id", 8, key),
+                (
+                    "READS_COLUMN",
+                    "UserService.rename",
+                    users + "email_address",
+                    6,
+                    access,
+                ),
+                ("WRITES_COLUMN", "More.built", users + "firstName", 8, key),
+                # The project's own update takes values.
+                ("WRITES_COLUMN", "More.own", users + "firstName", 10, access),
+                (
+                    "WRITES_COLUMN",
+                    "UserService.add",
+                    users + "email_address",
+                    7,
+                    access,
+                ),
+                ("WRITES_COLUMN", "UserService.add", users + "roleId", 7, key),
+                ("WRITES_COLUMN", "UserService.change", users + "firstName", 8, key),
+                ("WRITES_COLUMN", "UserService.rename", users + "firstName", 6, access),
+            ],
+        )
+        # Roles has no migration: its columns are declared by the entity.
+        self.assertEqual(
+            sorted(e[2] for e in edges if e[4] == "typeorm-column"),
+            [roles + "id", roles + "name"],
+        )
+        resolved = {
+            r.source_match["qualified_name"].split("::")[-2]: r.properties.get(
+                "columns_resolved"
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        }
+        # A select limits byEmail's row; find with a variable is not read.
+        self.assertEqual(
+            resolved,
+            {
+                "More.built": True,
+                "More.managed": True,
+                "More.named": False,
+                "UserService.byEmail": True,
+                "UserService.add": True,
+                "UserService.change": True,
+                "UserService.dynamic": False,
+            },
+        )
+        metrics = output.metadata.custom_metrics["typeorm_columns"]
+        self.assertEqual(metrics["columns"], 7)
+        self.assertEqual(metrics["columns_declared"], 2)
+
+
+def _pypi():
+    """pip and the package index reachable: the engine installs the Django
+    release a project declares to run its naming."""
+    try:
+        return (
+            subprocess.run(
+                [sys.executable, "-m", "pip", "index", "versions", "Django"],
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+PYPI = _pypi()
+
+
+@unittest.skipUnless(
+    PYPI, "Django's naming is installed with pip from the package index"
+)
+class DjangoColumnTests(unittest.TestCase):
+    """Django model fields: columns by Django's own naming, attribute
+    accesses through the index, lookups and field names by the model."""
+
+    def index(self, directory):
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        models = "scip-python python site 0 `blog.models`/"
+        documents = {
+            "blog/models.py": [
+                (1, "Stamped", models + "Stamped#", True),
+                (2, "created", models + "Stamped#created.", True),
+                (5, "Author", models + "Author#", True),
+                (6, "name", models + "Author#name.", True),
+                (7, "Post", models + "Post#", True),
+                (8, "author", models + "Post#author.", True),
+                (9, "title", models + "Post#title.", True),
+                (11, "Tag", models + "Tag#", True),
+                (13, "Comment", models + "Comment#", True),
+                (14, "post", models + "Comment#post.", True),
+                (15, "body", models + "Comment#body.", True),
+            ],
+            "blog/views.py": [
+                (1, "Author", models + "Author#", False),
+                (1, "Post", models + "Post#", False),
+                (3, "Post", models + "Post#", False),
+                (5, "title", models + "Post#title.", False),
+                (6, "author", models + "Post#author.", False),
+                (6, "name", models + "Author#name.", False),
+                (8, "Post", models + "Post#", False),
+                (10, "Author", models + "Author#", False),
+                (12, "Post", models + "Post#", False),
+                (14, "Post", models + "Post#", False),
+                (17, "title", models + "Post#title.", False),
+                (18, "Post", models + "Post#", False),
+                (20, "Post", models + "Post#", False),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        for path, occurrences in documents.items():
+            lines = DJANGO_COLUMNS[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition in occurrences:
+                column = lines[line].index(text)
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, column, column + len(text)],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_django_columns(self):
+        self.maxDiff = None
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DJANGO_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["python"], scip_indexes=[self.index(directory)]
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties.get("line"),
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN", "HAS_COLUMN")
+        )
+        self.assertEqual(
+            sorted(e[2] for e in edges if e[0] == "HAS_COLUMN"),
+            [
+                "blog_author::column::created",
+                "blog_author::column::full_name",
+                "blog_author::column::id",
+                "blog_comment::column::body",
+                "blog_comment::column::id",
+                "blog_comment::column::post_id",
+                "blog_post::column::author_id",
+                "blog_post::column::created",
+                "blog_post::column::id",
+                "blog_post::column::title",
+                "blog_tag::column::label",
+            ],
+        )
+        author, post = "blog_author::column::", "blog_post::column::"
+        comment = "blog_comment::column::"
+        key, access = "django-column-key", "django-scip-column-access"
+        self.assertEqual(
+            [e for e in edges if e[0] != "HAS_COLUMN"],
+            [
+                ("READS_COLUMN", "build", post + "title", 13, key),
+                ("READS_COLUMN", "counts", author + "created", 11, key),
+                ("READS_COLUMN", "counts", author + "full_name", 11, key),
+                ("READS_COLUMN", "counts", author + "id", 11, key),
+                ("READS_COLUMN", "counts", post + "author_id", 11, key),
+                ("READS_COLUMN", "noted", comment + "body", 21, key),
+                ("READS_COLUMN", "noted", comment + "post_id", 21, key),
+                ("READS_COLUMN", "recent", author + "full_name", 4, key),
+                ("READS_COLUMN", "recent", post + "author_id", 4, key),
+                ("READS_COLUMN", "recent", post + "created", 4, key),
+                ("READS_COLUMN", "recent", post + "title", 4, key),
+                ("READS_COLUMN", "recent", post + "title", 4, key),
+                ("READS_COLUMN", "rename", author + "full_name", 7, access),
+                ("READS_COLUMN", "rename", post + "author_id", 7, access),
+                ("READS_COLUMN", "tally", post + "title", 18, access),
+                ("READS_COLUMN", "tally", post + "title", 19, key),
+                ("READS_COLUMN", "tally", post + "title", 19, key),
+                ("WRITES_COLUMN", "add", post + "author_id", 9, key),
+                ("WRITES_COLUMN", "add", post + "title", 9, key),
+                ("WRITES_COLUMN", "build", post + "author_id", 13, key),
+                ("WRITES_COLUMN", "build", post + "title", 13, key),
+                ("WRITES_COLUMN", "rename", post + "title", 6, access),
+                ("WRITES_COLUMN", "tally", post + "title", 18, access),
+                ("WRITES_COLUMN", "tally", post + "title", 19, key),
+                ("WRITES_COLUMN", "touch", post + "title", 15, key),
+            ],
+        )
+        resolved = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.type,
+                r.properties.get("columns_resolved"),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        # values() names recent's columns; exists() reads no row; counts and
+        # get_or_create return whole rows; touch filters by **kw.
+        self.assertEqual(
+            resolved,
+            [
+                ("add", "WRITES", True),
+                ("counts", "READS", False),
+                ("noted", "READS", True),
+                ("recent", "READS", True),
+                ("tally", "READS", False),
+                ("tally", "WRITES", False),
+                ("touch", "READS", False),
+                ("touch", "WRITES", False),
+            ],
+        )
+
+
+class SqlalchemyColumnTests(unittest.TestCase):
+    """SQLAlchemy column attributes: columns by the name written, accesses
+    through the index, filter_by/values keys and constructor keywords."""
+
+    def index(self, directory):
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        m = "scip-python python site 0 `app.models`/"
+        documents = {
+            "app/models.py": [
+                (4, "Stamped", m + "Stamped#", True, 0),
+                (5, "created", m + "Stamped#created.", True, 0),
+                (6, "User", m + "User#", True, 0),
+                (6, "Stamped", m + "Stamped#", False, 0),
+                (8, "id", m + "User#id.", True, 0),
+                (9, "name", m + "User#name.", True, 0),
+                (10, "email", m + "User#email.", True, 0),
+                (12, "Post", m + "Post#", True, 0),
+                (14, "id", m + "Post#id.", True, 0),
+                (15, "author_id", m + "Post#author_id.", True, 0),
+                (16, "title", m + "Post#title.", True, 0),
+                (17, "Admin", m + "Admin#", True, 0),
+                (17, "User", m + "User#", False, 0),
+                (18, "level", m + "Admin#level.", True, 0),
+                (19, "Solve", m + "Solve#", True, 0),
+                (19, "Post", m + "Post#", False, 0),
+                (21, "id", m + "Solve#id.", True, 0),
+                (22, "author_id", m + "Solve#author_id.", True, 0),
+            ],
+            "app/views.py": [
+                (1, "User", m + "User#", False, 0),
+                (1, "Post", m + "Post#", False, 0),
+                (1, "Admin", m + "Admin#", False, 0),
+                (3, "User", m + "User#", False, 0),
+                (5, "name", m + "User#name.", False, 0),
+                (6, "created", m + "Stamped#created.", False, 0),
+                (7, "email", m + "User#email.", False, 0),
+                (9, "Post", m + "Post#", False, 0),
+                (9, "Post", m + "Post#", False, 1),
+                (9, "id", m + "Post#id.", False, 0),
+                (10, "Post", m + "Post#", False, 0),
+                (11, "User", m + "User#", False, 0),
+                (11, "User", m + "User#", False, 1),
+                (11, "email", m + "User#email.", False, 0),
+                (13, "Post", m + "Post#", False, 0),
+                (15, "User", m + "User#", False, 0),
+                (15, "Post", m + "Post#", False, 0),
+                (17, "Admin", m + "Admin#", False, 0),
+                (19, "Solve", m + "Solve#", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        for path, occurrences in documents.items():
+            lines = SA_COLUMNS[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                column = -1
+                for _ in range(nth + 1):
+                    column = lines[line].index(text, column + 1)
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, column, column + len(text)],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_sqlalchemy_columns(self):
+        self.maxDiff = None
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SA_COLUMNS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["python"], scip_indexes=[self.index(directory)]
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties.get("line"),
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN", "HAS_COLUMN")
+        )
+        self.assertEqual(
+            sorted(e[2] for e in edges if e[0] == "HAS_COLUMN"),
+            [
+                "posts::column::author_id",
+                "posts::column::headline",
+                "posts::column::id",
+                "solves::column::author_id",
+                "solves::column::id",
+                "solves::column::password",
+                "users::column::created",
+                "users::column::email",
+                "users::column::full_name",
+                "users::column::id",
+                "users::column::level",
+            ],
+        )
+        users, posts = "users::column::", "posts::column::"
+        key, access = "sqlalchemy-column-key", "sqlalchemy-scip-column-access"
+        self.assertEqual(
+            [e for e in edges if e[0] != "HAS_COLUMN"],
+            [
+                ("READS_COLUMN", "admins", users + "level", 18, key),
+                ("READS_COLUMN", "bulk", posts + "id", 10, access),
+                ("READS_COLUMN", "find", users + "email", 4, key),
+                ("READS_COLUMN", "find", users + "full_name", 4, key),
+                ("READS_COLUMN", "rename", users + "created", 7, access),
+                ("READS_COLUMN", "rename", users + "email", 8, access),
+                ("READS_COLUMN", "solved", posts + "headline", 20, key),
+                ("READS_COLUMN", "solved", "solves::column::author_id", 20, key),
+                ("WRITES_COLUMN", "bulk", posts + "author_id", 10, key),
+                ("WRITES_COLUMN", "bulk", posts + "headline", 10, key),
+                ("WRITES_COLUMN", "bulk", posts + "headline", 11, key),
+                ("WRITES_COLUMN", "bulk", users + "email", 12, access),
+                ("WRITES_COLUMN", "make", posts + "author_id", 14, key),
+                ("WRITES_COLUMN", "make", posts + "headline", 14, key),
+                ("WRITES_COLUMN", "rename", users + "created", 7, access),
+                ("WRITES_COLUMN", "rename", users + "full_name", 6, access),
+            ],
+        )
 
 
 if __name__ == "__main__":
