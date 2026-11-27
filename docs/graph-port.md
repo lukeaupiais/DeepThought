@@ -3495,8 +3495,12 @@ which only client requests are read:
   route variables and a trailing `*` matches the rest. The handler is the
   module function or method the handler argument names (`h.List`), or the
   one a call there calls when that call passes no function value: a handler
-  factory such as `p.Create()` anchors to `Create`, while a wrapper such as
-  `http.HandlerFunc(List)` is not followed. Not read: a mounted router
+  factory such as `p.Create()` anchors to `Create`, while a call given a
+  function or a func-typed value (a middleware such as `auth(token)`) is
+  not followed. A conversion to a func type (`http.HandlerFunc(List)`) is
+  its function, also through a variable assigned only that conversion and
+  through that variable's `ServeHTTP` method value (`token.ServeHTTP`).
+  Not read: a mounted router
   that is the result of a call (`r.Mount("/api", apiRouter())`), whose
   routes then miss the prefix, and Fiber's optional `:id?` and `+`
   parameters, which are kept as written.
