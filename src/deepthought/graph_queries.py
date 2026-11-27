@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .components import PACKAGE_KINDS
 from .source_roles import GENERATED_ROLE, ROLE_PATTERNS, exclusion_pattern
+from .text_check import CODE, COMMENT, declaration_lines, mentions
 
 # A query that is one identifier also finds members named by it.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
@@ -113,6 +114,11 @@ _PLACE = re.compile(r"(?P<file>[^:]+):(?P<line>[1-9][0-9]*)")
 # At most this many distinct files are checked per answer, and listed.
 _FRESHNESS_PATHS = 500
 _FRESHNESS_LISTED = 20
+# A text check accounts for at most this many declarations' names per
+# answer, and stops on a name more lines than this mention (too common a
+# word to account for line by line).
+_TEXT_SUBJECTS = 2
+_TEXT_MAX_LINES = 400
 _PATH_KEYS = frozenset({"file_path", "path", "file"})
 # A workspace file whose real path is outside the workspace (a symlink out
 # of it) is not read: it is left out of the check.
@@ -3171,6 +3177,308 @@ class GraphQueryService:
             )
         return reasons
 
+    async def _text_subjects(self, tx, items, query, parameters, repo_url, snapshot_id):
+        """The declarations a result is about, as ``{name: element ids}``
+        keyed by the last part of their name: the declarations its links
+        and chains end at (when they end at one or two names), else the
+        declaration it anchors on by file and line, else declarations named
+        by its strings."""
+        targets = set()
+
+        def visit(value):
+            if isinstance(value, dict):
+                if {"type", "source", "target"} <= set(value):
+                    targets.add(value["target"])
+                for v in value.values():
+                    visit(v)
+            elif isinstance(value, list):
+                for v in value:
+                    visit(v)
+
+        visit(items)
+        subjects = {}
+        if targets:
+            result = await tx.run(
+                "MATCH (t:Symbol) WHERE elementId(t) IN $ids "
+                "RETURN elementId(t) AS id, t.name AS name",
+                ids=sorted(targets),
+            )
+            for record in [r async for r in result]:
+                name = str(record["name"] or "").rsplit(".", 1)[-1]
+                if name:
+                    subjects.setdefault(name, set()).add(record["id"])
+            if len(subjects) > _TEXT_SUBJECTS:
+                subjects = {}
+        if not subjects:
+            for anchor in await self._anchor_declarations(
+                tx, query, parameters, repo_url, snapshot_id
+            ):
+                if anchor["element_id"] and anchor["name"]:
+                    name = anchor["name"].rsplit(".", 1)[-1]
+                    subjects.setdefault(name, set()).add(anchor["element_id"])
+        if not subjects:
+            names = [
+                v
+                for v in _query_strings(query, parameters)
+                if _NAMELIKE.match(v) and not _is_path(v) and re.search(r"[a-z]", v)
+            ][:8]
+            if names:
+                result = await tx.run(
+                    "UNWIND $names AS n "
+                    "MATCH (s:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,name:n}) "
+                    "RETURN n, elementId(s) AS id",
+                    names=names,
+                    repo_url=repo_url,
+                    snapshot_id=snapshot_id,
+                )
+                for record in [r async for r in result]:
+                    name = record["n"].rsplit(".", 1)[-1]
+                    subjects.setdefault(name, set()).add(record["id"])
+        return dict(list(sorted(subjects.items()))[:_TEXT_SUBJECTS])
+
+    async def _text_check(
+        self, items, query, parameters, repo_url, snapshot_id, timeout
+    ):
+        """Whether a text search would find more than a result says.
+
+        For each declaration the result is about (``_text_subjects``), every
+        line of the analyzed files that names it, as the working copy holds
+        them, is accounted for: a link in the result, the declaration
+        itself, a link the graph holds that the result leaves out (any
+        type: a call, a function passed as a value, a type use...), an
+        import, a call no resolver linked (with its reason), a link to
+        another declaration of the same name, a comment or a string. What
+        is left is named as not in the graph. Files edited since analysis
+        are not read (their lines may have moved) and are listed. Without
+        a workspace, or when the result is about no declaration, there is
+        no check."""
+        if self.workspace is None:
+            return []
+        async with self.driver.session(
+            database=self.database, default_access_mode="READ"
+        ) as session:
+            tx = await session.begin_transaction(timeout=timeout)
+            try:
+                subjects = await self._text_subjects(
+                    tx, items, query, parameters, repo_url, snapshot_id
+                )
+                if not subjects:
+                    return []
+                result = await tx.run(
+                    "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+                    "WHERE f.file_sha256 IS NOT NULL "
+                    "RETURN f.path AS path, f.file_sha256 AS digest ORDER BY path",
+                    repo_url=repo_url,
+                    snapshot_id=snapshot_id,
+                )
+                files = [(r["path"], r["digest"]) async for r in result]
+                in_result = {}
+
+                def links(value):
+                    if isinstance(value, dict):
+                        if {"type", "source", "target"} <= set(value):
+                            in_result[value.get("element_id")] = value["target"]
+                        for v in value.values():
+                            links(v)
+                    elif isinstance(value, list):
+                        for v in value:
+                            links(v)
+
+                links(items)
+                in_result.pop(None, None)
+                return [
+                    await self._account(
+                        tx, name, ids, files, in_result, repo_url, snapshot_id
+                    )
+                    for name, ids in subjects.items()
+                ]
+            finally:
+                await tx.rollback()
+
+    async def _account(self, tx, name, ids, files, in_result, repo_url, snapshot_id):
+        """``_text_check``'s accounting of one name; ``ids`` are the
+        declarations it is about and ``in_result`` the result's links, by
+        element id to their target."""
+        check = {"name": name, "lines": 0, "files": 0}
+        found, unchecked = {}, []
+        total = 0
+        for path, digest in files:
+            current = self._workspace_digest(path)
+            if current is _OUTSIDE:
+                continue
+            if current != digest:
+                # Edited or removed since analysis: its lines may have moved.
+                unchecked.append(path)
+                continue
+            try:
+                content = (self.workspace / path).read_bytes()
+            except OSError:
+                unchecked.append(path)
+                continue
+            lines = mentions(path, content, name)
+            if lines:
+                found[path] = lines
+                total += len(lines)
+            if total > _TEXT_MAX_LINES:
+                check["too_many"] = True
+                check["lines"] = total
+                return check
+        check["lines"], check["files"] = total, len(found)
+        if unchecked:
+            check["unchecked_files"] = unchecked[:_FRESHNESS_LISTED]
+        dotted = "." + name
+        result = await tx.run(
+            "UNWIND $files AS f "
+            "CALL { WITH f "
+            "MATCH (src:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:f}) "
+            "RETURN src UNION WITH f "
+            "MATCH (src:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:f}) "
+            "RETURN src } "
+            "MATCH (src)-[r]->(t) WHERE NOT type(r) IN $placement AND ("
+            "type(r) IN ['IMPORTS', 'IMPORTS_PACKAGE'] OR t.name = $name "
+            "OR t.name ENDS WITH $dotted OR t.callee = $name "
+            "OR t.callee ENDS WITH $dotted) "
+            "RETURN f, elementId(src) AS src, src:File AS whole_file, "
+            "coalesce(src.name, src.path) AS src_name, src.start_line AS start, "
+            "src.end_line AS end, elementId(r) AS link, type(r) AS kind, "
+            "r.line AS line, r.sites AS sites, elementId(t) AS target, "
+            "t:UnresolvedCall AS unlinked, t.reason AS reason, "
+            "coalesce(t.file_path, t.path) AS target_file, "
+            "coalesce(t.start_line, t.line) AS target_line, t.name AS target_name",
+            files=sorted(found),
+            name=name,
+            dotted=dotted,
+            placement=list(_PLACEMENT_LINKS),
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+        )
+        facts = {}
+        for record in [r async for r in result]:
+            facts.setdefault(record["f"], []).append(dict(record))
+        result = await tx.run(
+            "UNWIND $files AS f "
+            "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:f}) "
+            "WHERE d.name = $name OR d.name ENDS WITH $dotted "
+            "RETURN f, elementId(d) AS id, d.start_line AS start, "
+            "d.source_code AS source",
+            files=sorted(found),
+            name=name,
+            dotted=dotted,
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+        )
+        declared, own = {}, []
+        for record in [r async for r in result]:
+            if record["id"] in ids:
+                own.append(f"{record['f']}:{record['start']}")
+            for line in declaration_lines(record["source"], record["start"], name):
+                declared.setdefault((record["f"], line), record["id"])
+        counts = dict.fromkeys(
+            ("in_result", "declaration", "other_declaration", "import", "comment"),
+            0,
+        )
+        left_out, unlinked, others, strings, unaccounted = [], [], [], [], []
+        for path, lines in sorted(found.items()):
+            for line, kind in sorted(lines.items()):
+                where = f"{path}:{line}"
+                if kind == COMMENT:
+                    counts["comment"] += 1
+                    continue
+                if kind == CODE and (path, line) in declared:
+                    if declared[(path, line)] in ids:
+                        counts["declaration"] += 1
+                    else:
+                        counts["other_declaration"] += 1
+                    continue
+                holders = [
+                    f
+                    for f in facts.get(path, ())
+                    if f["whole_file"]
+                    or (
+                        f["start"] is not None
+                        and f["start"] <= line <= (f["end"] or f["start"])
+                    )
+                ]
+                exact = [f for f in holders if f["line"] == line]
+                if not exact and kind == CODE:
+                    # A use recorded once for several sites in one
+                    # declaration carries only its first line.
+                    inner = [
+                        f
+                        for f in holders
+                        if not f["whole_file"]
+                        and (f["sites"] or 1) > 1
+                        and f["kind"] not in ("IMPORTS", "IMPORTS_PACKAGE")
+                    ]
+                    if inner:
+                        smallest = min(
+                            (f["end"] or f["start"]) - f["start"] for f in inner
+                        )
+                        exact = [
+                            f
+                            for f in inner
+                            if (f["end"] or f["start"]) - f["start"] == smallest
+                        ]
+                if kind == CODE:
+                    named = [
+                        f
+                        for f in exact
+                        if f["kind"] not in ("IMPORTS", "IMPORTS_PACKAGE")
+                    ]
+                    mine = [f for f in named if f["target"] in ids]
+                    if any(f["link"] in in_result for f in mine):
+                        counts["in_result"] += 1
+                        continue
+                    if mine:
+                        f = mine[0]
+                        left_out.append(
+                            {
+                                "kind": f["kind"],
+                                "source": f["src_name"],
+                                "file": path,
+                                "start": f["start"],
+                                "line": line,
+                            }
+                        )
+                        continue
+                    if any(f["kind"] in ("IMPORTS", "IMPORTS_PACKAGE") for f in exact):
+                        counts["import"] += 1
+                        continue
+                    gaps = [f for f in named if f["unlinked"]]
+                    if gaps:
+                        unlinked.append(
+                            {"at": where, "reason": gaps[0]["reason"] or "unknown"}
+                        )
+                        continue
+                    if named:
+                        f = named[0]
+                        others.append(
+                            {
+                                "at": where,
+                                "target": f["target_name"],
+                                "target_at": f"{f['target_file']}:{f['target_line']}",
+                            }
+                        )
+                        continue
+                    unaccounted.append(where)
+                else:
+                    strings.append(where)
+        check.update(
+            {
+                "declared_at": sorted(own),
+                **counts,
+                "left_out": left_out,
+                "unlinked": unlinked,
+                "other_targets": others,
+                "strings": strings,
+                "not_in_graph": unaccounted,
+                # Whether the result holds links into the declaration: if
+                # not, the links found are the graph's, not ones it left out.
+                "result_links": any(t in ids for t in in_result.values()),
+            }
+        )
+        return check
+
     async def query_cypher(
         self,
         query,
@@ -3214,7 +3522,26 @@ class GraphQueryService:
             )
             if reasons:
                 response["why_empty"] = reasons
+        checks = await self._checked_text(
+            response, query, parameters, repo_url, snapshot_id, timeout
+        )
+        if checks:
+            response["text_check"] = checks
         return response
+
+    async def _checked_text(
+        self, response, query, parameters, repo_url, snapshot_id, timeout
+    ):
+        """``_text_check`` for a read's rows; none when the read failed or
+        the check itself cannot finish (it only adds to an answer)."""
+        if "items" not in response:
+            return []
+        try:
+            return await self._text_check(
+                response["items"], query, parameters, repo_url, snapshot_id, timeout
+            )
+        except Exception:  # noqa: BLE001 - an answer never fails for its check
+            return []
 
     async def query_cypher_text(
         self,
@@ -3322,8 +3649,16 @@ class GraphQueryService:
                     )
                 finally:
                     await tx.rollback()
+        checks = await self._checked_text(
+            response, query, parameters, repo_url, snapshot_id, timeout
+        )
         text = render(
-            response, nodes=nodes, coverage=coverage, query=query, limit=limit
+            response,
+            nodes=nodes,
+            coverage=coverage,
+            query=query,
+            limit=limit,
+            text_check=checks,
         )
         if "items" in response and not response["items"]:
             reasons = await self._why_empty(
