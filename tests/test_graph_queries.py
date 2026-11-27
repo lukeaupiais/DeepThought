@@ -729,6 +729,62 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                         " nothing.",
                     ],
                 )
+                # A declaration picked by file and line is named, with the
+                # links of every type into it, since the code may reach it by
+                # a type the query did not ask for; a line outside every
+                # declaration says so. LIMIT 1 is not a line.
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol {file_path: $file})"
+                    " WHERE s.start_line <= $line <= s.end_line"
+                    " WITH s ORDER BY s.end_line - s.start_line LIMIT 1"
+                    " MATCH (c)-[r:CALLS]->(s) RETURN r",
+                    {"file": "src/a.py", "line": 2},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    raw["why_empty"],
+                    [
+                        "'src/a.py' is analyzed (src/a.py).",
+                        "Line 2 of src/a.py is inside Base (src/a.py:1-3). Links"
+                        " into it, by type: 1 INHERITS_FROM link (inherits from):"
+                        " Child (src/a.py:4).",
+                        "Nothing calls Base directly; code reaches it through"
+                        " INHERITS_FROM: match those types (for example"
+                        " -[r:INHERITS_FROM]->) and follow the code that holds"
+                        " them.",
+                        "Everything above is in the graph, so the query's other"
+                        " conditions (links, properties, line numbers) matched"
+                        " nothing.",
+                    ],
+                )
+                raw = await service.query_cypher(
+                    "MATCH (c)-[r:CALLS]->(s:Symbol {file_path: 'src/a.py'})"
+                    " WHERE s.start_line <= 11 AND s.end_line >= 11 RETURN r",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    raw["why_empty"][1],
+                    "Line 11 of src/a.py is outside every declaration (top level"
+                    " of the file).",
+                )
+                raw = await service.query_cypher(
+                    "MATCH (s:Symbol {name: 'Base'})<-[r:CALLS]-(c) RETURN r",
+                    {},
+                    repo,
+                    snapshot_id=snapshot,
+                    allow_database_scope=True,
+                )
+                self.assertEqual(
+                    raw["why_empty"][0],
+                    "'Base' is declared at src/a.py:1, with 0 calls to it; other"
+                    " links into it: 1 INHERITS_FROM link (inherits from): Child"
+                    " (src/a.py:4).",
+                )
                 # A parameter the query never uses is not looked for, and an
                 # unknown label or relationship type is named.
                 raw = await service.query_cypher(
