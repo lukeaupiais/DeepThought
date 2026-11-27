@@ -98,5 +98,6 @@ RELATIONSHIP_SENTENCES = {
     "GENERATED_FROM": "is generated from",
     "READS_COLUMN": "reads the column",
     "WRITES_COLUMN": "writes the column",
+    "MAPS_COLUMN": "has a field mapped to the column",
     "SIGNATURE_USES": "names in its signature the type",
 }

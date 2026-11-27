@@ -736,6 +736,17 @@ classes mapped to the table are listed under `unresolved_users` (absent when
 there are none): whether they use the column is not known. Foreign keys that
 name the column are not yet followed column by column.
 
+A column also reaches the payloads that hold it. The class or struct whose
+field is the column `MAPS_COLUMN` it (the declaring class: an abstract
+Django model, a SQLModel base, a GORM struct a model embeds). A type that
+an HTTP route or message destination `CARRIES` and that is, or extends,
+such a class is in the change set, but only as a payload: the route or
+destination is a dependent at one hop and `must_change`, its clients
+(`REQUESTS`, `CONSUMES`) `must_change` too, and their callers re-test. The
+type's other users (code that constructs or converts it) are not reached
+through it. A payload that holds the model as a field (`data:
+list[ItemPublic]`) rather than extending it is not followed yet.
+
 For gRPC methods in any language an index covers, the messages also come
 from SCIP: the GrpcMethod node has protoc's `request_message` and
 `response_message`, and each client's stub call (the CALLS edge from the
@@ -1025,7 +1036,10 @@ project of its own, as `docker compose -f FILE` reads it. `extends`,
 `include`, all profiles and `${VARIABLE}` interpolation from the project's
 `.env` are the loader's; the process environment is never read, and text
 no variable sets is unknown (an image keeps it as `{?}`, and an image
-whose name is unknown is not recorded). A file the loader rejects (for
+whose name is unknown is not recorded). A required variable
+(`${DOMAIN?message}`, `${DOMAIN:?message}`) that nothing sets is unknown
+text too, and listed under `missing`, rather than rejecting the file: the
+run that deploys it sets it. A file the loader rejects (for
 example a port that only an unset variable gives) is a diagnostic and
 declares nothing. A service's root is its build context; one that only
 names an `image`, builds from a remote URL or from a directory an unset
@@ -5740,6 +5754,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-scip-manager-call` | resolved | a `Model.objects...` call chain (the model may be module-qualified, `models.Post.objects`) with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, where a scip-python index resolves the written `Model` to a Django model class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial. Instance `save()`/`delete()` (and `save(update_fields=...)`), custom and related managers (`post.comments`), many-to-many `through` models (`Post.tags.through.objects`), querysets and `Q()` objects held in variables or built by helpers, and raw SQL are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-historical-manager-call` | pattern_matched | the same call chain where the index resolves `Model` to a variable assigned `<registry>.get_model("label", "Model")` (or `"label.Model"`), as data migrations take historical models from the migration state: the model of that app label and class name. Why not a tool: the migration state's registry is built at run time and no index types it; `get_model`'s arguments name the model |
+| Symbol -[:MAPS_COLUMN]-> DbColumn | the column rule of the ORM (`data-contracts.django-column`, `-sqlalchemy-column`, `-gorm-column`, ...) | as that rule | the class or struct whose field (`field`, at `line`) is the column: the class declaring the field, which may be an abstract model, a mixin or an embedded struct that several tables share. A field declared outside the repository, or not at all (Django's implicit `id`), has none. Column impact reaches the routes and messages that carry the class or a class extending it |
 | DbTable -[:HAS_COLUMN]-> DbColumn, File -[:DECLARES]-> DbColumn | `data-contracts.django-column` | resolved | a field of a Django model, or of an abstract model it extends, assigned a Django field class (`django.db.models` or `django.contrib`; a project's own `...Field` class counts as Django's `Field`). Its column is what Django's own `Field.get_attname_column()` gives (`db_column`, else the attname: `author_id` for a `ForeignKey` named `author`), run by `deepthought.django_naming` (`djangonames/names.py`) with the Django release the project declares (lockfile pin, else the requirement pip resolves), installed from wheels with `pip install --only-binary :all: --target` into the cache; only Django is imported. A model without a `primary_key=True` field (and no concrete parent) gets Django's implicit `id`. `ManyToManyField`, `GenericForeignKey` and `GenericRelation` hold no column of the table. Fields a model inherits from an installed package's abstract model (django-taggit's `TagBase.name`) are not read. Columns are declared, as Django migrations are Python, unless SQL migrations give the table's columns, which they then map to. A project declaring no Django gets no columns and a `django_naming_unread` warning. Counted in `django_columns` |
 | Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-scip-column-access` | resolved | an attribute the scip-python index resolves to a model field (`django-column`): an assignment to it (`post.title = ...`) writes the column, an augmented assignment (`post.views += 1`) reads and writes it, any other access reads it; a relation field reads its foreign key column. Attributes reached through a relation (`post.author.name`) read the related column only where the index resolves them. A field an abstract model declares for several tables is not attributed (`reads_unattributed` on its columns) |
 | Symbol\|File -[:READS_COLUMN]-> / -[:WRITES_COLUMN]-> DbColumn | `data-contracts.django-column-key` | pattern_matched | the lookups and field names of a manager call chain (`django-scip-manager-call`) or of a `Model(...)` constructor the index resolves to a model. Keyword lookups of `filter`, `exclude`, `get` and of `Q()`, and field names of `values`, `values_list`, `only`, `defer`, `order_by`, `distinct`, `select_related`, `prefetch_related`, `earliest`, `latest`, `F()` and aggregates (`Count`, `Sum`...) read; a path follows relations (`author__name` reads `author_id` and the author's column) and reverse relations by `related_query_name`, else `related_name`, else the model name (`Count("post")` reads `post.author_id`; a `+` name has none); `pk` is the primary key and `author_id` the foreign key. Keywords of `update` and `create`, the `defaults` of `get_or_create`, `bulk_update`'s field names and a constructor's keywords write; the lookups of `get_or_create` and `update_or_create` both read and write (they filter, and create a row with them). scip-python does not resolve keyword lookups or field-name strings, so they are read against the model's fields. The chain's READS/WRITES edge carries `columns_resolved: true` when every argument was read (no `**kwargs`, variables or unknown methods) and the chain returns no whole rows (`values`, `values_list`, `only`, `count`, `exists`, `aggregate`, `update`, `delete`, `create`) |

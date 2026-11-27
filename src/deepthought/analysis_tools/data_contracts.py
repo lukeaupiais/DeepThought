@@ -1948,6 +1948,19 @@ class DataContractTool(AnalysisTool):
             label = model.app_label or django_app(model.file, labels)[1]
             django_by_label.setdefault((label, model.name), set()).add(target)
 
+        types_in_file = defaultdict(list)
+        for d in result.definitions:
+            if d.kind in ("Class", "Struct"):
+                types_in_file[d.file].append(d)
+
+        def type_at(file, line):
+            """The innermost class or struct of ``file`` declared over
+            ``line``, or None."""
+            found = [
+                d for d in types_in_file.get(file, ()) if d.line <= line <= d.end_line
+            ]
+            return min(found, key=lambda d: d.end_line - d.line).id if found else None
+
         def column_for(target, name, owner_file, rule, counts, field, line):
             """The DbColumn of table ``target`` an ORM field names ``name``:
             the table's column where migrations give its columns (None, and
@@ -2001,6 +2014,19 @@ class DataContractTool(AnalysisTool):
                     )
                 counts["columns_declared"] += 1
             counts["columns"] += 1
+            holder = None if line is None else type_at(owner_file, line)
+            if holder is not None:
+                # The class or struct whose field is the column: a payload
+                # type built from it (an HTTP route's or message's) holds
+                # the column too.
+                link(
+                    "MAPS_COLUMN",
+                    symbol(holder),
+                    column_target,
+                    rule,
+                    {"line": line, "field": field},
+                    labels=("DbColumn", "Contract"),
+                )
             return column_target
 
         def python_direction(node, counts):
