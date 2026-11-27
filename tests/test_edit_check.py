@@ -10,7 +10,10 @@ from deepthought.edit_check import (
     TOP_LEVEL,
     check_edit,
     check_working_copy,
+    environment_reason,
     parse_diff,
+    report_text,
+    summary_line,
     working_copy_diff,
 )
 
@@ -297,6 +300,189 @@ class TypeScriptEditTest(unittest.TestCase):
         self.assertEqual(result["checks"][0]["status"], "failed")
         self.assertIn("TS", result["checks"][0]["reason"])
         self.assertFalse(result["complete"])
+
+    def _check(self, files, path, before, after):
+        previous = os.environ.get("DEEPTHOUGHT_TYPESCRIPT")
+        os.environ["DEEPTHOUGHT_TYPESCRIPT"] = _typescript()
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                _write(root, files)
+                if before is None:
+                    diff = "".join(
+                        difflib.unified_diff(
+                            [],
+                            after.splitlines(keepends=True),
+                            "/dev/null",
+                            f"b/{path}",
+                        )
+                    )
+                else:
+                    diff = _diff(path, before, after)
+                return check_edit(root, diff)
+        finally:
+            if previous is None:
+                os.environ.pop("DEEPTHOUGHT_TYPESCRIPT")
+            else:
+                os.environ["DEEPTHOUGHT_TYPESCRIPT"] = previous
+
+    def test_a_standard_library_that_does_not_load_is_not_a_check(self):
+        # With only lib es5 tsc has no Promise: every type is suspect, so the
+        # edited file is reported as not checked, never as "no breaks".
+        lib = "export const load = () => Promise.resolve(1);\n"
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"target": "es2017", "lib": ["es5"]}}\n',
+            "src/load.ts": lib,
+        }
+        result = self._check(files, "src/load.ts", lib, lib.replace("(1)", "(2)"))
+        self.assertEqual(result["checks"][0]["status"], "failed")
+        self.assertIn("standard library", result["checks"][0]["reason"])
+        self.assertEqual(result["verdict"], "not_fully_checked")
+        self.assertFalse(result["files"]["src/load.ts"]["checked"])
+        self.assertTrue(result["summary"].startswith("NOT CHECKED: src/load.ts"))
+        self.assertNotIn("No breaks", report_text(result))
+
+    def test_a_file_the_project_does_not_include_is_not_checked(self):
+        lib = "export const a: number = 1;\n"
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"strict": true}, "include": ["src"]}\n',
+            "src/a.ts": lib,
+            "scripts/run.ts": lib,
+        }
+        result = self._check(
+            files, "scripts/run.ts", lib, 'export const a: number = "x";\n'
+        )
+        self.assertEqual(result["checks"][0]["status"], "checked")
+        self.assertEqual(result["edit_diagnostics"], [])
+        self.assertEqual(result["verdict"], "not_fully_checked")
+        self.assertIn(
+            "no TypeScript project includes it",
+            result["files"]["scripts/run.ts"]["reason"],
+        )
+        self.assertIn("scripts/run.ts", result["unchecked_files"])
+
+    def test_missing_test_runner_types_are_environment_not_the_edit(self):
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"strict": true, "target": "es2020"}}\n',
+            "src/a.ts": "export const add = (x: number, y: number) => x + y;\n",
+        }
+        test = (
+            'import { add } from "./a";\n'
+            'test("adds", () => {\n'
+            "  expect(add(1, 2)).toBe(3);\n"
+            "});\n"
+            "const wrong: number = add(1, 2) + '';\n"
+        )
+        result = self._check(files, "src/a.test.ts", None, test)
+        self.assertEqual(
+            sorted(row["code"] for row in result["environment"]), ["TS2304", "TS2593"]
+        )
+        # The real mistake in the new file is still the edit's.
+        self.assertEqual(
+            [(r["line"], r["code"]) for r in result["edit_diagnostics"]],
+            [(5, "TS2322")],
+        )
+        self.assertEqual(result["verdict"], "breaks")
+        self.assertIn("not from the edit", result["summary"])
+
+    def test_the_workspace_own_packages_resolve_without_node_modules(self):
+        # The project extends a config from a sibling package of the
+        # monorepo; nothing is installed, and no registry is asked for it.
+        lib = "export function greet(name: string): string {\n  return name;\n}\n"
+        files = {
+            "package.json": '{"name": "acme", "private": true, "workspaces": ["packages/*", "app"]}\n',
+            "packages/config/package.json": '{"name": "@acme/config", "version": "1.0.0"}\n',
+            "packages/config/base.json": '{"compilerOptions": {"strict": true, "target": "es2020"}}\n',
+            "app/package.json": '{"name": "app", "version": "1.0.0"}\n',
+            "app/tsconfig.json": '{"extends": "@acme/config/base.json", "include": ["src"]}\n',
+            "app/src/greet.ts": lib,
+            "app/src/main.ts": 'import { greet } from "./greet";\nexport const x = greet("a");\n',
+        }
+        with tempfile.TemporaryDirectory() as cache:
+            previous = os.environ.get("DEEPTHOUGHT_CACHE")
+            os.environ["DEEPTHOUGHT_CACHE"] = cache
+            try:
+                result = self._check(
+                    files,
+                    "app/src/greet.ts",
+                    lib,
+                    lib.replace("name: string)", "name: string, n: number)"),
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("DEEPTHOUGHT_CACHE")
+                else:
+                    os.environ["DEEPTHOUGHT_CACHE"] = previous
+        self.assertEqual(result["checks"][0]["status"], "checked", result["checks"])
+        self.assertEqual(
+            [(b["file"], b["line"], b["code"]) for b in result["breaks"]],
+            [("app/src/main.ts", 2, "TS2554")],
+        )
+        self.assertTrue(
+            any("@acme/config" in n for n in result["checks"][0]["notes"]),
+            result["checks"][0]["notes"],
+        )
+
+
+class EnvironmentTest(unittest.TestCase):
+    def test_imports_of_packages_not_installed_are_environment(self):
+        self.assertEqual(
+            environment_reason(
+                "typescript",
+                "TS2307",
+                "Cannot find module 'react' or its corresponding type declarations.",
+            ),
+            "package react not installed",
+        )
+        # A relative import or a path alias that does not resolve is a
+        # mistake in the code.
+        self.assertIsNone(
+            environment_reason("typescript", "TS2307", "Cannot find module './gone'.")
+        )
+        self.assertIsNone(
+            environment_reason(
+                "typescript", "TS2307", "Cannot find module '@/gone'.", aliases=["@/*"]
+            )
+        )
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "app").mkdir()
+            self.assertEqual(
+                environment_reason(
+                    "python",
+                    "reportMissingImports",
+                    'Import "django.db" could not be resolved',
+                    root=root,
+                ),
+                "package django not installed",
+            )
+            self.assertIsNone(
+                environment_reason(
+                    "python",
+                    "reportMissingImports",
+                    'Import "app.models" could not be resolved',
+                    root=root,
+                )
+            )
+
+    def test_the_summary_never_says_no_breaks_for_unchecked_files(self):
+        report = {
+            "breaks": [],
+            "edit_diagnostics": [],
+            "checks": [
+                {
+                    "language": "typescript",
+                    "project": "web/tsconfig.json",
+                    "status": "failed",
+                    "reason": "x",
+                }
+            ],
+            "files": {
+                "web/a.tsx": {"checked": False, "reason": "TypeScript check failed: x"}
+            },
+            "unchecked_files": ["web/a.tsx"],
+        }
+        line = summary_line(report)
+        self.assertTrue(line.startswith("NOT CHECKED: web/a.tsx"), line)
+        self.assertNotIn("No breaks", line)
 
 
 @unittest.skipUnless(

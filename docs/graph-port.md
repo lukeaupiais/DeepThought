@@ -832,6 +832,42 @@ and the report is then not `complete`; files in other languages are listed in
 `unchecked_files`. Exit codes: 0 nothing breaks, 1 breaks, 3 a check did not
 run, 2 invalid input or a diff that does not apply.
 
+The report never reads as "no breaks" for an edit that was not checked.
+`verdict` is `breaks`, `no_breaks` (every edited file was read by a checker
+that ran) or `not_fully_checked`, and `summary` says it in one sentence that
+names each unchecked file and why. `files` gives, per edited file, whether a
+checker read it (a file its nearest tsconfig.json does not include, from
+`tsc --listFilesOnly`, is not checked) and which of its imports did not
+resolve. A tsc run whose standard library did not load (TS2318, TS2468,
+TS2583-TS2585, TS2697, TS2705: no `Promise`, typically a missing extended
+config) types nothing, so it fails the check. New diagnostics caused by what
+the checker could not find are listed under `environment`, apart from breaks
+and edit mistakes: a bare package import that is not installed and is no
+`paths` alias (TS2307/TS2792), missing type definitions (TS2580-TS2593,
+TS2688, TS7016, and a test runner's other globals in a file tsc says lacks
+its types), a Python import of a package that is not the workspace's own
+(`reportMissingImports`), a Go package the checker could not import.
+
+The checker sets up what it needs. With no `node_modules` from a TypeScript
+project up, the workspace's dependencies are installed into the cache as its
+lockfile pins them (pnpm, yarn or npm by lockfile; `npm ci`, scripts never
+run), keyed by the manifests' content, and linked into both scratch copies;
+a failed install is kept and reported. The workspace's own packages (a
+monorepo's `packages/*`) are linked by name to the copy's own directories,
+so a tsconfig extending a sibling package resolves without a registry and
+the edited copy sees edits to sibling packages. Pyright resolves imports
+through `DEEPTHOUGHT_PYTHON`, else a virtual environment (`.venv`, `venv`,
+`env`) in the project or the workspace.
+
+With a graph behind the MCP server, `same_calls` lists, for each function a
+changed line calls, the calls of it the edit leaves as they were: caller,
+file, line, `same_file`, and `identical` when the line reads as one of the
+changed lines (whitespace aside), from CALLS links and the callers' analyzed
+source. A function is listed when an unchanged call is in the edited file or
+identical, or when it has at most ten calls. `checkEdit` takes
+`format="text"` (default from `DEEPTHOUGHT_QUERY_FORMAT`) for short lines,
+verdict first.
+
 `edit_check.check_working_copy` checks edits already made in place: the
 diff is the working copy against its git HEAD commit, new files included
 (`git add -A` into a scratch index, so the repository's own index is not
@@ -6759,6 +6795,18 @@ indented block, and a File with `generated_by` is marked `generated`. The byte
 budget applies to the text. `tools/check_result_text.py` runs
 queries in both forms on a dedicated database and reports any fact the text
 lost.
+
+A text answer that reads code without asking about links also says what
+links the code it reads. When the result holds no links or chains, its
+subjects are its Symbol items (at most three), else, for rows of plain
+values such as `source_code`, the declarations the query anchors on by file
+and line or names exactly (at most three). Each gets a `Links of Name
+(file:line):` line before the coverage line: per relationship type, the
+links into it and out of it, each with its count and first four items and
+lines (`5 CALLS links into it (each calls it): decode (a.go:3) at line 9;
+and 4 more`). A subject's `source_code` in the rows is numbered by its
+lines in the file (`453| ...`), so it can be edited without reading the
+file again.
 
 With a working copy (`DEEPTHOUGHT_WORKSPACE`), a raw Cypher answer also says
 whether a text search would find more than it does (`text_check` in JSON, a

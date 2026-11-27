@@ -222,6 +222,11 @@ _FILE_KINDS = frozenset(
 )
 
 
+def _is_link_value(value):
+    """A relationship as ``_value`` returns it."""
+    return isinstance(value, dict) and {"type", "source", "target"} <= set(value)
+
+
 def _is_path(value):
     if not _PATHLIKE.match(value) or value.startswith("/") or ".." in value:
         return False
@@ -307,6 +312,40 @@ _PLACEMENT_LINKS = (
     "HAS_AST_DECLARATION",
     "UNIFIED_EDGE",
 )
+
+
+def sibling_sentences(found):
+    """``GraphQueryService.sibling_calls`` as sentences, one per function:
+    how many of its calls the edit changes and the ones it leaves, by
+    caller."""
+    lines = []
+    for call in (found or {}).get("calls") or []:
+        groups = {}
+        for site in call["unchanged"]:
+            where = (
+                site["file"]
+                if site["caller_line"] is None
+                else (f"{site['file']}:{site['caller_line']}")
+            )
+            key = (site["caller"], where)
+            text = str(site["line"])
+            if site["identical"]:
+                text += " (same text as a line the edit changes)"
+            groups.setdefault(key, []).append(text)
+        said = [
+            f"{caller} ({where}) at line{'s' if len(at) > 1 else ''} " + ", ".join(at)
+            for (caller, where), at in groups.items()
+        ]
+        more = call["unchanged_total"] - len(call["unchanged"])
+        lines.append(
+            f"Same call elsewhere: the edit changes {call['changed']} of"
+            f" {call['total']} calls to {call['callee']} ({call['at']});"
+            " not changed: "
+            + "; ".join(said)
+            + (f"; and {more} more" if more > 0 else "")
+            + "."
+        )
+    return lines
 
 
 def _query_lines(query, parameters):
@@ -3089,6 +3128,160 @@ class GraphQueryService:
             "run": _test_commands(rows),
         }
 
+    async def sibling_calls(
+        self, changed_lines, changed_text=None, *, limit=8, timeout=10
+    ):
+        """The calls an edit leaves as they were, of each function it
+        changes a call to: the same refactor-completeness question as
+        "you changed 1 of 4 calls to Scan".
+
+        ``changed_lines`` is as for ``tests_reaching``; only the lines the
+        edit removes or replaces count as changed calls (an insertion
+        changes no call). For each function a changed line calls (a CALLS
+        link at that line), every other CALLS link into it is an unchanged
+        call, with its caller, file and line, marked ``same_file`` when it
+        is in the edited file and ``identical`` when its source line reads
+        as one of the changed lines (``changed_text``: {file: {line: text}}
+        of the unedited lines), whitespace aside. A function is listed
+        when some unchanged call is in the same file or identical, or when
+        it has at most ten: the calls of a helper used everywhere are only
+        counted. The graph must hold a single snapshot."""
+        ranges = [
+            {**r, "file": file}
+            for file, found in (changed_lines or {}).items()
+            for r in found
+            if not r.get("inside")
+        ]
+        if not ranges:
+            return {"status": "no_changed_lines", "calls": []}
+        changed = {
+            (r["file"], line)
+            for r in ranges
+            for line in range(r["start"], r["end"] + 1)
+        }
+        texts = {
+            (file, int(line)): " ".join(str(text).split())
+            for file, found in (changed_text or {}).items()
+            for line, text in found.items()
+        }
+        async with self.driver.session(
+            database=self.database, default_access_mode="READ"
+        ) as session:
+            tx = await session.begin_transaction(timeout=timeout)
+            try:
+                result = await tx.run(
+                    "MATCH (f:File) WITH DISTINCT f.repo_url AS repo,"
+                    " f.snapshot_id AS snapshot RETURN repo, snapshot LIMIT 2"
+                )
+                snapshots = [dict(r) async for r in result]
+                if len(snapshots) != 1:
+                    return {"status": "no_single_snapshot", "calls": []}
+                scope = snapshots[0]
+                result = await tx.run(
+                    "UNWIND $ranges AS e "
+                    "CALL { WITH e MATCH (src:Symbol {repo_url:$repo,"
+                    " snapshot_id:$snapshot, file_path:e.file}) RETURN src "
+                    "UNION WITH e MATCH (src:File {repo_url:$repo,"
+                    " snapshot_id:$snapshot, path:e.file}) RETURN src } "
+                    "MATCH (src)-[c:CALLS]->(x) "
+                    "WHERE e.start <= c.line AND c.line <= e.end "
+                    "WITH DISTINCT x "
+                    "MATCH (caller)-[c:CALLS]->(x) "
+                    "WITH x, caller, c ORDER BY coalesce(caller.file_path,"
+                    " caller.path), c.line "
+                    "RETURN x.name AS name, coalesce(x.file_path, x.path) AS file,"
+                    " x.start_line AS line, collect({id: elementId(caller),"
+                    " caller: coalesce(caller.name, caller.path),"
+                    " file: coalesce(caller.file_path, caller.path),"
+                    " start: caller.start_line, line: c.line}) AS calls "
+                    "ORDER BY file, line LIMIT 50",
+                    ranges=ranges,
+                    **scope,
+                )
+                callees = [dict(r) async for r in result]
+                found = []
+                for callee in callees:
+                    calls = [c for c in callee["calls"] if c["line"] is not None]
+                    mine = [c for c in calls if (c["file"], c["line"]) in changed]
+                    rest = [c for c in calls if (c["file"], c["line"]) not in changed]
+                    if not mine or not rest:
+                        continue
+                    edited = {c["file"] for c in mine}
+                    for c in rest:
+                        c["same_file"] = c["file"] in edited
+                    found.append((callee, mine, rest))
+                # The source line of each unchanged call the answer may list,
+                # from its caller's analyzed source (the lines the graph has).
+                wanted = sorted(
+                    {
+                        c["id"]
+                        for _, _, rest in found
+                        for c in rest
+                        if c["same_file"] or len(rest) <= 50
+                    }
+                )
+                sources = {}
+                for offset in range(0, len(wanted), 200):
+                    result = await tx.run(
+                        "MATCH (n) WHERE elementId(n) IN $ids AND n.source_code"
+                        " IS NOT NULL RETURN elementId(n) AS id,"
+                        " n.source_code AS source, n.start_line AS start",
+                        ids=wanted[offset : offset + 200],
+                    )
+                    sources.update(
+                        {r["id"]: (r["source"], r["start"]) async for r in result}
+                    )
+            finally:
+                await tx.rollback()
+        calls = []
+        for callee, mine, rest in found:
+            patterns = {
+                texts[(c["file"], c["line"])]
+                for c in mine
+                if (c["file"], c["line"]) in texts
+            }
+            for c in rest:
+                source, start = sources.get(c["id"], (None, None))
+                text = None
+                if source is not None and start is not None:
+                    lines = str(source).splitlines()
+                    if 0 <= c["line"] - start < len(lines):
+                        text = " ".join(lines[c["line"] - start].split())
+                c["identical"] = bool(text) and text in patterns
+            if not (
+                len(rest) <= 10 or any(c["same_file"] or c["identical"] for c in rest)
+            ):
+                continue
+            rest.sort(
+                key=lambda c: (
+                    not c["identical"],
+                    not c["same_file"],
+                    c["file"] or "",
+                    c["line"],
+                )
+            )
+            calls.append(
+                {
+                    "callee": callee["name"],
+                    "at": f"{callee['file']}:{callee['line']}",
+                    "changed": len(mine),
+                    "total": len(mine) + len(rest),
+                    "unchanged_total": len(rest),
+                    "unchanged": [
+                        {
+                            "caller": c["caller"],
+                            "file": c["file"],
+                            "caller_line": c["start"],
+                            "line": c["line"],
+                            "same_file": c["same_file"],
+                            "identical": c["identical"],
+                        }
+                        for c in rest[:limit]
+                    ],
+                }
+            )
+        return {"status": "succeeded", "calls": calls}
+
     async def _anchor_declarations(self, tx, query, parameters, repo_url, snapshot_id):
         """The declarations a query anchors on by file and line: for each
         analyzed path and line number it looks for (``$file`` and ``$line``,
@@ -3138,6 +3331,115 @@ class GraphQueryService:
             examples=examples,
         )
         return [dict(r) async for r in result]
+
+    async def _links_out(self, tx, element_id, examples=3):
+        """``_links_into`` the other way: per relationship type, the links
+        that start at one node and the first few items they reach."""
+        result = await tx.run(
+            "MATCH (s) WHERE elementId(s) = $id "
+            "MATCH (s)-[r]->(dst) WHERE NOT type(r) IN $placement "
+            "WITH type(r) AS kind, dst, r ORDER BY r.line, dst.name "
+            "WITH kind, count(r) AS links, collect({"
+            "name: coalesce(dst.name, dst.callee, dst.path),"
+            " file: coalesce(dst.file_path, dst.path),"
+            " start: dst.start_line, line: r.line})[0..$examples] AS first "
+            "RETURN kind, links, first ORDER BY kind = 'CALLS' DESC, links DESC, kind",
+            id=element_id,
+            placement=list(_PLACEMENT_LINKS),
+            examples=examples,
+        )
+        return [dict(r) async for r in result]
+
+    async def _result_subjects(
+        self, items, query, parameters, repo_url, snapshot_id, timeout, most=3
+    ):
+        """The declarations a result is about, with their links both ways,
+        so an answer that only reads code still says who calls it, what it
+        calls and what it uses: the Symbol items of the rows when there are
+        at most ``most``; else, for rows of plain values (source text, a
+        name), the declarations the query anchors on by file and line or
+        names exactly, when they are at most ``most``. None when the result
+        already holds links or chains (the query asked about them)."""
+
+        def visit(value, found):
+            if _is_link_value(value) or (
+                isinstance(value, dict) and set(value) == {"nodes", "relationships"}
+            ):
+                found["linked"] = True
+            elif (
+                isinstance(value, dict) and "labels" in value and "element_id" in value
+            ):
+                found["nodes"].setdefault(value["element_id"], value)
+            elif isinstance(value, dict):
+                for v in value.values():
+                    visit(v, found)
+            elif isinstance(value, list):
+                for v in value:
+                    visit(v, found)
+
+        found = {"linked": False, "nodes": {}}
+        visit(items, found)
+        if found["linked"] or not items:
+            return []
+        symbols = [
+            n for n in found["nodes"].values() if "Symbol" in (n.get("labels") or [])
+        ]
+        if len(symbols) > most:
+            return []
+        async with self.driver.session(
+            database=self.database, default_access_mode="READ"
+        ) as session:
+            tx = await session.begin_transaction(timeout=timeout)
+            try:
+                ids = [n["element_id"] for n in symbols]
+                if not ids and not found["nodes"]:
+                    anchors = await self._anchor_declarations(
+                        tx, query, parameters, repo_url, snapshot_id
+                    )
+                    ids = list(
+                        dict.fromkeys(
+                            a["element_id"] for a in anchors if a["element_id"]
+                        )
+                    )
+                    names = [
+                        v
+                        for v in _query_strings(query, parameters)
+                        if _NAMELIKE.match(v) and not _is_path(v)
+                    ][:6]
+                    if not ids and names:
+                        result = await tx.run(
+                            "MATCH (s:Symbol {repo_url:$repo_url,"
+                            " snapshot_id:$snapshot_id}) WHERE s.name IN $names"
+                            " RETURN elementId(s) AS id LIMIT $cap",
+                            names=names,
+                            repo_url=repo_url,
+                            snapshot_id=snapshot_id,
+                            cap=most + 1,
+                        )
+                        ids = [r["id"] async for r in result]
+                if not ids or len(ids) > most:
+                    return []
+                subjects = []
+                for element_id in ids:
+                    result = await tx.run(
+                        "MATCH (s) WHERE elementId(s) = $id RETURN s.name AS name,"
+                        " s.file_path AS file, s.start_line AS start,"
+                        " s.source_code AS source",
+                        id=element_id,
+                    )
+                    record = await result.single()
+                    if record is None:
+                        continue
+                    subjects.append(
+                        {
+                            **dict(record),
+                            "into": await self._links_into(tx, element_id, 4),
+                            "out": await self._links_out(tx, element_id, 4),
+                        }
+                    )
+                return subjects
+            finally:
+                await tx.rollback()
 
     def _links_sentence(self, links):
         """``_links_into`` as a sentence: each kind's count and examples."""
@@ -3842,6 +4144,19 @@ class GraphQueryService:
         checks = await self._checked_text(
             response, query, parameters, repo_url, snapshot_id, timeout
         )
+        subjects = []
+        if "items" in response:
+            try:
+                subjects = await self._result_subjects(
+                    response["items"],
+                    query,
+                    parameters,
+                    repo_url,
+                    snapshot_id,
+                    timeout,
+                )
+            except Exception:  # noqa: BLE001 - an answer never fails for its links
+                subjects = []
         text = render(
             response,
             nodes=nodes,
@@ -3849,6 +4164,7 @@ class GraphQueryService:
             query=query,
             limit=limit,
             text_check=checks,
+            subjects=subjects,
         )
         if "items" in response and not response["items"]:
             reasons = await self._why_empty(
