@@ -8,15 +8,18 @@ tools expose the ported repository queries with each edge's evidence type and ru
 requires a dedicated snapshot database and database-enforced read-only access.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 import os
 from typing import Annotated, Literal
 
-from .graph_cli import connection_settings, query_observer
+from .graph_cli import connection_settings, query_observer, workspace_setting
 
 
 def create_server():
     from mcp.server.fastmcp import Context, FastMCP
+    from mcp.types import CallToolResult, TextContent
+    import pydantic_core
     from pydantic import Field
     from .graph_queries import GraphQueryService
     from .storage.graph.connection import Neo4jConnectionManager
@@ -26,13 +29,19 @@ def create_server():
         settings = connection_settings()
         manager = Neo4jConnectionManager(**settings)
         driver = await manager.connect()
+        service = GraphQueryService(
+            driver,
+            database=settings["database"],
+            observer=query_observer(),
+            workspace=workspace_setting(),
+        )
+        # Warm the page cache while the client starts up; questions do not
+        # wait for it.
+        warming = asyncio.create_task(service.warm())
         try:
-            yield GraphQueryService(
-                driver,
-                database=settings["database"],
-                observer=query_observer(),
-            )
+            yield service
         finally:
+            warming.cancel()
             await manager.close()
 
     server = FastMCP("DeepThought", lifespan=lifespan)
@@ -117,6 +126,18 @@ def create_server():
         )
 
     @server.tool()
+    async def describeSnapshot(
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+    ) -> dict:
+        """Describe one complete snapshot: its capabilities, analysis status,
+        content hash, publishing tool, completion time and commits."""
+        return await ctx.request_context.lifespan_context.describe_snapshot(
+            repository_id, snapshot_id=snapshot_id
+        )
+
+    @server.tool()
     async def diffSnapshots(
         repository_id: str,
         base_snapshot_id: str,
@@ -144,7 +165,7 @@ def create_server():
         )
 
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
-    Roles = list[Literal["test", "example"]] | None
+    Roles = list[Literal["test", "example", "generated"]] | None
     ContractKind = (
         Literal[
             "DbColumn",
@@ -166,7 +187,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges into a declaration, each with evidence and rule."""
+        """Get stored CALLS edges into a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_callers(
             qualified_name,
             repository_id,
@@ -184,7 +205,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get stored CALLS edges out of a declaration, each with evidence and rule."""
+        """Get stored CALLS edges out of a declaration, each with evidence and rule. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_function_calls(
             qualified_name,
             repository_id,
@@ -217,11 +238,14 @@ def create_server():
 
         Each dependent's ``impact`` is ``direct`` (depth 1: it uses the
         declaration itself, so a signature change may need an edit there) or
-        ``transitive`` (re-test it); ``source_roles`` marks tests and
-        examples, and ``exclude_roles`` leaves those roles out before paging.
+        ``transitive`` (re-test it); ``source_roles`` marks tests,
+        examples and generated files, and ``exclude_roles`` leaves those
+        roles out before paging.
         Each dependent's ``action`` says what the ``change`` needs of it: for
         a ``signature`` change, ``must_change`` at depth 1 and ``retest``
         deeper; for a ``behaviour`` change (body only), ``retest``.
+
+        ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it.
         """
         return await ctx.request_context.lifespan_context.get_impact(
             qualified_name,
@@ -310,7 +334,8 @@ def create_server():
 
         A truncated list continues with ``offset`` set to its ``next_offset``.
         Each file's ``impact`` is ``direct`` at depth 1, else ``transitive``;
-        ``exclude_roles`` leaves out tests or examples (``source_roles``).
+        ``exclude_roles`` leaves out tests, examples or generated files
+        (``source_roles``).
         """
         return await ctx.request_context.lifespan_context.get_file_impact(
             file_path,
@@ -331,7 +356,7 @@ def create_server():
         ctx: Context,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get declarations directly nested in a declaration (CONTAINS), with evidence."""
+        """Get declarations directly nested in a declaration (CONTAINS), with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_members(
             qualified_name,
             repository_id,
@@ -347,7 +372,7 @@ def create_server():
         ctx: Context,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get the declaration a declaration is directly nested in, with evidence."""
+        """Get the declaration a declaration is directly nested in, with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_owner(
             qualified_name,
             repository_id,
@@ -364,7 +389,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get the bases a class or interface names (INHERITS_FROM), with evidence."""
+        """Get the bases a class or interface names (INHERITS_FROM), with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_base_types(
             qualified_name,
             repository_id,
@@ -382,7 +407,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get classes and interfaces naming this one as a base, with evidence."""
+        """Get classes and interfaces naming this one as a base, with evidence. ``qualified_name`` may instead be a place, ``file:line``: the declaration named on that line, or else the innermost one around it."""
         return await ctx.request_context.lifespan_context.get_subtypes(
             qualified_name,
             repository_id,
@@ -523,14 +548,16 @@ def create_server():
         snapshot_id: str,
         ctx: Context,
         file_path: str | None = None,
+        target: str | None = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them."""
+        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them. Each call site names its caller (the function, method or file around it, with its line span and signature) and whether that file is a test or an example. `target` (a qualified name, or `file:line` of the declaration) keeps only calls of that one declaration, leaving out same-named members of other types."""
         return await ctx.request_context.lifespan_context.get_call_sites(
             name,
             repository_id,
             snapshot_id=snapshot_id,
             file_path=file_path,
+            target=target,
             limit=max_elements,
         )
 
@@ -648,7 +675,57 @@ def create_server():
             snapshot_id=snapshot_id,
         )
 
+    workspace = workspace_setting()
+    if workspace:
+        # The compiler check of an edit runs on the working copy the graph
+        # answers are checked against, on scratch copies of it.
+        git_dir = os.environ.get("DEEPTHOUGHT_WORKSPACE_GIT_DIR") or None
+
+        @server.tool()
+        async def checkEdit(
+            diff: str = "",
+            max_elements: Annotated[int, Field(ge=1, le=500)] = 100,
+        ) -> dict:
+            """Type-check edits and list what they break elsewhere.
+
+            With no diff, checks the edits already made to the working copy
+            (every change since its git HEAD commit, new files included).
+            With a unified diff (paths relative to the repository root, as
+            `git diff` writes them), checks that proposed edit on top of the
+            working copy as it is now. Each edited language's own checker
+            runs before and after (Go: go/types over every package and test;
+            TypeScript: tsc; Python: pyright). breaks are diagnostics only the
+            edited code has, at their line in the unedited source, with the
+            declaration that holds them: callers, importers and tests the edit
+            broke. edit_diagnostics are errors on lines the edit wrote.
+            complete is false when a check could not run or files were not
+            checked (unchecked_files). At most max_elements breaks are
+            returned; total_breaks counts all.
+            """
+            from .edit_check import check_edit, check_working_copy
+
+            try:
+                if diff.strip():
+                    report = await asyncio.to_thread(check_edit, workspace, diff)
+                else:
+                    report = await asyncio.to_thread(
+                        check_working_copy, workspace, git_dir=git_dir
+                    )
+            except ValueError as error:
+                return {"status": "invalid_diff", "error": str(error)[:500]}
+            breaks = report["breaks"]
+            report["total_breaks"] = len(breaks)
+            report["truncated"] = len(breaks) > max_elements
+            report["breaks"] = breaks[:max_elements]
+            report["status"] = "succeeded"
+            return report
+
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
+        # Results come back as JSON rows unless the server is started with
+        # DEEPTHOUGHT_QUERY_FORMAT=text; a call can still ask for either.
+        default_format = os.environ.get("DEEPTHOUGHT_QUERY_FORMAT", "json")
+        if default_format not in ("json", "text"):
+            raise ValueError("DEEPTHOUGHT_QUERY_FORMAT must be json or text")
 
         @server.tool()
         async def queryGraph(
@@ -658,15 +735,47 @@ def create_server():
             snapshot_id: str,
             ctx: Context,
             max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
-        ) -> dict:
-            """Run bounded read-only Cypher in an explicitly dedicated snapshot database."""
-            return await ctx.request_context.lifespan_context.query_cypher(
+            format: Literal["json", "text"] | None = None,
+        ):  # No return annotation: FastMCP would wrap a dict-or-text union;
+            # JSON rows are returned with their structured content below.
+            """Run bounded read-only Cypher in an explicitly dedicated snapshot database.
+
+            format "text" writes the rows as short sentences: code items as
+            Name (file:line), links as "A calls B at line N", chains as
+            "A calls B at line 4, which calls C at line 9", with a closing
+            coverage line. "json" returns status, items, returned and
+            truncated; describeSnapshot gives the snapshot's capabilities and
+            analysis status once.
+            """
+            service = ctx.request_context.lifespan_context
+            if (format or default_format) == "text":
+                return await service.query_cypher_text(
+                    query,
+                    parameters,
+                    repository_id,
+                    snapshot_id=snapshot_id,
+                    allow_database_scope=True,
+                    limit=max_elements,
+                )
+            rows = await service.query_cypher(
                 query,
                 parameters,
                 repository_id,
                 snapshot_id=snapshot_id,
                 allow_database_scope=True,
                 limit=max_elements,
+            )
+            # Rows keep their structured content, as with an annotated tool.
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=pydantic_core.to_json(
+                            rows, fallback=str, indent=2
+                        ).decode(),
+                    )
+                ],
+                structuredContent=rows,
             )
 
     return server

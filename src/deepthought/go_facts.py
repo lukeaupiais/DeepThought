@@ -26,6 +26,7 @@ puts it), since an older go/types does not know newer language features. Files t
 are listed with a reason, for the tree-sitter rules to read.
 """
 
+import base64
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cache
@@ -47,6 +48,10 @@ PLACEHOLDER = "\x00"  # gofacts' stand-in for text the code does not fix
 
 class GoMissing(RuntimeError):
     """The Go toolchain, which types Go code for the engine, is not installed."""
+
+
+class GoVersionUnreadable(RuntimeError):
+    """``go env GOVERSION`` names no Go release the engine can compare."""
 
 
 @dataclass(frozen=True)
@@ -83,11 +88,6 @@ class GoCall:
     texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
     values: tuple[GoValue, ...] = ()
-    # (file, line) of the declaration of each argument's named type, when it
-    # is in the module tree (None otherwise).
-    declarations: tuple[tuple[str, int] | None, ...] = ()
-    # Whether each argument's static type is an interface.
-    interfaces: tuple[bool, ...] = ()
     # The named type of each of the callee's results (None: not named), and
     # where the method name is written (0-based column).
     result_types: tuple[tuple[str, str] | None, ...] = ()
@@ -96,6 +96,98 @@ class GoCall:
     messages: tuple[tuple[str, str], ...] = ()
     name_line: int | None = None
     name_column: int | None = None
+    # (file, line) of the declaration of each argument's named type, when it
+    # is in the module tree (None otherwise).
+    declarations: tuple[tuple[str, int] | None, ...] = ()
+    # Whether each argument's static type is an interface.
+    interfaces: tuple[bool, ...] = ()
+    # References (see GoRef) of the receiver expression and of what the
+    # result is assigned to; of each argument, the variable, field or call it
+    # is, the module's function it names or calls, and a func literal's first
+    # parameter.
+    operand: tuple | None = None
+    assigned: tuple | None = None
+    reference: tuple | None = None
+    refs: tuple = ()
+    functions: tuple = ()
+    literal_parameters: tuple = ()
+
+
+# A reference gofacts gives: ("o", file, line, column) of a variable or field
+# declaration, ("c", file, line, column) of a call, ("f", file, line, column)
+# of a function or method declaration; columns 0-based. One object gives the
+# same reference in every file of its module.
+
+
+@dataclass(frozen=True)
+class GoPass:
+    """A call of the module's own function passing values of library types:
+    (argument reference, callee parameter reference) pairs."""
+
+    file: str
+    line: int
+    column: int
+    callee: tuple
+    arguments: tuple
+    # The arguments given to interface parameters (v any): (argument
+    # reference, parameter reference, named type, declaration (file, line)
+    # or None, whether the argument's static type is an interface).
+    typed: tuple = ()
+    # The type assertions the call runs behind: (reference of the asserted
+    # value, named type or None for an interface).
+    guards: tuple = ()
+
+
+@dataclass(frozen=True)
+class GoNew:
+    """A call of a library's constructor: a package function whose first
+    result is a type of its own package (gin.Default())."""
+
+    file: str
+    line: int
+    column: int
+    type: tuple[str, str]
+    function: str
+    assigned: tuple | None
+    reference: tuple | None = None
+
+
+@dataclass(frozen=True)
+class GoField:
+    """A field of a struct type declared in the module (exported or
+    embedded): the (file, line, name) of the module's named types its type
+    holds, and whether it holds an interface."""
+
+    name: str
+    line: int
+    embedded: bool
+    types: tuple[tuple[str, int, str], ...]
+    interface: bool
+
+
+@dataclass(frozen=True)
+class GoStruct:
+    file: str
+    line: int  # of the type's name
+    name: str
+    fields: tuple[GoField, ...]
+
+
+@dataclass(frozen=True)
+class GoProtoFile:
+    """A protoimpl.TypeBuilder protoc-gen-go writes in a generated file:
+    the serialized FileDescriptorProto it embeds, how many enums and
+    messages that file declares, and the Go type of each GoTypes entry as
+    (file, line of its name, name), None for a map entry or a library's
+    type. protobuf-go lists the file's enums, then its messages, in its
+    flattened ordering, then the types they depend on."""
+
+    file: str
+    line: int
+    descriptor: bytes
+    enums: int
+    messages: int
+    types: tuple
 
 
 @dataclass(frozen=True)
@@ -121,7 +213,7 @@ class GoTableName:
 
 
 @dataclass(frozen=True)
-class GoStructField:
+class GoModelField:
     name: str
     embedded: bool
     tag: str  # the raw struct tag
@@ -134,14 +226,15 @@ class GoStructField:
 
 
 @dataclass(frozen=True)
-class GoStruct:
-    """A named struct type a file declares, with its fields."""
+class GoModel:
+    """A named struct type a file declares, with all its fields, as GORM's
+    schema parser would read it ("model" in gofacts)."""
 
     file: str
     line: int
     column: int  # 0-based, where its name is written
     type: tuple[str, str]  # (import path, type name)
-    fields: tuple[GoStructField, ...]
+    fields: tuple[GoModelField, ...]
 
 
 @dataclass(frozen=True)
@@ -163,8 +256,15 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
-    signatures: list[GoSignature] = field(default_factory=list)
+    passes: list[GoPass] = field(default_factory=list)
+    # (assigned reference, assigned-from reference) of library-typed values
+    # assigned from a variable, field or parameter.
+    aliases: list[tuple] = field(default_factory=list)
+    constructors: list[GoNew] = field(default_factory=list)
     structs: list[GoStruct] = field(default_factory=list)
+    proto_files: list[GoProtoFile] = field(default_factory=list)
+    signatures: list[GoSignature] = field(default_factory=list)
+    models: list[GoModel] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -210,6 +310,21 @@ def _version(name):
     return tuple(int(part or 0) for part in match.groups()) if match else None
 
 
+def installed_version(goversion):
+    """The release of the installed Go command, from ``go env GOVERSION``:
+    (1, 27, 4) for "go1.27.4", and for an experiment build such as
+    "go1.27.4-X:nodwarf5" or "go1.27.4 X:nodwarf5", whose experiment
+    suffix does not change the release. Raises GoVersionUnreadable for
+    anything else."""
+    version = _version(re.sub(r"[- ]X:\S*$", "", goversion or ""))
+    if version is None:
+        raise GoVersionUnreadable(
+            f"cannot read the Go release from GOVERSION {goversion!r}; "
+            "install a Go release (go1.N.M)"
+        )
+    return version
+
+
 def wanted_toolchain(text):
     """The toolchain a go.mod asks for: its toolchain line, else the release
     its go line names (go 1.26.0 is go1.26.0; from Go 1.21, go 1.22 is
@@ -228,7 +343,7 @@ def module_toolchain(go, info, text):
     for a newer release that the module cache already holds (as ``go``
     with GOTOOLCHAIN=auto would download it). Nothing is downloaded."""
     wanted = wanted_toolchain(text)
-    if wanted is None or _version(wanted) <= _version(info["GOVERSION"]):
+    if wanted is None or _version(wanted) <= installed_version(info["GOVERSION"]):
         return go
     cached = (
         Path(info["GOMODCACHE"])
@@ -259,6 +374,10 @@ def _environment(go, goroot=None, modfile=None):
     module files read only, the toolchain on hand. A binary built with
     -trimpath knows no GOROOT, so the run is told the toolchain's."""
     environment = dict(os.environ)
+    # A GOROOT inherited from the caller belongs to another toolchain (a
+    # module asking for a newer Go runs the cached one): each go command
+    # finds its own unless the toolchain's is given.
+    environment.pop("GOROOT", None)
     if goroot:
         environment["GOROOT"] = goroot
     environment.update(
@@ -293,6 +412,7 @@ def download(go, directory, modfile, timeout=900):
     the Go release it asks for) into the module cache. "downloaded", or
     "download_failed: <first line of the error>"."""
     environment = dict(os.environ)
+    environment.pop("GOROOT", None)
     environment.update(
         GOFLAGS=f"-mod=mod -modfile={modfile}",
         GOTOOLCHAIN="auto",
@@ -327,23 +447,45 @@ def _cache_directory():
     return Path(base) / "deepthought"
 
 
-def build(go, timeout=300):
-    """(path of the gofacts binary for this source and toolchain, built into
-    the cache directory when missing; the toolchain's GOROOT)."""
-    source = resources.files(__package__).joinpath("gofacts/main.go").read_bytes()
+def build(go, timeout=300, program="gofacts"):
+    """(path of the ``program`` binary (a directory of this package holding
+    main.go) for this source and toolchain, built into the cache directory
+    when missing; the toolchain's GOROOT)."""
+    directory = resources.files(__package__).joinpath(program)
+    source = directory.joinpath("main.go").read_bytes()
+    # A program with its own go.mod pins its dependencies there (go.sum
+    # holds their checksums); building it downloads them once into the
+    # module cache. Programs without one use the standard library only.
+    module = {
+        name: directory.joinpath(name).read_bytes()
+        for name in ("go.mod", "go.sum")
+        if directory.joinpath(name).is_file()
+    }
     environment = _environment(go)
+    if module:
+        for name in ("GOPROXY", "GOFLAGS"):
+            if name in os.environ:
+                environment[name] = os.environ[name]
+            else:
+                environment.pop(name, None)
+        environment["GOFLAGS"] = "-mod=readonly"
     info = _info(go)
     version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
-    key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
-    binary = _cache_directory() / f"gofacts-{key}"
+    key = sha256(
+        source + b"".join(module.values()) + "\0".join(version[:3]).encode()
+    ).hexdigest()[:16]
+    binary = _cache_directory() / f"{program}-{key}"
     if binary.is_file():
         return binary, version[3]
     binary.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="deepthought-gofacts-") as scratch:
+    with tempfile.TemporaryDirectory(prefix=f"deepthought-{program}-") as scratch:
         (Path(scratch) / "main.go").write_bytes(source)
-        output = Path(scratch) / "gofacts"
+        for name, content in module.items():
+            (Path(scratch) / name).write_bytes(content)
+        output = Path(scratch) / program
         subprocess.run(
-            [go, "build", "-trimpath", "-o", str(output), "main.go"],
+            [go, "build", "-trimpath", "-o", str(output)]
+            + (["."] if module else ["main.go"]),
             cwd=scratch,
             capture_output=True,
             text=True,
@@ -362,9 +504,11 @@ def _type(value):
     return (value["package"], value["name"]) if value else None
 
 
-def collect(root, files, module_directories, *, timeout=600):
+def collect(root, files, module_directories, *, timeout=1800):
     """GoFacts of the Go ``files`` (relative paths) of ``root``, one gofacts
-    run per module directory (relative, "" for the root)."""
+    run per module directory (relative, "" for the root). ``timeout`` bounds
+    each run: type-checking every package of a large module from source
+    (guacsec/guac, 1.2k packages) takes about ten minutes."""
     facts = GoFacts()
     files = sorted(files)
     modules = sorted(module_directories, key=lambda d: (-len(d), d))
@@ -546,6 +690,13 @@ def _read(text, directory, members, facts):
     def relative(path):
         return posixpath.join(directory, path) if directory and path else path
 
+    def ref(value):
+        if not value:
+            return None
+        kind, rest = value.split(":", 1)
+        path, line, column = rest.rsplit(":", 2)
+        return (kind, relative(path), int(line), int(column) - 1)
+
     errors = {}
     seen = set()
     for line in text.splitlines():
@@ -579,6 +730,10 @@ def _read(text, directory, members, facts):
                     ),
                     tuple(_type(a.get("type")) for a in arguments),
                     tuple(_value(a) for a in arguments),
+                    tuple(_type(t) for t in item.get("result_types") or ()),
+                    tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
+                    item.get("name_line"),
+                    item["name_column"] - 1 if item.get("name_column") else None,
                     tuple(
                         (relative(a["type"]["file"]), a["type"]["line"])
                         if (a.get("type") or {}).get("file")
@@ -586,10 +741,73 @@ def _read(text, directory, members, facts):
                         for a in arguments
                     ),
                     tuple(bool(a.get("interface")) for a in arguments),
-                    tuple(_type(t) for t in item.get("result_types") or ()),
-                    tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
-                    item.get("name_line"),
-                    item["name_column"] - 1 if item.get("name_column") else None,
+                    ref(item.get("operand")),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
+                    tuple(ref(a.get("ref")) for a in arguments),
+                    tuple(ref(a.get("function")) for a in arguments),
+                    tuple(ref(a.get("literal")) for a in arguments),
+                )
+            )
+        elif kind == "pass":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "pass")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.passes.append(
+                GoPass(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    ref(item["callee"]),
+                    tuple(
+                        (ref(a.get("ref")), ref(a.get("parameter")))
+                        for a in item.get("arguments") or ()
+                    ),
+                    tuple(
+                        (
+                            ref(a.get("ref")),
+                            ref(a["parameter"]),
+                            _type(a.get("type")),
+                            (relative(a["type"]["file"]), a["type"]["line"])
+                            if (a.get("type") or {}).get("file")
+                            else None,
+                            bool(a.get("interface")),
+                        )
+                        for a in item.get("typed") or ()
+                    ),
+                    tuple(
+                        (
+                            ref(g["ref"]),
+                            None if g.get("interface") else _type(g.get("type")),
+                        )
+                        for g in item.get("guards") or ()
+                    ),
+                )
+            )
+        elif kind == "alias":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "alias")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.aliases.append((ref(item["assigned"]), ref(item["operand"])))
+        elif kind == "new":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "new")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.constructors.append(
+                GoNew(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    item.get("method", ""),
+                    ref(item.get("assigned")),
+                    ref(item.get("self")),
                 )
             )
         elif kind == "signature":
@@ -623,18 +841,44 @@ def _read(text, directory, members, facts):
             )
         elif kind == "struct":
             file = relative(item["file"])
-            key = (file, item["line"], item["column"], "struct")
-            if file not in members or key in seen:
-                continue
+            key = (file, item["line"], "struct")
+            if key in seen:
+                continue  # every package is read, not only the members'
             seen.add(key)
             facts.structs.append(
                 GoStruct(
                     file,
                     item["line"],
+                    item["type"]["name"],
+                    tuple(
+                        GoField(
+                            f["name"],
+                            f["line"],
+                            bool(f.get("embedded")),
+                            tuple(
+                                (relative(t["file"]), t["line"], t["name"])
+                                for t in f.get("types") or ()
+                            ),
+                            bool(f.get("interface")),
+                        )
+                        for f in item.get("fields") or ()
+                    ),
+                )
+            )
+        elif kind == "model":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "model")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.models.append(
+                GoModel(
+                    file,
+                    item["line"],
                     item["column"] - 1,
                     _type(item["type"]),
                     tuple(
-                        GoStructField(
+                        GoModelField(
                             f["name"],
                             bool(f.get("embedded")),
                             f.get("tag", ""),
@@ -643,7 +887,28 @@ def _read(text, directory, members, facts):
                             f["kind"],
                             _type(f.get("type")),
                         )
-                        for f in item.get("fields") or ()
+                        for f in item.get("model_fields") or ()
+                    ),
+                )
+            )
+        elif kind == "protofile":
+            file = relative(item["file"])
+            key = (file, item["line"], "protofile")
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.proto_files.append(
+                GoProtoFile(
+                    file,
+                    item["line"],
+                    base64.b64decode(item.get("raw") or ""),
+                    item.get("enums", 0),
+                    item.get("message_count", 0),
+                    tuple(
+                        (relative(t["file"]), t["line"], t["name"])
+                        if t and t.get("file")
+                        else None
+                        for t in item.get("types") or ()
                     ),
                 )
             )

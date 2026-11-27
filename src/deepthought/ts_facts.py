@@ -48,6 +48,15 @@ class TsFacts:
     # {file: {(start byte, end byte): names}}: the names written in such a
     # type that the compiler resolves to no declaration.
     unresolved_types: dict = field(default_factory=dict)
+    # {(file, type name, line of the name): ((field name or None, line,
+    # ((file, name, line, column), ...), unresolved), ...)}: the fields of
+    # a class, interface or object type alias and the repository's
+    # declarations of the named types each carries; None names the classes
+    # and interfaces it extends or implements.
+    fields: dict = field(default_factory=dict)
+    # [(file, {generator, ...})]: the protobuf types generated code
+    # declares (``protoFacts`` in tsfacts/main.js).
+    protos: list = field(default_factory=list)
 
 
 def _cache_directory():
@@ -132,12 +141,28 @@ def collect(root, files, defines=(), *, timeout=1800):
         )
     for line in run.stdout.splitlines():
         item = json.loads(line)
+        if "proto" in item:
+            facts.protos.append((item["file"], item["proto"]))
+            continue
         if "error" in item:
             facts.rejected_configs.append(item["error"])
         elif "failures" in item:
             facts.failures[item["file"]] = item["failures"]
         elif "module" in item:
             facts.modules[(item["file"], item["module"])] = item["resolved"]
+        elif "fields" in item:
+            facts.fields[(item["file"], item["name"], item["line"])] = tuple(
+                (
+                    f["name"],
+                    f["line"],
+                    tuple(
+                        (t["file"], t["name"], t["line"], t["column"])
+                        for t in f["types"]
+                    ),
+                    f["unresolved"],
+                )
+                for f in item["fields"]
+            )
         elif "types" in item:
             if item.get("unresolved"):
                 facts.unresolved_types.setdefault(item["file"], {})[

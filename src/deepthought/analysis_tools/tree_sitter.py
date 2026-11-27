@@ -10,6 +10,8 @@ output or claim additional languages.
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import posixpath
+import subprocess
 import time
 from copy import deepcopy
 
@@ -19,9 +21,21 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
-from .. import scip_calls
+from ..generated_files import generated_files
+from .. import js_callgraph, scip_calls, ts_modules
+from ..pyright_calls import PyrightDefinitions
 from ..signature_types import signature_types
-from ..scip_calls import bind_calls
+from ..scip_calls import ScipReferences, bind_calls
+from .. import scip_bases
+from .. import scip_implements
+from ..edge_coverage import edge_coverage
+from ..fastapi_dependencies import dependency_uses
+from ..pytest_fixtures import FixtureUse
+from ..python_ast_facts import ast_facts
+from ..python_runtime import read_ast_facts
+from .. import scip_uses
+from .. import scip_imports
+from .. import go_callgraph
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -29,6 +43,7 @@ from ..syntax import (
     declaration_sources,
     make_parser,
     parse_source,
+    script_source,
 )
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -60,6 +75,111 @@ NESTS_RULE = register_rule(
         "resolved",
         "The parse tree places the inner declaration within the outer one; the "
         "outer is the innermost declaration whose span encloses it.",
+    )
+)
+
+USE_RULES = {
+    kind: register_rule(EvidenceRule(scip_uses.RULES[kind], "resolved", text))
+    for kind, text in {
+        scip_uses.USES_TYPE: "A SCIP index covering the file records a "
+        "reference, not at a call's name or in an import, to a symbol whose "
+        "definition is the name of this parsed class, struct, interface, type "
+        "alias or enum; the source is the innermost parsed declaration around "
+        "the reference, or its file. The first site and the number of sites "
+        "are kept.",
+        scip_uses.REFERENCES_FUNCTION: "As scip.use-type, for a parsed "
+        "function or method the reference names without calling it there: "
+        "passed as a value, registered as a handler, stored in a table.",
+        scip_uses.READS_FIELD: "As scip.use-type, for a field the index "
+        "defines on a parsed type (a term T#name.), where the syntax around "
+        "the reference does not assign to it.",
+        scip_uses.WRITES_FIELD: "As scip.use-field-read, where the reference "
+        "is the target of an assignment, augmented assignment, ++ or --, "
+        "del, or the key of a Go composite literal element (T{Field: v}).",
+    }.items()
+}
+FIELD_RULE = register_rule(
+    EvidenceRule(
+        scip_uses.FIELD_RULE,
+        "resolved",
+        "A SCIP index covering the file defines a term on a type (T#name.) at a "
+        "position inside this parsed class, struct, interface or enum, the "
+        "innermost such declaration around it.",
+    )
+)
+PACKAGE_RULES = {
+    rule.rule_id: rule
+    for rule in (
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_PYTHON_IMPORT_PACKAGE,
+                "resolved",
+                "scip-python (pyright) resolves the module an absolute import "
+                "names to an installed distribution or the standard library, "
+                "which the index names with its version; the package's own "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_GO_IMPORT_PACKAGE,
+                "resolved",
+                "scip-go (the go command's package loading) resolves the import "
+                "path to a package of another module, or of the standard "
+                "library, which the index names with the module's version; its "
+                "files are not analyzed.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                scip_imports.SCIP_SCRIPT_IMPORT_PACKAGE,
+                "resolved",
+                "scip-typescript (the TypeScript compiler's module resolution) "
+                "resolves the specifier to a file of an npm package, which the "
+                "index names with the version its package.json declares; the "
+                "package's files are not analyzed.",
+            )
+        ),
+    )
+}
+FIXTURE_PARAMETER_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-parameter",
+        "pattern_matched",
+        "A test or fixture parameter names a pytest fixture, found as pytest "
+        "looks it up: the class, the module, then conftest.py in each "
+        "directory up to the root (deepthought.pytest_fixtures).",
+    )
+)
+FIXTURE_MARK_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-usefixtures",
+        "pattern_matched",
+        "@pytest.mark.usefixtures on a test or test class names a pytest "
+        "fixture, found as pytest looks it up.",
+    )
+)
+FIXTURE_AUTOUSE_RULE = register_rule(
+    EvidenceRule(
+        "pytest.fixture-autouse",
+        "pattern_matched",
+        "A pytest fixture declared autouse=True in the test's class, module or "
+        "a conftest.py above it, which pytest runs for every test that sees it.",
+    )
+)
+_FIXTURE_RULES = {
+    "parameter": FIXTURE_PARAMETER_RULE,
+    "usefixtures": FIXTURE_MARK_RULE,
+    "autouse": FIXTURE_AUTOUSE_RULE,
+}
+DEPENDENCY_RULE = register_rule(
+    EvidenceRule(
+        "fastapi.depends",
+        "resolved",
+        "The SCIP index resolves a call to FastAPI's own Depends or Security, "
+        "and the dependency written in it to one parsed declaration "
+        "(deepthought.fastapi_dependencies); FastAPI calls it for the "
+        "endpoint, router or dependency the call belongs to.",
     )
 )
 
@@ -114,60 +234,32 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
-                import_rules.TYPESCRIPT_RELATIVE_MODULE,
+                scip_imports.SCIP_PYTHON_IMPORT_MODULE,
                 "resolved",
-                "A relative specifier resolves to an analyzed file in TypeScript's "
-                "extension and index lookup order, then to JavaScript sources as "
-                "with allowJs; package.json files are not read.",
+                "scip-python (pyright) resolves the module an absolute import "
+                "names from the interpreter's search path (the project's source "
+                "roots, installed dependencies, the standard library) to a "
+                "document of the index, which is the analyzed file.",
             )
         ),
         register_rule(
             EvidenceRule(
-                import_rules.JAVASCRIPT_RELATIVE_FILE,
+                scip_imports.SCIP_GO_IMPORT_MODULE,
                 "resolved",
-                "A relative specifier with a JavaScript extension names an "
-                "analyzed file at exactly that path.",
+                "scip-go (the go command's package loading, through go.mod and "
+                "replace directives) resolves the import path to a package whose "
+                "files the index defines; the link reaches each of its non-test "
+                "files.",
             )
         ),
         register_rule(
             EvidenceRule(
-                import_rules.JAVASCRIPT_EXTENSIONLESS_MODULE,
-                "pattern_matched",
-                "An extensionless relative specifier matches an analyzed file by "
-                "the bundler/CommonJS lookup (.js, .jsx, .mjs, .cjs, then index); "
-                "Node ES modules would not resolve it, and bundler config is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.TYPESCRIPT_PATH_ALIAS,
+                scip_imports.SCIP_SCRIPT_IMPORT_MODULE,
                 "resolved",
-                "A bare specifier matches a compilerOptions.paths pattern of the "
-                "nearest tsconfig.json or jsconfig.json (exact, else the longest "
-                "wildcard prefix) and a target resolves to an analyzed file in "
-                "TypeScript's lookup order, a directory through its package.json "
-                "typings, types and main; include, exclude and extended configs "
-                "are not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.JAVASCRIPT_PATH_ALIAS,
-                "pattern_matched",
-                "A JavaScript file's bare specifier resolves through the nearest "
-                "jsconfig.json or tsconfig.json paths as TypeScript resolves it; "
-                "the runtime resolves it only through a matching bundler alias, "
-                "which is not read.",
-            )
-        ),
-        register_rule(
-            EvidenceRule(
-                import_rules.SCRIPT_DECLARATION_SOURCE,
-                "pattern_matched",
-                "A path alias reaches a directory whose package.json typings or "
-                "types names a declaration file that is not analyzed; the link "
-                "is to the JavaScript file of the same name beside it, which the "
-                "declaration file describes by convention.",
+                "scip-typescript (the TypeScript compiler's module resolution, "
+                "through tsconfig, package.json and workspaces) resolves the "
+                "specifier to a document of the index, which is the analyzed "
+                "file.",
             )
         ),
         register_rule(
@@ -302,6 +394,39 @@ IMPORT_RULES = {
         ),
     )
 }
+NEST_INJECTED_CALL_RULE = register_rule(
+    EvidenceRule(
+        ts_modules.NEST_INJECTED_CALL,
+        "resolved",
+        "A TypeScript call this.p.m() in a class whose constructor parameter "
+        "property p NestJS injects links to m of the class a class provider "
+        "({provide: token, useClass: C}) binds p's token to: the argument of "
+        "p's @Inject(token) (Inject from @nestjs/common), or else the class "
+        "p's type names. The TypeScript compiler's checker resolves the "
+        "token and the class; m is the method C declares or inherits through "
+        "extends.",
+    )
+)
+JS_CALL_POINTS_TO_RULE = register_rule(
+    EvidenceRule(
+        js_callgraph.JS_CALL_POINTS_TO,
+        "resolved",
+        "A JavaScript or TypeScript call that no other rule links (through a "
+        "callback, a function taken from an array, map or object, a hook "
+        "registered and run later) links to each parsed function the pinned "
+        "Jelly call graph (a points-to analysis of the repository's own "
+        "files, installed packages left out) says may be called there.",
+    )
+)
+IMPORT_RULES[ts_modules.TYPESCRIPT_COMPILER_MODULE] = register_rule(
+    EvidenceRule(
+        ts_modules.TYPESCRIPT_COMPILER_MODULE,
+        "resolved",
+        "A JavaScript or TypeScript import links to the file the TypeScript "
+        "compiler resolves its specifier to, under the options of the "
+        "project that includes the importing file.",
+    )
+)
 
 
 def _declaration_sources(root, result):
@@ -331,6 +456,8 @@ def _declaration_sources(root, result):
         if content is None or sha256(content).hexdigest() != item.digest:
             changed.append(item.file)
             continue
+        # A Vue component is read as its script blocks.
+        suffix, content = script_source(item.file, content)
         key = (item.language, suffix)
         if key not in parsers:
             parsers[key] = make_parser(item.language, suffix)
@@ -363,12 +490,6 @@ _CALL_RULE_TEXT = {
     "or as 'module.name', names a module that does not declare the name but "
     "binds it with exactly one 'from M import name'; that import is followed, "
     "step by step, to the module that declares it at top level.",
-    call_rules.CALL_JS_REEXPORT: "A JavaScript or TypeScript callee bound by "
-    "an import, bare or as 'module.name', names a module that does not "
-    "declare the name but re-exports it with 'export { name } from' (aliases "
-    "applied) or, failing that, 'export * from'; each step is followed to the "
-    "module that declares it. Default exports are not followed, and a name "
-    "several star exports give is ambiguous.",
     call_rules.CALL_JS_STATIC_METHOD: "A JavaScript or TypeScript callee "
     "'C.m' whose C is the class declared where the call's scopes see C, or "
     "the one class a named import binds to C (followed as for an imported "
@@ -502,6 +623,25 @@ CALL_RULES.update(
     {
         rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
         for rule_id, text in {
+            call_rules.CALL_TS_COMPILER_EXPORT: "A JavaScript or TypeScript "
+            "callee bound by an import, bare or as 'module.name', names a "
+            "module that the TypeScript compiler resolves the import to; the "
+            "compiler follows the module's export of that name (export ... "
+            "from, export *, export { x }) to the declaration in another "
+            "file. A declaration file's import runs the implementation beside "
+            "it with the same stem.",
+            call_rules.CALL_TS_DECLARATION_FILE: "A JavaScript or TypeScript "
+            "callee bound by an import that the TypeScript compiler resolves "
+            "to a declaration file (.d.ts) with no analyzed implementation "
+            "beside it links to the declaration there that the compiler "
+            "says the file exports under that name: what the call is typed "
+            "against, not the code it runs.",
+            call_rules.CALL_TS_EXPORT_CONFLICT: "A JavaScript or TypeScript "
+            "callee bound by an import whose export the language rejects, in "
+            "the imported module or one the TypeScript compiler follows it "
+            "through: two exports of the name, or two 'export *' that give "
+            "it. The compiler reports the error and keeps one declaration, "
+            "which the call links to; the program does not link at run time.",
             call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' or "
             "'x.f.M()' where x is declared in the function around the call (a "
             "parameter, receiver, named result, 'var x T', or 'x := T{...}', "
@@ -577,6 +717,26 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[scip_bases.SCIP_PYTHON_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_PYTHON_BASE,
+        "resolved",
+        "scip-python records, at the last name of a base written in a Python "
+        "class statement, a reference to the symbol of exactly one class "
+        "declared in the analyzed files: the base as Python's import and name "
+        "lookup bind it.",
+    )
+)
+BASE_RULES[scip_bases.SCIP_TYPESCRIPT_BASE] = register_rule(
+    EvidenceRule(
+        scip_bases.SCIP_TYPESCRIPT_BASE,
+        "resolved",
+        "scip-typescript records, at the last name of an extends or implements "
+        "entry of a TypeScript or JavaScript class or interface, a reference "
+        "to the symbol of exactly one class or interface declared in the "
+        "analyzed files: the base as the TypeScript compiler binds it.",
+    )
+)
 BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_SUPERTRAIT,
@@ -598,6 +758,28 @@ GO_INTERFACE_RULE = register_rule(
         "alike once each named type is tied to its package; an unexported "
         "method only in the interface's package. The type IMPLEMENTS the "
         "interface, and each interface method DISPATCHES_TO the type's method.",
+    )
+)
+GO_CALL_VTA_RULE = register_rule(
+    EvidenceRule(
+        go_callgraph.GO_CALL_VTA,
+        "resolved",
+        "A Go call through an interface method or a function value links to "
+        "each function or method that the pinned golang.org/x/tools call "
+        "graph (variable type analysis over the module's SSA form, tests "
+        "included) says may be called there.",
+    )
+)
+SCIP_GO_IMPLEMENTATION_RULE = register_rule(
+    EvidenceRule(
+        scip_implements.SCIP_GO_IMPLEMENTATION,
+        "resolved",
+        "scip-go, type-checking the package, records an is_implementation "
+        "relationship from a named type of the analyzed files to an interface "
+        "declared there (the type's method set, pointer receivers and "
+        "promoted methods included, has every interface method), or from a "
+        "method to an interface method: the type IMPLEMENTS the interface, "
+        "and the interface method DISPATCHES_TO the method.",
     )
 )
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
@@ -634,15 +816,105 @@ CALL_RULES.update(
             "resolves to overload signatures (TypeScript overloads, Python "
             "@overload) links to the one implementation declared beside "
             "them; more than one leaves the call ambiguous.",
+            scip_calls.PYRIGHT_CALL_DEFINITION: "A Python call whose SCIP "
+            "target is one scip-python is known to get wrong, or that the "
+            "index records no occurrence for, links to the declaration "
+            "pinned pyright's go-to-definition gives for the callee's last "
+            "name.",
+            scip_calls.PYRIGHT_CALL_ALIAS: "A Python call through a local "
+            "assigned once from a dotted name (`get = console.get_style`, "
+            "`S = Segment`) links to the declaration pinned pyright's "
+            "go-to-definition gives for that name.",
+            scip_calls.PYRIGHT_CALL_CLASS_PARAMETER: "A call of a "
+            "classmethod's first parameter (`cls(...)`) links to the class "
+            "the method is declared in; pyright types the parameter as that "
+            "class but gives it no place.",
         }.items()
     }
 )
+
+
+def _go_dynamic_calls(result, root):
+    """{"targets": {call site id: declaration ids}, "failures": {package
+    directory: error}} from the pinned Go call graph tool, for the Go
+    modules of the analyzed files; none without Go modules. The tool is
+    required where there are any."""
+    modules = sorted(
+        posixpath.dirname(p.file)
+        for p in result.packages
+        if p.kind == "module" and p.file.endswith("go.mod")
+    )
+    if not modules:
+        return {"targets": {}, "failures": {}}
+    # Each module's packages are the directories of its analyzed Go files,
+    # named one by one: ``./...`` skips directories starting with "_" or
+    # ".", which the go tool still builds when named (chi's _examples).
+    packages = {module: set() for module in modules}
+    for coverage in result.coverage:
+        if coverage.language != "go" or not coverage.file.endswith(".go"):
+            continue
+        directory = posixpath.dirname(coverage.file)
+        module = max(
+            (m for m in modules if m == "" or (directory + "/").startswith(m + "/")),
+            key=len,
+            default=None,
+        )
+        if module is not None and "testdata" not in directory.split("/"):
+            packages[module].add(posixpath.relpath(directory or ".", module or "."))
+    binary = go_callgraph.locate_go_callgraph()
+    calls, failures = go_callgraph.dynamic_calls(
+        root, {m: sorted(p) for m, p in packages.items() if p}, binary
+    )
+    return {
+        "targets": go_callgraph.bind_dynamic_calls(result, calls),
+        "failures": failures,
+    }
+
+
+def _bind(result, scip_indexes, root):
+    """Call bindings from the indexes, with pyright running for Python
+    calls when an index covers a Python file."""
+    python = any(
+        coverage.file.endswith((".py", ".pyi"))
+        for index, _ in scip_indexes
+        for coverage in index.coverage
+    )
+    if not python:
+        return bind_calls(result, scip_indexes, root)
+    with PyrightDefinitions(root) as pyright:
+        return bind_calls(result, scip_indexes, root, pyright)
+
+
+def _points_to_calls(result, root, linked):
+    """{"targets": {call site id: declaration ids}, "error": None or why
+    Jelly gave nothing}: the pinned Jelly call graph of the analyzed
+    JavaScript and TypeScript files, for the calls not in ``linked``. The
+    tool is required where there are any."""
+    files = js_callgraph.analyzed_scripts(result)
+    if not files:
+        return {"targets": {}, "error": None}
+    binary = js_callgraph.locate_jelly()
+    try:
+        calls = js_callgraph.points_to_calls(root, files, binary)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        return {"targets": {}, "error": str(error)}
+    return {
+        "targets": js_callgraph.bind_points_to_calls(result, calls, root, linked),
+        "error": None,
+    }
 
 
 def _call_name(callee):
     """The name a call site calls: the last name of its callee
     (``c.req.param`` calls ``param``)."""
     return callee.rsplit(".", 1)[-1]
+
+
+def _count(values):
+    counts = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _evidence(rule):
@@ -762,6 +1034,9 @@ class TreeSitterTool(AnalysisTool):
             previous=previous,
             reuse=self.last_reuse,
         )
+        # JavaScript and TypeScript imports, and the calls bound through
+        # them, are the TypeScript compiler's.
+        result = ts_modules.with_compiler_modules(result, self.repo_path)
         self.last_analysis = result
         self.last_scip_report = None
         if scip_indexes is None and result.status == "failed":
@@ -795,16 +1070,52 @@ class TreeSitterTool(AnalysisTool):
             for r in import_rules.resolve_imports(result)
             if r.reason != import_rules.RESOLUTION_CONFIGURATION
         )
+        # Imports in files an index covers resolve as the language's own
+        # tooling resolves them; external modules name their package.
+        languages_by_file = {c.file: c.language for c in result.coverage}
+        language_of = {
+            item.id: languages_by_file.get(item.file) for item in result.imports
+        }
+        scip_bound = scip_imports.bind_imports(
+            result,
+            scip_indexes,
+            self.repo_path,
+            {r.import_id: r for r in resolutions},
+        )
+        resolutions = tuple(
+            scip_bound[r.import_id][0] if r.import_id in scip_bound else r
+            for r in resolutions
+        )
         undisclosed = {}
         for resolution in resolutions:
             if resolution.status != "linked":
                 item = imports[resolution.import_id]
-                undisclosed.setdefault(item.file, {}).setdefault(
-                    resolution.status + "_imports", set()
-                ).add(item.specifier)
+                key = (
+                    "external_imports"
+                    if resolution.reason == scip_imports.EXTERNAL
+                    else resolution.status + "_imports"
+                )
+                undisclosed.setdefault(item.file, {}).setdefault(key, set()).add(
+                    item.specifier
+                )
         declared_packages = {
             item.file: {item.kind: item.name} for item in result.packages
         }
+        # Linguist's rules (and the repository's own linguist-generated
+        # attributes) say which files a generator wrote; nothing is parsed
+        # when the analysis failed.
+        generated = (
+            {}
+            if result.status == "failed"
+            else generated_files(
+                self.repo_path,
+                [
+                    c.file
+                    for c in result.coverage
+                    if c.status in {"analyzed", "partial"}
+                ],
+            )
+        )
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -825,6 +1136,11 @@ class TreeSitterTool(AnalysisTool):
                             else {}
                         ),
                         **declared_packages.get(coverage.file, {}),
+                        **(
+                            {"generated_by": generated[coverage.file]}
+                            if coverage.file in generated
+                            else {}
+                        ),
                         **{
                             key: sorted(values)
                             for key, values in sorted(
@@ -918,6 +1234,98 @@ class TreeSitterTool(AnalysisTool):
                         {"line": inner.line, **_evidence(NESTS_RULE)},
                     )
                 )
+        # Tests and fixtures depend on the pytest fixtures they request.
+        python_files = {
+            c.file: (self.repo_path / c.file).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for c in result.coverage
+            if c.language == "python"
+        }
+        # The pytest and FastAPI rules read Python's ast, in the newest
+        # Python the repository declares; a file it still cannot parse is
+        # reported.
+        if python_files:
+            facts, reader = read_ast_facts(self.repo_path, python_files)
+        else:
+            facts, reader = ast_facts({}), None
+        interpreter = ".".join(facts["python"].split(".")[:2])
+        unparsed = facts["unparsed"]
+        by_line = {
+            (d.file, d.line): d
+            for d in result.definitions
+            if d.kind in {"Function", "Method", "Class"}
+        }
+        for use in (
+            FixtureUse(
+                **{
+                    **f,
+                    "consumer": tuple(f["consumer"]),
+                    "fixture": tuple(f["fixture"]),
+                }
+            )
+            for f in facts["fixtures"]
+        ):
+            consumer = by_line.get(use.consumer)
+            fixture = by_line.get(use.fixture)
+            if consumer is None or fixture is None:
+                continue
+            relationships.append(
+                RelationshipData(
+                    "USES_FIXTURE",
+                    [consumer.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                        "repo_url": repo_url,
+                    },
+                    [fixture.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{fixture.file}::{fixture.symbol}::{fixture.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "name": use.name,
+                        **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
+        # Endpoints and routers depend on the FastAPI dependencies they inject.
+        references = ScipReferences(result, scip_indexes, self.repo_path)
+        for use in dependency_uses(facts["dependencies"], references):
+            file, line = use.consumer
+            if line is None:
+                source = (["File"], files[file])
+            else:
+                consumer = by_line.get(use.consumer)
+                if consumer is None:
+                    continue
+                source = (
+                    [consumer.kind, "Symbol"],
+                    f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                )
+            target = use.dependency
+            relationships.append(
+                RelationshipData(
+                    "USES_DEPENDENCY",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [target.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{target.file}::{target.symbol}::{target.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "column": use.column,
+                        "name": use.name,
+                        "injector": use.injector,
+                        **({"alias": use.alias} if use.alias else {}),
+                        **_evidence(DEPENDENCY_RULE),
+                        **_produced(references.tool(file)),
+                    },
+                )
+            )
         for resolution in resolutions:
             item = imports[resolution.import_id]
             for link in resolution.links:
@@ -937,7 +1345,52 @@ class TreeSitterTool(AnalysisTool):
                             "import_kind": item.kind,
                             "names": list(item.names),
                             "line": item.line,
+                            **(
+                                {"producer": ts_modules.TYPESCRIPT_TOOL}
+                                if link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                                else {}
+                            ),
                             **_evidence(IMPORT_RULES[link.rule_id]),
+                        },
+                    )
+                )
+        packages = {}
+        for import_id, (_, found) in sorted(scip_bound.items()):
+            item = imports[import_id]
+            for package in found:
+                name = (
+                    f"{repo_url}::{package.ecosystem}-package::"
+                    f"{package.name}::{package.version}"
+                )
+                if name not in packages:
+                    packages[name] = package
+                    nodes.append(
+                        NodeData(
+                            ["ExternalPackage"],
+                            {
+                                "qualified_name": name,
+                                "repo_url": repo_url,
+                                "name": package.name,
+                                "version": package.version,
+                                "ecosystem": package.ecosystem,
+                            },
+                        )
+                    )
+                relationships.append(
+                    RelationshipData(
+                        "IMPORTS_PACKAGE",
+                        ["File"],
+                        {"qualified_name": files[item.file], "repo_url": repo_url},
+                        ["ExternalPackage"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {
+                            "import_id": item.id,
+                            "specifier": item.specifier,
+                            "import_kind": item.kind,
+                            "names": list(item.names),
+                            "modules": list(package.modules),
+                            "line": item.line,
+                            **_evidence(PACKAGE_RULES[package.rule_id]),
                         },
                     )
                 )
@@ -946,9 +1399,10 @@ class TreeSitterTool(AnalysisTool):
             for d in result.definitions
         }
         kinds = {d.id: d.kind for d in result.definitions}
+        symbols = {d.id: d.symbol for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
         call_counts, resolver_counts = {}, {}
-        binding = bind_calls(result, scip_indexes, self.repo_path)
+        binding = _bind(result, scip_indexes, self.repo_path)
         for resolution in binding.resolutions:
             producer = binding.producers.get(resolution.call_id)
             key = resolution.status + (
@@ -956,13 +1410,16 @@ class TreeSitterTool(AnalysisTool):
             )
             call_counts[key] = call_counts.get(key, 0) + 1
             # Separately by who decided: the index (its "nothing here"
-            # included), the parser kept over a suspect index target, or the
-            # parser in a file no index covers.
+            # included), pyright for a Python call the index got wrong or
+            # missed, or the parser in a file no index covers.
             by_resolver = resolver_counts.setdefault(
                 binding.resolver(resolution.call_id), {}
             )
             by_resolver[key] = by_resolver.get(key, 0) + 1
             site = sites[resolution.call_id]
+            # Where the callee's name is written: in a member chain over
+            # several lines, the line of its own `.name`, not of the chain.
+            at_line, at_column = site.callee_at or (site.line, site.column)
             if site.caller_id is None:
                 source = (["File"], files[site.file])
             else:
@@ -986,13 +1443,13 @@ class TreeSitterTool(AnalysisTool):
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
                             "file_path": site.file,
-                            "line": site.line,
-                            "column": site.column,
+                            "line": at_line,
+                            "column": at_column,
                             "end_line": site.end_line,
                             "end_column": site.end_column,
                             "status": resolution.status,
                             # Which resolver left it unlinked, and why.
-                            "resolver": "tree-sitter" if producer is None else "scip",
+                            "resolver": binding.resolver(resolution.call_id),
                             **_produced(producer),
                             **(
                                 {"reason": resolution.reason}
@@ -1018,7 +1475,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": source[1], "repo_url": repo_url},
                         ["UnresolvedCall"],
                         {"qualified_name": call_name, "repo_url": repo_url},
-                        {"line": site.line, **_evidence(UNLINKED_CALL_RULE)},
+                        {"line": at_line, **_evidence(UNLINKED_CALL_RULE)},
                     )
                 )
                 continue
@@ -1037,10 +1494,81 @@ class TreeSitterTool(AnalysisTool):
                         "callee": site.callee,
                         "name": _call_name(site.callee),
                         "call_kind": site.kind,
-                        "line": site.line,
-                        "column": site.column,
+                        "line": at_line,
+                        "column": at_column,
                         **_produced(producer),
                         **_evidence(CALL_RULES[resolution.rule_id]),
+                    },
+                )
+            )
+        use_counts = {}
+        uses, fields = (
+            scip_uses.bind_uses(result, scip_indexes, self.repo_path)
+            if scip_indexes
+            else ((), ())
+        )
+        field_names = {}
+        for field in fields:
+            owner = qualified[field.owner_id]
+            symbol = f"{symbols[field.owner_id]}.{field.name}"
+            name = f"{repo_url}::{field.file}::{symbol}::{field.id}"
+            field_names[field.id] = name
+            nodes.append(
+                NodeData(
+                    ["Field", "Symbol"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "definition_id": field.id,
+                        "file_path": field.file,
+                        "name": symbol,
+                        "display_name": symbol,
+                        "kind": "Field",
+                        "start_line": field.line,
+                        "end_line": field.line,
+                        "column": field.column,
+                        "end_column": field.column + len(field.name.encode()),
+                        "coordinate_encoding": "utf-8",
+                        "native_id": field.native_id,
+                        **_produced(field.producer),
+                    },
+                )
+            )
+            # A type contains its fields, as it contains its methods.
+            relationships.append(
+                RelationshipData(
+                    "CONTAINS",
+                    [kinds[field.owner_id], "Symbol"],
+                    {"qualified_name": owner, "repo_url": repo_url},
+                    ["Field", "Symbol"],
+                    {"qualified_name": name, "repo_url": repo_url},
+                    {"line": field.line, **_evidence(FIELD_RULE)},
+                )
+            )
+        for use in uses:
+            use_counts[use.kind] = use_counts.get(use.kind, 0) + 1
+            if use.source_id is None:
+                source = (["File"], files[use.file])
+            else:
+                source = ([kinds[use.source_id], "Symbol"], qualified[use.source_id])
+            if use.target_id in field_names:
+                target = (["Field", "Symbol"], field_names[use.target_id])
+            else:
+                target = ([kinds[use.target_id], "Symbol"], qualified[use.target_id])
+            relationships.append(
+                RelationshipData(
+                    use.kind,
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    target[0],
+                    {"qualified_name": target[1], "repo_url": repo_url},
+                    {
+                        "file_path": use.file,
+                        "line": use.line,
+                        "column": use.column,
+                        "sites": use.sites,
+                        **_produced(use.producer),
+                        **_evidence(USE_RULES[use.kind]),
                     },
                 )
             )
@@ -1065,7 +1593,10 @@ class TreeSitterTool(AnalysisTool):
             )
         bases = {item.id: item for item in result.supertypes}
         base_counts = {}
-        for resolution in base_rules.resolve_supertypes(result):
+        for base_binding in scip_bases.bind_supertypes(
+            result, base_rules.resolve_supertypes(result), references
+        ):
+            resolution = base_binding.resolution
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
@@ -1089,6 +1620,7 @@ class TreeSitterTool(AnalysisTool):
                         "heritage": item.kind,
                         "line": item.line,
                         "column": item.column,
+                        **_produced(base_binding.producer),
                         **_evidence(BASE_RULES[resolution.rule_id]),
                     },
                 )
@@ -1129,25 +1661,53 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
-        implementations = go_interfaces.resolve_go_implementations(result)
-        for item in implementations:
+        # scip-go's implementations for the files it covers; the method-set
+        # rule only where scip-go records nothing it could.
+        recorded = scip_implements.bind_implementations(result, references)
+        declared = {d.id: d for d in result.definitions}
+        implementations = [
+            item
+            for item in go_interfaces.resolve_go_implementations(result)
+            if (item.type_id, item.interface_id) not in recorded.producers
+            and recorded.method_set_stands(
+                declared[item.type_id], declared[item.interface_id]
+            )
+        ]
+        implemented = [
+            (pair, GO_INTERFACE_RULE, None)
+            for pair in sorted((i.type_id, i.interface_id) for i in implementations)
+        ] + [
+            (pair, SCIP_GO_IMPLEMENTATION_RULE, recorded.producers[pair])
+            for pair in recorded.implements
+        ]
+        for (type_id, interface_id), rule, producer in implemented:
             relationships.append(
                 RelationshipData(
                     "IMPLEMENTS",
-                    [kinds[item.type_id], "Symbol"],
-                    {"qualified_name": qualified[item.type_id], "repo_url": repo_url},
-                    [kinds[item.interface_id], "Symbol"],
-                    {
-                        "qualified_name": qualified[item.interface_id],
-                        "repo_url": repo_url,
-                    },
-                    _evidence(GO_INTERFACE_RULE),
+                    [kinds[type_id], "Symbol"],
+                    {"qualified_name": qualified[type_id], "repo_url": repo_url},
+                    [kinds[interface_id], "Symbol"],
+                    {"qualified_name": qualified[interface_id], "repo_url": repo_url},
+                    {**_evidence(rule), **_produced(producer)},
                 )
             )
         # A call of an interface method can run the method each implementing
         # type declares: the interface method dispatches to it.
-        dispatches = sorted({pair for item in implementations for pair in item.methods})
-        for interface_method, method in dispatches:
+        dispatched = [
+            (pair, GO_INTERFACE_RULE, None)
+            for pair in sorted(
+                {
+                    pair
+                    for item in implementations
+                    for pair in item.methods
+                    if pair not in recorded.producers
+                }
+            )
+        ] + [
+            (pair, SCIP_GO_IMPLEMENTATION_RULE, recorded.producers[pair])
+            for pair in recorded.dispatches
+        ]
+        for (interface_method, method), rule, producer in dispatched:
             relationships.append(
                 RelationshipData(
                     "DISPATCHES_TO",
@@ -1158,9 +1718,157 @@ class TreeSitterTool(AnalysisTool):
                     },
                     [kinds[method], "Symbol"],
                     {"qualified_name": qualified[method], "repo_url": repo_url},
-                    _evidence(GO_INTERFACE_RULE),
+                    {**_evidence(rule), **_produced(producer)},
                 )
             )
+        # Which families a deterministic resolver linked, per language: the
+        # index for the calls it decided, the TypeScript compiler for the
+        # imports it resolved or left unlinked and the calls bound through
+        # them, the parser's rules for the rest.
+        call_producers = {key: value[0] for key, value in binding.producers.items()}
+        for r in binding.resolutions:
+            # The index's own calls carry its rules, never these.
+            if r.call_id in binding.compiler_kept or (r.rule_id or "").startswith(
+                "typescript."
+            ):
+                call_producers[r.call_id] = ts_modules.TYPESCRIPT_TOOL
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                call_producers,
+                {r.call_id: r.reason for r in binding.resolutions if r.reason},
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                {
+                    r.import_id: ts_modules.TYPESCRIPT_TOOL
+                    for r in resolutions
+                    if r.reason in ts_modules.COMPILER_REASONS
+                    or any(
+                        link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                        for link in r.links
+                    )
+                },
+                {r.import_id: r.reason for r in resolutions if r.reason},
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
+                )
+            )
+        go_dynamic = _go_dynamic_calls(result, self.repo_path)
+        for site_id, targets in go_dynamic["targets"].items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "vta",
+                            "producer": go_callgraph.GO_CALLGRAPH_TOOL,
+                            **_evidence(GO_CALL_VTA_RULE),
+                        },
+                    )
+                )
+        # NestJS: a call through an injected property runs the provided
+        # class's method, beside what the call itself links to.
+        injected = ts_modules.injected_calls(result)
+        for site_id, targets in sorted(injected.items()):
+            site = sites[site_id]
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        [kinds[site.caller_id], "Symbol"],
+                        {
+                            "qualified_name": qualified[site.caller_id],
+                            "repo_url": repo_url,
+                        },
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "nest-injection",
+                            "producer": ts_modules.TYPESCRIPT_TOOL,
+                            **_evidence(NEST_INJECTED_CALL_RULE),
+                        },
+                    )
+                )
+        # Calls through function values: what Jelly's points-to analysis
+        # says may run where no other rule links the call.
+        points_to = _points_to_calls(
+            result,
+            self.repo_path,
+            {
+                r.call_id
+                for r in binding.resolutions
+                if r.status == "linked" or r.reason in js_callgraph.DECIDED_REASONS
+            },
+        )
+        for site_id, targets in points_to["targets"].items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "points-to",
+                            "producer": js_callgraph.JELLY_TOOL,
+                            **_evidence(JS_CALL_POINTS_TO_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1175,9 +1883,26 @@ class TreeSitterTool(AnalysisTool):
             errors=[d["message"] for d in diagnostics]
             if result.status == "failed"
             else [],
-            warnings=[d["message"] for d in diagnostics]
-            if result.status != "failed"
-            else [],
+            warnings=(
+                [d["message"] for d in diagnostics]
+                + [
+                    f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                    f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                    "is read from it"
+                    for file, error in unparsed.items()
+                ]
+                + [
+                    f"python_interpreter_unavailable: {error}"
+                    for error in (reader.errors if reader else ())
+                ]
+                if result.status != "failed"
+                else []
+            )
+            + [
+                f"go call graph: package {directory} not loaded: {error}"
+                for directory, error in sorted(go_dynamic["failures"].items())
+            ]
+            + ([f"jelly_failed: {points_to['error']}"] if points_to["error"] else []),
             custom_metrics={
                 "analysis_status": result.status,
                 "model_tokens": 0,
@@ -1191,14 +1916,53 @@ class TreeSitterTool(AnalysisTool):
                 "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
+                # Of those, the imports an index decided, by language.
+                "scip_imports": {
+                    language: _count(
+                        r.reason or r.status
+                        for key, (r, _) in scip_bound.items()
+                        if language_of[key] == language
+                    )
+                    for language in sorted({language_of[key] for key in scip_bound})
+                },
+                "external_packages": len(packages),
                 "call_resolution": dict(sorted(call_counts.items())),
                 "call_resolution_by_resolver": {
                     resolver: dict(sorted(counts.items()))
                     for resolver, counts in sorted(resolver_counts.items())
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "go_dynamic_calls": {
+                    "sites": len(go_dynamic["targets"]),
+                    "edges": sum(len(t) for t in go_dynamic["targets"].values()),
+                    "failed_packages": go_dynamic["failures"],
+                },
+                "scip_uses": dict(sorted(use_counts.items())),
+                "scip_fields": len(fields),
                 "signature_types": len(named_types),
-                "go_implementations": len(implementations),
+                "js_points_to_calls": {
+                    "sites": len(points_to["targets"]),
+                    "edges": sum(len(t) for t in points_to["targets"].values()),
+                    "error": points_to["error"],
+                },
+                "nest_injected_calls": {
+                    "sites": len(injected),
+                    "edges": sum(len(t) for t in injected.values()),
+                },
+                "go_implementations": {
+                    GO_INTERFACE_RULE.rule_id: len(implementations),
+                    SCIP_GO_IMPLEMENTATION_RULE.rule_id: len(recorded.implements),
+                },
+                "python_ast_unparsed": {
+                    "python": interpreter,
+                    "files": sorted(unparsed),
+                },
+                "python_interpreter": {
+                    "version": facts["python"],
+                    "declared": list(reader.declared) if reader else [],
+                    "managed": bool(reader and reader.executable),
+                    "errors": list(reader.errors) if reader else [],
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,

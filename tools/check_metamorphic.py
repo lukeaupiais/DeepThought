@@ -137,13 +137,17 @@ def source_files(root, languages):
 
 def analyze(root, languages):
     import deepthought
+    from deepthought.ts_modules import with_compiler_modules
 
-    return deepthought.analyze_repository(
+    return with_compiler_modules(
+        deepthought.analyze_repository(
+            root,
+            repository_id="metamorphic",
+            languages=tuple(languages),
+            max_files=100_000,
+            max_total_bytes=1_000_000_000,
+        ),
         root,
-        repository_id="metamorphic",
-        languages=tuple(languages),
-        max_files=100_000,
-        max_total_bytes=1_000_000_000,
     )
 
 

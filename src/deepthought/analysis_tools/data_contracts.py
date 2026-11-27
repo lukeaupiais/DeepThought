@@ -22,6 +22,7 @@ import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from .. import ts_modules
 from ..gorm_naming import lookup as gorm_lookup
 from ..gorm_naming import table_names as gorm_table_names
 from ..django_naming import column_names as django_column_names
@@ -130,7 +131,7 @@ from ..scip_calls import ScipReferences
 from .. import deploy_facts
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
-from ..syntax import make_parser, parse_source
+from ..syntax import make_parser, parse_source, script_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .components import _nearest_packages
 from .contracts import (
@@ -1377,6 +1378,8 @@ class DataContractTool(AnalysisTool):
             max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
+        # JavaScript and TypeScript imports resolve through the compiler.
+        result = ts_modules.with_compiler_modules(result, root)
         scan = scan_components(root, include=include, exclude=exclude)
         packages = {c: c for c in scan.components if c.kind in PACKAGE_KINDS}
         cache = {}
@@ -1577,7 +1580,14 @@ class DataContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
-            sources.append((coverage.file, coverage.language, content))
+            # A Vue component is read as its script blocks.
+            sources.append(
+                (
+                    coverage.file,
+                    coverage.language,
+                    *script_source(coverage.file, content),
+                )
+            )
         if changed:
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
@@ -1585,14 +1595,14 @@ class DataContractTool(AnalysisTool):
         parsers = {}
         trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
         php_trees = []
-        for file, language, content in sources:
+        for file, language, grammar, content in sources:
             if language in ("ruby", "php") and _is_ruby_test(file):
                 continue
             if language == "go" and file.endswith("_test.go"):
                 continue
             if language in ("javascript", "typescript") and _is_script_test(file):
                 continue
-            suffix = ".tsx" if file.endswith(".tsx") else ""
+            suffix = ".tsx" if grammar == ".tsx" else ""
             if (language, suffix) not in parsers:
                 parsers[language, suffix] = make_parser(language, suffix)
             tree = parse_source(parsers[language, suffix], language, suffix, content)
@@ -3047,9 +3057,9 @@ class DataContractTool(AnalysisTool):
         # GORM columns: the fields of each model struct as GORM's schema
         # parser takes them, named by GORM's own tag parsing and naming.
         gorm_columns_counts = Counter()
-        go_structs = {s.type: s for s in facts.structs}
+        go_structs = {s.type: s for s in facts.models}
         gorm_model_structs = {}
-        for s_ in facts.structs:
+        for s_ in facts.models:
             key = (s_.file.rpartition("/")[0], s_.type[1])
             if key in gorm_targets:
                 gorm_model_structs[key] = s_
@@ -4586,7 +4596,8 @@ class DataContractTool(AnalysisTool):
                 continue
             if sha256(content).hexdigest() != coverage.digest:
                 continue
-            suffix = ".tsx" if coverage.file.endswith(".tsx") else ""
+            grammar, content = script_source(coverage.file, content)
+            suffix = ".tsx" if grammar == ".tsx" else ""
             if (coverage.language, suffix) not in parsers:
                 parsers[coverage.language, suffix] = make_parser(
                     coverage.language, suffix

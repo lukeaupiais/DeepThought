@@ -130,6 +130,7 @@ func (c *Consumer) Subscribe(topic string, cb RebalanceCb) error { return nil }
 """,
     },
 }
+# Router libraries: the route registration API of each.
 STUBS["github.com/gin-gonic/gin"] = {
     "gin.go": """package gin
 
@@ -140,17 +141,356 @@ func (c *Context) ShouldBindJSON(obj any) error { return nil }
 func (c *Context) JSON(code int, obj any)        {}
 
 type HandlerFunc func(*Context)
-type Engine struct{}
 
-func Default() *Engine                                    { return &Engine{} }
-func (e *Engine) POST(path string, handlers ...HandlerFunc) {}
-func (e *Engine) Run(addr ...string) error                 { return nil }
+type IRoutes interface {
+\tUse(...HandlerFunc) IRoutes
+\tHandle(string, string, ...HandlerFunc) IRoutes
+\tAny(string, ...HandlerFunc) IRoutes
+\tMatch([]string, string, ...HandlerFunc) IRoutes
+\tGET(string, ...HandlerFunc) IRoutes
+\tPOST(string, ...HandlerFunc) IRoutes
+\tPUT(string, ...HandlerFunc) IRoutes
+\tPATCH(string, ...HandlerFunc) IRoutes
+\tDELETE(string, ...HandlerFunc) IRoutes
+\tHEAD(string, ...HandlerFunc) IRoutes
+\tOPTIONS(string, ...HandlerFunc) IRoutes
+}
+
+type IRouter interface {
+\tIRoutes
+\tGroup(string, ...HandlerFunc) *RouterGroup
+}
+
+type RouterGroup struct{}
+
+func (g *RouterGroup) Group(path string, handlers ...HandlerFunc) *RouterGroup { return g }
+func (g *RouterGroup) Use(handlers ...HandlerFunc) IRoutes                    { return g }
+func (g *RouterGroup) Handle(method, path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) Any(path string, handlers ...HandlerFunc) IRoutes       { return g }
+func (g *RouterGroup) Match(methods []string, path string, handlers ...HandlerFunc) IRoutes {
+\treturn g
+}
+func (g *RouterGroup) GET(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) POST(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) PUT(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) PATCH(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) DELETE(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) HEAD(path string, handlers ...HandlerFunc) IRoutes { return g }
+func (g *RouterGroup) OPTIONS(path string, handlers ...HandlerFunc) IRoutes { return g }
+
+type Engine struct{ RouterGroup }
+
+func New() *Engine                         { return &Engine{} }
+func Default() *Engine                     { return &Engine{} }
+func (e *Engine) Use(m ...HandlerFunc) IRoutes { return e }
+func (e *Engine) Run(addr ...string) error { return nil }
+""",
+}
+STUBS["github.com/labstack/echo/v4"] = {
+    "echo.go": """package echo
+
+type Context interface {
+\tBind(i any) error
+\tJSON(code int, i any) error
+}
+type HandlerFunc func(Context) error
+type MiddlewareFunc func(HandlerFunc) HandlerFunc
+type Route struct{}
+type Echo struct{}
+type Group struct{}
+
+func New() *Echo { return &Echo{} }
+func (e *Echo) Group(prefix string, m ...MiddlewareFunc) *Group { return &Group{} }
+func (e *Echo) Any(path string, h HandlerFunc, m ...MiddlewareFunc) []*Route { return nil }
+func (e *Echo) Add(method, path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) Match(methods []string, path string, h HandlerFunc, m ...MiddlewareFunc) []*Route {
+\treturn nil
+}
+func (e *Echo) Start(address string) error { return nil }
+func (e *Echo) GET(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) POST(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) PUT(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) PATCH(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) DELETE(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) HEAD(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (e *Echo) OPTIONS(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) Group(prefix string, m ...MiddlewareFunc) *Group { return g }
+func (g *Group) Any(path string, h HandlerFunc, m ...MiddlewareFunc) []*Route { return nil }
+func (g *Group) Add(method, path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) Match(methods []string, path string, h HandlerFunc, m ...MiddlewareFunc) []*Route {
+\treturn nil
+}
+func (g *Group) GET(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) POST(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) PUT(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) PATCH(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) DELETE(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) HEAD(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+func (g *Group) OPTIONS(path string, h HandlerFunc, m ...MiddlewareFunc) *Route { return nil }
+""",
+}
+STUBS["github.com/go-chi/chi/v5"] = {
+    "chi.go": """package chi
+
+import "net/http"
+
+type Router interface {
+\tUse(middlewares ...func(http.Handler) http.Handler)
+\tWith(middlewares ...func(http.Handler) http.Handler) Router
+\tGroup(fn func(r Router)) Router
+\tRoute(pattern string, fn func(r Router)) Router
+\tMount(pattern string, h http.Handler)
+\tHandle(pattern string, h http.Handler)
+\tHandleFunc(pattern string, h http.HandlerFunc)
+\tMethod(method, pattern string, h http.Handler)
+\tMethodFunc(method, pattern string, h http.HandlerFunc)
+\tGet(pattern string, h http.HandlerFunc)
+\tPost(pattern string, h http.HandlerFunc)
+\tPut(pattern string, h http.HandlerFunc)
+\tPatch(pattern string, h http.HandlerFunc)
+\tDelete(pattern string, h http.HandlerFunc)
+\tHead(pattern string, h http.HandlerFunc)
+\tOptions(pattern string, h http.HandlerFunc)
+\tConnect(pattern string, h http.HandlerFunc)
+\tTrace(pattern string, h http.HandlerFunc)
+}
+
+type Mux struct{}
+
+func NewRouter() *Mux { return &Mux{} }
+func NewMux() *Mux    { return &Mux{} }
+
+func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request)            {}
+func (m *Mux) Use(middlewares ...func(http.Handler) http.Handler)          {}
+func (m *Mux) With(middlewares ...func(http.Handler) http.Handler) Router  { return m }
+func (m *Mux) Group(fn func(r Router)) Router                              { return m }
+func (m *Mux) Route(pattern string, fn func(r Router)) Router              { return m }
+func (m *Mux) Mount(pattern string, h http.Handler)                        {}
+func (m *Mux) Handle(pattern string, h http.Handler)                       {}
+func (m *Mux) HandleFunc(pattern string, h http.HandlerFunc)               {}
+func (m *Mux) Method(method, pattern string, h http.Handler)               {}
+func (m *Mux) MethodFunc(method, pattern string, h http.HandlerFunc)       {}
+func (m *Mux) Get(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Post(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Put(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Patch(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Delete(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Head(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Options(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Connect(pattern string, h http.HandlerFunc) {}
+func (m *Mux) Trace(pattern string, h http.HandlerFunc) {}
+""",
+}
+STUBS["github.com/gofiber/fiber/v2"] = {
+    "app.go": """package fiber
+
+type Ctx struct{}
+
+func (c *Ctx) BodyParser(out any) error { return nil }
+func (c *Ctx) JSON(data any) error      { return nil }
+func (c *Ctx) Next() error              { return nil }
+
+type Handler = func(*Ctx) error
+
+type Router interface {
+\tUse(args ...any) Router
+\tAdd(method, path string, handlers ...Handler) Router
+\tAll(path string, handlers ...Handler) Router
+\tGroup(prefix string, handlers ...Handler) Router
+\tRoute(prefix string, fn func(router Router), name ...string) Router
+\tGet(path string, handlers ...Handler) Router
+\tHead(path string, handlers ...Handler) Router
+\tPost(path string, handlers ...Handler) Router
+\tPut(path string, handlers ...Handler) Router
+\tDelete(path string, handlers ...Handler) Router
+\tConnect(path string, handlers ...Handler) Router
+\tOptions(path string, handlers ...Handler) Router
+\tTrace(path string, handlers ...Handler) Router
+\tPatch(path string, handlers ...Handler) Router
+}
+
+type Config struct{}
+type App struct{}
+type Group struct{}
+
+func New(config ...Config) *App { return &App{} }
+func (app *App) Listen(addr string) error { return nil }
+func (app *App) Use(args ...any) Router { return app }
+func (app *App) Add(method, path string, handlers ...Handler) Router { return app }
+func (app *App) All(path string, handlers ...Handler) Router { return app }
+func (app *App) Group(prefix string, handlers ...Handler) Router { return &Group{} }
+func (app *App) Route(prefix string, fn func(router Router), name ...string) Router { return app }
+func (app *App) Get(path string, handlers ...Handler) Router { return app }
+func (app *App) Head(path string, handlers ...Handler) Router { return app }
+func (app *App) Post(path string, handlers ...Handler) Router { return app }
+func (app *App) Put(path string, handlers ...Handler) Router { return app }
+func (app *App) Delete(path string, handlers ...Handler) Router { return app }
+func (app *App) Connect(path string, handlers ...Handler) Router { return app }
+func (app *App) Options(path string, handlers ...Handler) Router { return app }
+func (app *App) Trace(path string, handlers ...Handler) Router { return app }
+func (app *App) Patch(path string, handlers ...Handler) Router { return app }
+func (g *Group) Use(args ...any) Router { return g }
+func (g *Group) Add(method, path string, handlers ...Handler) Router { return g }
+func (g *Group) All(path string, handlers ...Handler) Router { return g }
+func (g *Group) Group(prefix string, handlers ...Handler) Router { return g }
+func (g *Group) Route(prefix string, fn func(router Router), name ...string) Router { return g }
+func (g *Group) Get(path string, handlers ...Handler) Router { return g }
+func (g *Group) Head(path string, handlers ...Handler) Router { return g }
+func (g *Group) Post(path string, handlers ...Handler) Router { return g }
+func (g *Group) Put(path string, handlers ...Handler) Router { return g }
+func (g *Group) Delete(path string, handlers ...Handler) Router { return g }
+func (g *Group) Connect(path string, handlers ...Handler) Router { return g }
+func (g *Group) Options(path string, handlers ...Handler) Router { return g }
+func (g *Group) Trace(path string, handlers ...Handler) Router { return g }
+func (g *Group) Patch(path string, handlers ...Handler) Router { return g }
+""",
+}
+STUBS["github.com/gofiber/fiber/v3"] = {
+    "app.go": """package fiber
+
+type Bind struct{}
+
+func (b *Bind) Body(out any) error { return nil }
+
+type Ctx interface {
+\tBind() *Bind
+\tJSON(data any, ctype ...string) error
+\tNext() error
+}
+
+type Handler = func(Ctx) error
+
+type Router interface {
+\tUse(args ...any) Router
+\tAdd(methods []string, path string, handler Handler, middleware ...Handler) Router
+\tAll(path string, handler Handler, middleware ...Handler) Router
+\tGroup(prefix string, handlers ...Handler) Router
+\tRoute(path string) Register
+\tGet(path string, handler Handler, middleware ...Handler) Router
+\tHead(path string, handler Handler, middleware ...Handler) Router
+\tPost(path string, handler Handler, middleware ...Handler) Router
+\tPut(path string, handler Handler, middleware ...Handler) Router
+\tDelete(path string, handler Handler, middleware ...Handler) Router
+\tConnect(path string, handler Handler, middleware ...Handler) Router
+\tOptions(path string, handler Handler, middleware ...Handler) Router
+\tTrace(path string, handler Handler, middleware ...Handler) Router
+\tPatch(path string, handler Handler, middleware ...Handler) Router
+}
+
+type Register interface {
+\tAll(handler Handler, middleware ...Handler) Register
+\tAdd(methods []string, handler Handler, middleware ...Handler) Register
+\tRoute(path string) Register
+\tGet(handler Handler, middleware ...Handler) Register
+\tHead(handler Handler, middleware ...Handler) Register
+\tPost(handler Handler, middleware ...Handler) Register
+\tPut(handler Handler, middleware ...Handler) Register
+\tDelete(handler Handler, middleware ...Handler) Register
+\tConnect(handler Handler, middleware ...Handler) Register
+\tOptions(handler Handler, middleware ...Handler) Register
+\tTrace(handler Handler, middleware ...Handler) Register
+\tPatch(handler Handler, middleware ...Handler) Register
+}
+
+type Config struct{}
+type App struct{}
+type Group struct{}
+
+func New(config ...Config) *App { return &App{} }
+func (app *App) Listen(addr string) error { return nil }
+func (app *App) Use(args ...any) Router { return app }
+func (app *App) Add(methods []string, path string, handler Handler, middleware ...Handler) Router {
+\treturn app
+}
+func (app *App) All(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Group(prefix string, handlers ...Handler) Router { return &Group{} }
+func (app *App) Route(path string) Register { return nil }
+func (app *App) Get(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Head(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Post(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Put(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Delete(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Connect(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Options(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Trace(path string, handler Handler, middleware ...Handler) Router { return app }
+func (app *App) Patch(path string, handler Handler, middleware ...Handler) Router { return app }
+func (g *Group) Use(args ...any) Router { return g }
+func (g *Group) Add(methods []string, path string, handler Handler, middleware ...Handler) Router {
+\treturn g
+}
+func (g *Group) All(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Group(prefix string, handlers ...Handler) Router { return g }
+func (g *Group) Route(path string) Register { return nil }
+func (g *Group) Get(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Head(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Post(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Put(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Delete(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Connect(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Options(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Trace(path string, handler Handler, middleware ...Handler) Router { return g }
+func (g *Group) Patch(path string, handler Handler, middleware ...Handler) Router { return g }
 """,
 }
 STUBS["github.com/rabbitmq/amqp091-go"] = {
     "channel.go": STUBS["github.com/streadway/amqp"]["channel.go"].replace(
         "package amqp\n", "package amqp091\n", 1
     )
+}
+# protobuf-go's runtime, as far as protoc-gen-go's init uses it.
+STUBS["google.golang.org/protobuf"] = {
+    "runtime/protoimpl/impl.go": """package protoimpl
+
+type DescBuilder struct {
+\tGoPackagePath string
+\tRawDescriptor []byte
+\tNumEnums      int32
+\tNumMessages   int32
+\tNumExtensions int32
+\tNumServices   int32
+}
+
+type EnumInfo struct{}
+type MessageInfo struct{}
+
+type TypeBuilder struct {
+\tFile              DescBuilder
+\tGoTypes           []any
+\tDependencyIndexes []int32
+\tEnumInfos         []EnumInfo
+\tMessageInfos      []MessageInfo
+}
+
+type Out struct{}
+
+func (tb TypeBuilder) Build() Out { return Out{} }
+""",
+}
+
+
+STUBS["github.com/go-chi/render"] = {
+    "render.go": """package render
+
+import (
+\t"io"
+\t"net/http"
+)
+
+type Renderer interface {
+\tRender(w http.ResponseWriter, r *http.Request) error
+}
+type Binder interface {
+\tBind(r *http.Request) error
+}
+
+func JSON(w http.ResponseWriter, r *http.Request, v interface{})          {}
+func Respond(w http.ResponseWriter, r *http.Request, v interface{})       {}
+func Render(w http.ResponseWriter, r *http.Request, v Renderer) error     { return nil }
+func Status(r *http.Request, status int)                                  {}
+func Bind(r *http.Request, v Binder) error                                { return nil }
+func Decode(r *http.Request, v interface{}) error                         { return nil }
+func DecodeJSON(r io.Reader, v interface{}) error                         { return nil }
+""",
 }
 
 

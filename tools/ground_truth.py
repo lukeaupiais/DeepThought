@@ -18,6 +18,10 @@ are where the oracle says the name leads, with a kind:
   external   a symbol defined outside the repository (library, builtin)
   local      a local binding (parameter, loop variable, local function):
              the line that binds it
+  alias      an in-repository function, method or type reached through a
+             Python local bound once to a plain name (``f = obj.m``,
+             ``g = f``), or through a classmethod's ``cls``: each line that
+             defines it, followed through the index's own occurrences
 
 Only calls with a callable target are *expected* (the recall denominator);
 the others let a link at that position be judged right or wrong.
@@ -270,6 +274,7 @@ def derive(workspace, index):
             locations |= {
                 (file, line, "callable") for file, line, _ in defined.get(owner, ())
             }
+    follow = _alias_follower(source, defined, text_of)
     expected = {}
     for r in source.references:
         if r.line != r.end_line:
@@ -310,8 +315,14 @@ def derive(workspace, index):
             # builtin `set`: an attribute is never a top-level builtin
             # (except on the `builtins` module), so the row is unjudged.
             continue
-        if native in defined:
+        if followed := follow.cls(native):
+            targets = followed
+        elif native in defined:
             targets = defined[native]
+        elif r.native_id.startswith("local ") and (
+            followed := follow(r.file, r.native_id)
+        ):
+            targets = followed
         elif r.native_id.startswith("local "):
             # scip-typescript names a local class's constructor
             # `local N`<constructor>`().` without defining it: the call
@@ -331,6 +342,98 @@ def derive(workspace, index):
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
     return expected, indexed
+
+
+_ALIAS = re.compile(r"\s*=\s*([A-Za-z_][\w.]*)\s*(?:#.*)?$")
+_CLS = re.compile(r"\s*(?:async\s+)?def\s+(\w+)\s*\(\s*$")
+
+
+def _alias_follower(source, defined, text_of):
+    """``follow(file, local)``: where a scip-python local leads when it is
+    bound once, either to a plain name (``_Span = Span``, ``f = obj.m``,
+    ``g = f``) or as a classmethod's (or ``__new__``'s) ``cls``. Returns
+    ``{(file, line, "alias")}``, ``{("-", 0, "external")}``, or None when
+    the local is rebound or bound to anything else. Only the index's own
+    occurrences are used: the reference that ends the right-hand side, and
+    the method defined on the ``def`` line for ``cls``."""
+    binds, refs, methods = {}, {}, {}
+    for d in source.definitions:
+        if d.native_id and d.file.endswith(".py"):
+            if d.native_id.startswith("local "):
+                binds.setdefault((d.file, d.native_id), []).append(d)
+            elif d.native_id.endswith(")."):
+                methods.setdefault((d.file, d.line), []).append(d.native_id)
+    for r in source.references:
+        if r.line == r.end_line and r.file.endswith(".py"):
+            refs.setdefault((r.file, r.line), []).append(r)
+
+    def located(native):
+        if native not in defined:
+            return None
+        return {(f, line, "alias") for f, line, _ in defined[native]}
+
+    def follow(file, local, depth=0):
+        bound = binds.get((file, local), [])
+        if len(bound) != 1 or depth > 8:
+            return None
+        d = bound[0]
+        lines = text_of(file)
+        if d.line > len(lines) or not lines[d.line - 1].isascii():
+            return None
+        text = lines[d.line - 1]
+        before, name = text[: d.column], text[d.column : d.end_column]
+        if not before.strip():
+            match = _ALIAS.match(text, d.end_column)
+            if not match:
+                return None
+            end = match.end(1)
+            for r in refs.get((file, d.line), ()):
+                if r.end_column == end and r.column >= match.start(1):
+                    if r.native_id.startswith("local "):
+                        return follow(file, r.native_id, depth + 1)
+                    return located(r.native_id) or {("-", 0, "external")}
+            return None
+        header = _CLS.match(before)
+        if name != "cls" or not header:
+            return None
+        if header.group(1) != "__new__" and "@classmethod" not in decorators(
+            file, d.line
+        ):
+            return None
+        for native in methods.get((file, d.line), ()):
+            owner = native[: native.rfind("#") + 1]
+            if owner and native[len(owner) :] == header.group(1) + "().":
+                return located(owner)
+        return None
+
+    def cls(native):
+        """A classmethod's (or ``__new__``'s) ``cls`` parameter, which
+        scip-python names ``C#m().(cls)``: the class ``C#``."""
+        match = _CLS_PARAMETER.fullmatch(native)
+        if not match or not match.group(1).startswith("scip-python "):
+            return None
+        owner, method = match.group(1), match.group(2)
+        if method != "__new__" and not any(
+            "@classmethod" in decorators(file, line)
+            for file, line, _ in defined.get(f"{owner}{method}().", ())
+        ):
+            return None
+        return located(owner)
+
+    def decorators(file, line):
+        lines, found = text_of(file), []
+        for number in range(line - 1, 0, -1):
+            above = lines[number - 1].strip() if number <= len(lines) else ""
+            if not above.startswith("@"):
+                break
+            found.append(above)
+        return found
+
+    follow.cls = cls
+    return follow
+
+
+_CLS_PARAMETER = re.compile(r"(.*#)(\w+)\(\)\.\(cls\)")
 
 
 _MODIFIERS = re.compile(
@@ -529,7 +632,7 @@ DISAGREEMENT_COLUMNS = (
 def score(result, truth, examples=10, resolutions=None):
     """Judge every engine call resolution (``resolutions``, by default the
     parser's) against expected calls."""
-    from deepthought.calls import resolve_calls
+    from deepthought.calls import CALL_TS_DECLARATION_FILE, resolve_calls
 
     positions, indexed = truth
     expected = {
@@ -575,7 +678,14 @@ def score(result, truth, examples=10, resolutions=None):
         # A declaration's line can be that of its annotations or modifiers,
         # an oracle's that of its name: one inside the other is a match.
         targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
-        if resolution.status == "linked":
+        if resolution.rule_id == CALL_TS_DECLARATION_FILE and not (
+            keys and ours[0] not in targets
+        ):
+            # A declaration file with no implementation analyzed beside it:
+            # the call binds to what it declares, which is never confirmed.
+            # A link the oracle names other targets for is contradicted.
+            outcome = "declaration_file"
+        elif resolution.status == "linked":
             if not keys:
                 outcome = "unjudged" if site.file in indexed else "not_indexed"
             elif ours[0] in targets:
@@ -632,8 +742,9 @@ def score(result, truth, examples=10, resolutions=None):
 
 def analyze(workspace, languages, exclude=()):
     import deepthought
+    from deepthought.ts_modules import with_compiler_modules
 
-    return deepthought.analyze_repository(
+    result = deepthought.analyze_repository(
         Path(workspace).resolve(),
         repository_id="ground-truth",
         languages=tuple(languages),
@@ -641,6 +752,9 @@ def analyze(workspace, languages, exclude=()):
         max_files=100_000,
         max_total_bytes=1_000_000_000,
     )
+    # Imports, and the calls bound through them, as the engine resolves
+    # them: JavaScript and TypeScript by the TypeScript compiler.
+    return with_compiler_modules(result, Path(workspace).resolve())
 
 
 def fetch(corpus, cache):
@@ -1069,6 +1183,9 @@ def score_knex_tables(labels, workspace, examples=10):
     )
 
 
+_TABLE_EDGES = frozenset({"READS", "WRITES", "DECLARES"})
+
+
 def score_go_sql_tables(labels, workspace, examples=10):
     """SQL that Go code runs, against labels from sqlc's own analysis
     (tools/sqlc_table_labels.py) or read by hand, per line: see
@@ -1180,11 +1297,13 @@ def score_line_tables(
     for r in output.relationships:
         if not str(r.properties.get("rule_id", "")).startswith(rule_prefix):
             continue
+        # Only table edges: the labels give each line's tables, and column
+        # edges (READS_COLUMN, WRITES_COLUMN) are scored on their own.
+        if r.type not in _TABLE_EDGES:
+            continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
-        # Column edges (READS_COLUMN, WRITES_COLUMN) are scored on their
-        # own; the labels give each line's tables.
-        if source is None or target is None or "DbColumn" in target.labels:
+        if source is None or target is None:
             continue
         path = source.properties.get("file_path") or source.properties.get("path")
         table = r.properties.get("table") or target.properties.get("name")
@@ -1367,7 +1486,10 @@ def missing_requirements(manifest, names=(), scip=False):
     modules = set()
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
-            modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
+            modules.update(
+                LANGUAGES[lang][1]
+                for lang in corpus["languages"] + corpus.get("import_languages", [])
+            )
     if any(
         selected(c)
         for c in [
@@ -1443,10 +1565,12 @@ def score_scip_calls(corpus, workspace, cache, result, expected, examples=10):
     the same indexer derived checks the binding, not the indexer; the
     compile oracles (go_compile_truth.py, ts_compile_truth.py,
     py_check_truth.py) judge the indexer."""
-    from deepthought.scip_calls import bind_calls
+    # As TreeSitterTool binds them: pyright answers the Python calls the
+    # index gets wrong.
+    from deepthought.analysis_tools.tree_sitter import _bind
 
     indexes = engine_indexes(corpus, workspace, cache, scip_languages(corpus))
-    binding = bind_calls(result, indexes, workspace)
+    binding = _bind(result, indexes, workspace)
     report, samples = score(result, expected, examples, binding.resolutions)
     if "impact" in corpus:
         import impact_truth
@@ -1525,9 +1649,17 @@ def check(names, cache, update=False, examples=10, scip=False):
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result,
+                imports_of,
                 read_truth(CORPUS / corpus["imports"]),
+                workspace,
                 corpus.get("imports_granularity") == "directory",
                 examples,
             )
@@ -1603,8 +1735,18 @@ def check(names, cache, update=False, examples=10, scip=False):
             else []
         )
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result, read_truth(CORPUS / corpus["imports"]), examples=examples
+                imports_of,
+                read_truth(CORPUS / corpus["imports"]),
+                workspace,
+                examples=examples,
             )
             report["imports"] = imported
             samples = {"declarations": samples, "imports": import_samples}
@@ -1830,7 +1972,7 @@ def derive_imports(workspace, index, language, directory=False):
     return expected, indexed
 
 
-def score_imports(result, truth, directory=False, examples=10):
+def score_imports(result, truth, workspace, directory=False, examples=10):
     """Import resolutions judged against module-reference truth.
 
     An import statement is judged by the truth lines it spans. It is
@@ -1843,11 +1985,14 @@ def score_imports(result, truth, directory=False, examples=10):
     from deepthought.imports import resolve_imports
 
     expected, indexed = truth
+    # JavaScript and TypeScript imports as the engine resolves them: by the
+    # TypeScript compiler (deepthought.ts_modules).
+    resolutions = resolve_imports(result)
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()
     samples = {"contradicted": [], "linked_external": [], "missed": []}
-    for resolution in resolve_imports(result):
+    for resolution in resolutions:
         item = imports[resolution.import_id]
         if item.file not in indexed:
             counts["not_indexed"] += 1
@@ -2236,9 +2381,9 @@ def main(argv=None):
             # Calls bound from SCIP indexes of the workspace. Truth derived
             # from the same indexer checks the binding, not the indexer.
             import deepthought
-            from deepthought.scip_calls import bind_calls
+            from deepthought.analysis_tools.tree_sitter import _bind
 
-            binding = bind_calls(
+            binding = _bind(
                 result,
                 [
                     (deepthought.ingest_scip(path, repository_id="truth"), "-")

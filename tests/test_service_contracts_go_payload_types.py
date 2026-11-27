@@ -98,6 +98,17 @@ class GoPayloadTypeTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        self.unresolved = output.metadata.custom_metrics["payload_types_unresolved"]
+        self.via = [
+            r.properties["via"]
+            for r in output.relationships
+            if r.type == "CARRIES" and "via" in r.properties
+        ]
+        self.paths = {
+            n.properties["qualified_name"]: n.properties["path"]
+            for n in output.nodes
+            if "HttpRoute" in n.labels
+        }
         return sorted(
             (
                 r.source_match["qualified_name"].split("::")[1],
@@ -105,6 +116,7 @@ class GoPayloadTypeTests(unittest.TestCase):
                 r.properties["direction"],
                 r.properties["rule_id"],
                 r.properties["evidence_type"],
+                r.source_match["qualified_name"],
             )
             for r in output.relationships
             if r.type == "CARRIES"
@@ -120,7 +132,7 @@ class GoPayloadTypeTests(unittest.TestCase):
             }
         )
         self.assertEqual(
-            found,
+            [f[:5] for f in found],
             [
                 (
                     "svc/main.go",
@@ -156,6 +168,471 @@ class GoPayloadTypeTests(unittest.TestCase):
             [("CreateOrder", "request"), ("Order", "response")],
         )
 
+    def test_fiber_v3_binds_the_body_and_writes_json(self):
+        # A body bound into an any (raw) is not known: unresolved.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v3"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": FIBER_V3,
+            }
+        )
+        self.assertEqual(
+            [f[1:4] for f in found],
+            [
+                ("CreateOrder", "request", "service-contracts.go-request-body-type"),
+                ("Order", "response", "service-contracts.go-response-body-type"),
+            ],
+        )
+        self.assertEqual(self.unresolved, 1)
+
+    def test_func_literal_handlers(self):
+        # The handler written inline is read; a middleware literal before
+        # it (gin runs the handler last) is not.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod(
+                    "example.com/shop",
+                    "github.com/gin-gonic/gin",
+                    "github.com/gofiber/fiber/v2",
+                ),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": INLINE,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2]) for f in found),
+            [
+                ("/api/orders", "CreateOrder", "request"),
+                ("/api/orders", "Order", "response"),
+                ("/gin/orders", "Order", "response"),
+            ],
+        )
+
+    def test_helpers_the_handler_passes_its_context_to(self):
+        # Two calls deep from a func literal, and one from a declared
+        # handler; a helper given another value is not followed.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v2"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": HELPERS,
+                # A file whose handler only delegates: no context call of its
+                # own.
+                "svc/health.go": HEALTH,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2], f[3]) for f in found),
+            [
+                (
+                    "/health",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+                (
+                    "/orders",
+                    "CreateOrder",
+                    "request",
+                    "service-contracts.go-request-body-type-in-helper",
+                ),
+                (
+                    "/orders",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+                (
+                    "/orders/{id}",
+                    "Order",
+                    "response",
+                    "service-contracts.go-response-body-type-in-helper",
+                ),
+            ],
+        )
+        self.assertEqual(
+            sorted(tuple(v) for v in self.via),
+            [
+                ("svc/main.go::doCreate",),
+                ("svc/main.go::doCreate", "svc/main.go::respond"),
+                ("svc/main.go::respond",),
+                ("svc/main.go::respond",),
+            ],
+        )
+
+    def test_fiber_endpoint_is_the_first_handler_not_calling_next(self):
+        # Fiber runs a route's handlers in order; one calling c.Next() is
+        # middleware, wherever it is written.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v3"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": FIBER_ORDER,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2]) for f in found),
+            [
+                ("/factory", "CreateOrder", "request"),
+                ("/first", "CreateOrder", "request"),
+                ("/inline", "CreateOrder", "request"),
+                ("/last", "CreateOrder", "request"),
+            ],
+        )
+
+    def test_net_http_helpers_and_values_given_as_any(self):
+        # net/http's request and response writer are followed into helpers;
+        # a helper's interface parameter (v any) carries the type of what
+        # each call gives it, through a second helper too. A call behind a
+        # type assertion runs only for a caller whose value can pass it.
+        found = self.carried(
+            {
+                "svc/go.mod": "module example.com/shop\n\ngo 1.22\n",
+                "svc/api/types.go": TYPES + ERROR_TYPE,
+                "svc/main.go": NET_HTTP_HELPERS,
+            }
+        )
+        self.assertEqual(
+            sorted(
+                (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
+            ),
+            [
+                ("/broken", "apiError", "response", "go-response-body-type-in-helper"),
+                ("/health", "Order", "response", "go-response-body-type-in-helper"),
+                ("/orders", "CreateOrder", "request", "go-request-body-type-in-helper"),
+                ("/orders", "Order", "response", "go-response-body-type-in-helper"),
+                ("/orders", "Problem", "response", "go-response-body-type-in-helper"),
+                ("/status", "Order", "response", "go-response-body-type-in-helper"),
+            ],
+        )
+        # The value given to writeJSON as an any is not known.
+        self.assertEqual(self.unresolved, 1)
+
+    def test_chi_render_bodies(self):
+        # go-chi/render decodes the handler's own request and renders to its
+        # own response writer; a body read from another service is not the
+        # route's.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod(
+                    "example.com/shop",
+                    "github.com/go-chi/chi/v5",
+                    "github.com/go-chi/render",
+                ),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": CHI_RENDER,
+            }
+        )
+        self.assertEqual(
+            sorted(
+                (self.paths[f[5]], f[1], f[2], f[3].rsplit(".", 1)[1]) for f in found
+            ),
+            [
+                # The types orderRequest and orderResponse embed.
+                ("/orders", "CreateOrder", "request", "go-field-type"),
+                ("/orders", "CreateOrder", "request", "go-request-body-type"),
+                ("/orders", "Order", "response", "go-field-type"),
+                ("/orders", "Order", "response", "go-response-body-type"),
+                ("/orders", "orderRequest", "request", "go-request-body-type"),
+                ("/orders", "orderResponse", "response", "go-response-body-type"),
+            ],
+        )
+
+
+ERROR_TYPE = """
+type Problem struct {
+\tDetail string `json:"detail"`
+}
+"""
+
+NET_HTTP_HELPERS = """package main
+
+import (
+\t"encoding/json"
+\t"net/http"
+
+\t"example.com/shop/api"
+)
+
+func readJSON(r *http.Request, v any) error {
+\treturn json.NewDecoder(r.Body).Decode(v)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+\tjson.NewEncoder(w).Encode(v)
+}
+
+func fail(w http.ResponseWriter, detail string) {
+\twriteJSON(w, api.Problem{Detail: detail})
+}
+
+func writeOrder(w http.ResponseWriter, o api.Order) {
+\tjson.NewEncoder(w).Encode(o)
+}
+
+type apiError struct {
+\tDetail string `json:"detail"`
+}
+
+func (e *apiError) write(w http.ResponseWriter) {
+\tjson.NewEncoder(w).Encode(e)
+}
+
+func render(w http.ResponseWriter, v any) {
+\tif e, ok := v.(*apiError); ok {
+\t\te.write(w)
+\t\treturn
+\t}
+\twriteJSON(w, v)
+}
+
+func health(w http.ResponseWriter, r *http.Request) {
+\trender(w, api.Order{})
+}
+
+func broken(w http.ResponseWriter, r *http.Request) {
+\trender(w, &apiError{Detail: "down"})
+}
+
+func create(w http.ResponseWriter, r *http.Request) {
+\tvar in api.CreateOrder
+\tif err := readJSON(r, &in); err != nil {
+\t\tfail(w, err.Error())
+\t\treturn
+\t}
+\twriteJSON(w, &api.Order{ID: in.Item})
+}
+
+func status(w http.ResponseWriter, r *http.Request) {
+\twriteOrder(w, api.Order{})
+\tvar unknown any = api.Order{}
+\twriteJSON(w, unknown)
+}
+
+func main() {
+\thttp.HandleFunc("/orders", create)
+\thttp.HandleFunc("/status", status)
+\thttp.HandleFunc("/health", health)
+\thttp.HandleFunc("/broken", broken)
+\thttp.ListenAndServe(":8080", nil)
+}
+"""
+
+
+FIBER_ORDER = """package main
+
+import (
+\t"github.com/gofiber/fiber/v3"
+
+\t"example.com/shop/api"
+)
+
+type controller struct{}
+
+func (controller) create(c fiber.Ctx) error {
+\tvar in api.CreateOrder
+\treturn c.Bind().Body(&in)
+}
+
+func restrict() fiber.Handler {
+\treturn func(c fiber.Ctx) error {
+\t\treturn c.Next()
+\t}
+}
+
+// A factory returning a handler that is not the module's (a library's
+// middleware): whether it passes the request on is not known.
+func limit() fiber.Handler {
+\tvar library fiber.Handler
+\treturn library
+}
+
+func audit(c fiber.Ctx) error {
+\tc.JSON(api.Order{})
+\treturn c.Next()
+}
+
+func main() {
+\tapp := fiber.New()
+\tctl := controller{}
+\tapp.Post("/first", ctl.create, restrict())
+\tapp.Post("/factory", limit(), ctl.create)
+\tapp.Post("/last", restrict(), ctl.create)
+\tapp.Post("/inline", func(c fiber.Ctx) error {
+\t\treturn c.Next()
+\t}, audit, ctl.create)
+}
+"""
+
+
+HELPERS = """package main
+
+import (
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func respond(c *fiber.Ctx, order api.Order) error {
+\treturn c.JSON(order)
+}
+
+func doCreate(c *fiber.Ctx) error {
+\tvar in api.CreateOrder
+\tif err := c.BodyParser(&in); err != nil {
+\t\treturn err
+\t}
+\treturn respond(c, api.Order{ID: in.Item})
+}
+
+func audit(in api.CreateOrder) {
+\t_ = in
+}
+
+func get(c *fiber.Ctx) error {
+\taudit(api.CreateOrder{})
+\treturn respond(c, api.Order{ID: c.Params("id")})
+}
+
+func main() {
+\tapp := fiber.New()
+\tapp.Post("/orders", func(c *fiber.Ctx) error { return doCreate(c) })
+\tapp.Get("/orders/:id", get)
+\tapp.Get("/health", health)
+}
+"""
+
+HEALTH = """package main
+
+import (
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func health(c *fiber.Ctx) error {
+\treturn respond(c, api.Order{ID: "ok"})
+}
+"""
+
+
+INLINE = """package main
+
+import (
+\t"github.com/gin-gonic/gin"
+\t"github.com/gofiber/fiber/v2"
+
+\t"example.com/shop/api"
+)
+
+func main() {
+\tr := gin.Default()
+\tr.GET("/gin/orders", func(c *gin.Context) {
+\t\tvar in api.CreateOrder
+\t\tc.ShouldBindJSON(&in)
+\t}, func(c *gin.Context) {
+\t\tc.JSON(200, []api.Order{})
+\t})
+
+\tapp := fiber.New()
+\torders := app.Group("/api")
+\torders.Post("/orders", func(c *fiber.Ctx) error {
+\t\tvar in api.CreateOrder
+\t\tif err := c.BodyParser(&in); err != nil {
+\t\t\treturn err
+\t\t}
+\t\treturn c.JSON(api.Order{ID: in.Item})
+\t})
+}
+"""
+
+
+FIBER_V3 = """package main
+
+import (
+\t"github.com/gofiber/fiber/v3"
+
+\t"example.com/shop/api"
+)
+
+func create(c fiber.Ctx) error {
+\tvar in api.CreateOrder
+\tif err := c.Bind().Body(&in); err != nil {
+\t\treturn err
+\t}
+\treturn c.JSON(api.Order{ID: in.Item})
+}
+
+func raw(c fiber.Ctx) error {
+\tvar body any = &api.CreateOrder{}
+\treturn c.Bind().Body(body)
+}
+
+func main() {
+\tapp := fiber.New()
+\tapp.Post("/orders", create)
+\tapp.Put("/orders", raw)
+}
+"""
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CHI_RENDER = """package main
+
+import (
+\t"net/http"
+
+\t"github.com/go-chi/chi/v5"
+\t"github.com/go-chi/render"
+
+\t"example.com/shop/api"
+)
+
+type orderRequest struct{ *api.CreateOrder }
+
+func (orderRequest) Bind(r *http.Request) error { return nil }
+
+type orderResponse struct{ *api.Order }
+
+func (orderResponse) Render(w http.ResponseWriter, r *http.Request) error { return nil }
+
+func create(w http.ResponseWriter, r *http.Request) {
+\tin := &orderRequest{}
+\tif err := render.Bind(r, in); err != nil {
+\t\treturn
+\t}
+\trender.Render(w, r, orderResponse{})
+}
+
+func list(w http.ResponseWriter, r *http.Request) {
+\tvar q api.CreateOrder
+\trender.DecodeJSON(r.Body, &q)
+\trender.JSON(w, r, []api.Order{})
+}
+
+func proxy(w http.ResponseWriter, r *http.Request) {
+\tresp, err := http.Get("http://inventory/stock")
+\tif err != nil {
+\t\treturn
+\t}
+\tvar o api.Order
+\trender.DecodeJSON(resp.Body, &o)
+}
+
+func main() {
+\tr := chi.NewRouter()
+\tr.Post("/orders", create)
+\tr.Get("/orders", list)
+\tr.Get("/proxy", proxy)
+\thttp.ListenAndServe(":8080", r)
+}
+"""

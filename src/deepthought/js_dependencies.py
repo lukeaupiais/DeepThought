@@ -13,7 +13,20 @@ usual configuration (``.npmrc``, ``npm_config_registry``), so a mirror works.
 ``npm ci`` first fetches every pinned tarball from the configured registry
 (``--replace-registry-host=always``; the lockfile's integrity hashes still
 check each one), then, if that fails, from the hosts the lockfile names.
-A workspace that already has ``node_modules`` is indexed as it is.
+A workspace that already has ``node_modules`` is indexed as it is; in a
+copy, a directory that already has ``node_modules`` links to it.
+
+After an install, each declared package that ships no declarations gets
+its DefinitelyTyped package (``@types/<name>``), as the TypeScript language
+server's automatic type acquisition gives one: without it the compiler
+types no call into a plain JavaScript package (``express``, ``koa-router``),
+so the index names no library method there. Which packages DefinitelyTyped
+has, and the version of each for the compiler scip-typescript runs, comes
+from the pinned ``types-registry`` package (``TYPES_REGISTRY_VERSION``),
+which the engine installs into its cache; the versions it names are
+installed exactly, with npm, scripts off, into a scratch prefix and moved
+into ``node_modules`` where nothing is there yet. A failed acquisition is
+recorded on the install (``types``) and makes the run ``partial``.
 """
 
 import hashlib
@@ -58,6 +71,12 @@ NO_LOCKFILE = (
     ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"],
 )
 _COPY_SKIP = {".git", ".hg", ".svn", "node_modules"}
+
+# DefinitelyTyped's package list, pinned, and the compiler release whose
+# dist-tag picks each package's version (scip-typescript 0.6.2 runs
+# TypeScript 6.0); a package without that tag takes its latest version.
+TYPES_REGISTRY_VERSION = "0.1.794"
+TYPES_TAG = "ts6.0"
 
 
 _DEPENDENCY_KEYS = (
@@ -169,7 +188,9 @@ def install_directories(root):
     package.json, or a ``pnpm-workspace.yaml``), installs its packages from
     there. A repository of packages that are not workspaces, with no
     lockfile, so installs each package where it is. A lockfile counts only
-    beside a package.json."""
+    beside a package.json. An npm lockfile in a directory that is not a
+    workspace root installs that directory alone, so a project below it with
+    its own lockfile (an app kept in a subdirectory) installs where it is."""
     root = Path(root)
     found, covering = [], []
     for directory, names, filenames in os.walk(root):
@@ -177,12 +198,18 @@ def install_directories(root):
             n for n in names if n not in _COPY_SKIP and not n.startswith(".")
         )
         relative = Path(directory).relative_to(root).as_posix()
-        if any(relative.startswith(d + "/") or d == "." for d in covering):
-            continue
         # A lockfile without a package.json beside it installs nothing.
-        locked = "package.json" in filenames and any(
-            lockfile in filenames for lockfile, _, _ in LOCKFILES
+        lockfiles = (
+            [name for name, _, _ in LOCKFILES if name in filenames]
+            if "package.json" in filenames
+            else []
         )
+        locked = bool(lockfiles)
+        if any(
+            (relative.startswith(d + "/") or d == ".") and (everything or not locked)
+            for d, everything in covering
+        ):
+            continue
         package = _package(directory) if "package.json" in filenames else None
         workspace = "pnpm-workspace.yaml" in filenames or bool(
             package and package.get("workspaces")
@@ -190,7 +217,10 @@ def install_directories(root):
         if locked or workspace or _declares(package):
             found.append(relative)
         if locked or workspace:
-            covering.append(relative)
+            npm_only = all(
+                manager == "npm" for name, manager, _ in LOCKFILES if name in lockfiles
+            )
+            covering.append((relative, workspace or not npm_only))
     return found
 
 
@@ -228,6 +258,26 @@ def prepare(root, scratch, *, environ=None, timeout=600):
         ignore=lambda _directory, names: [n for n in names if n in _COPY_SKIP],
     )
     for relative in directories:
+        installed = root / relative / "node_modules"
+        if installed.is_dir():
+            # Packages already installed in the workspace are used as they
+            # are, as a workspace with node_modules everywhere is; the copy
+            # skipped them.
+            (copy / relative / "node_modules").symlink_to(
+                installed.resolve(), target_is_directory=True
+            )
+            outcome["installs"].append(
+                {
+                    "directory": relative,
+                    "status": "installed",
+                    "manager": None,
+                    "command": None,
+                    "lockfile": None,
+                    "lockfile_sha256": None,
+                    "source": "workspace",
+                }
+            )
+            continue
         attempts = []
         for manager, arguments, lockfile in _managers(root / relative):
             install = _install(
@@ -245,6 +295,9 @@ def prepare(root, scratch, *, environ=None, timeout=600):
             ]
         outcome["installs"].append(install)
     succeeded = [i for i in outcome["installs"] if i["status"] == "installed"]
+    for install in succeeded:
+        if install.get("source") != "workspace":
+            install["types"] = acquire_types(copy / install["directory"], env, timeout)
     if not succeeded:
         outcome["status"] = "failed"
         outcome["detail"] = "; ".join(
@@ -252,7 +305,9 @@ def prepare(root, scratch, *, environ=None, timeout=600):
             for i in outcome["installs"]
         )
         return outcome
-    if len(succeeded) < len(outcome["installs"]):
+    if len(succeeded) < len(outcome["installs"]) or any(
+        i.get("types", {}).get("status") == "failed" for i in succeeded
+    ):
         outcome["status"] = "partial"
     else:
         outcome["status"] = "installed"
@@ -316,3 +371,129 @@ def _count(node_modules):
             continue
         count += sum(1 for _ in path.iterdir()) if path.name.startswith("@") else 1
     return count
+
+
+def _ships_declarations(directory):
+    """Whether an installed package gives the compiler declarations: a
+    ``types``/``typings`` entry, a ``types`` export condition, or an
+    ``index.d.ts`` beside its package.json."""
+    package = _package(directory)
+    if package is None:
+        return False
+    if package.get("types") or package.get("typings"):
+        return True
+    if '"types"' in json.dumps(package.get("exports") or {}):
+        return True
+    return (Path(directory) / "index.d.ts").is_file()
+
+
+def untyped_packages(directory):
+    """The packages ``directory``'s package.json declares that are
+    installed in its ``node_modules``, ship no declarations and have no
+    ``@types`` package installed, as (name, DefinitelyTyped name), sorted."""
+    package = _package(directory) or {}
+    modules = Path(directory) / "node_modules"
+    found = set()
+    for key in _DEPENDENCY_KEYS:
+        declared = package.get(key)
+        if not isinstance(declared, dict):
+            continue
+        for name in declared:
+            if not isinstance(name, str) or name.startswith("@types/"):
+                continue
+            typed = name[1:].replace("/", "__") if name.startswith("@") else name
+            if (modules / "@types" / typed).is_dir():
+                continue
+            installed = modules / name
+            if (installed / "package.json").is_file() and not _ships_declarations(
+                installed
+            ):
+                found.add((name, typed))
+    return sorted(found)
+
+
+def _types_registry(environ):
+    """{DefinitelyTyped name: {dist-tag: version}} of the pinned
+    types-registry, installed into the engine's cache when missing."""
+    from .tool_provisioning import npm_package
+
+    directory = npm_package("types-registry", TYPES_REGISTRY_VERSION, environ)
+    index = directory / "node_modules" / "types-registry" / "index.json"
+    return json.loads(index.read_text())["entries"]
+
+
+def acquire_types(directory, environ, timeout):
+    """Install the ``@types`` packages of ``directory``'s untyped packages
+    into its ``node_modules``. Returns ``{"status", "packages", "detail"}``:
+    ``none`` (nothing to acquire), ``acquired`` with the ``@types/<name>@
+    <version>`` installed, or ``failed``."""
+    from .tool_provisioning import ToolInstallFailed
+
+    result = {"status": "none", "packages": [], "detail": None}
+    untyped = untyped_packages(directory)
+    if not untyped:
+        return result
+    try:
+        registry = _types_registry(environ)
+    except (ToolInstallFailed, OSError, ValueError, KeyError) as error:
+        result.update(status="failed", detail=f"types-registry: {error}"[-600:])
+        return result
+    wanted = []
+    for _, typed in untyped:
+        tags = registry.get(typed)
+        if isinstance(tags, dict) and (tags.get(TYPES_TAG) or tags.get("latest")):
+            wanted.append(f"@types/{typed}@{tags.get(TYPES_TAG) or tags['latest']}")
+    if not wanted:
+        return result
+    npm = shutil.which("npm", path=environ.get("PATH"))
+    if npm is None:
+        result.update(status="failed", detail="npm is not installed")
+        return result
+    modules = Path(directory) / "node_modules"
+    prefix = Path(directory).parent / f".types-{Path(directory).name or 'root'}"
+    try:
+        completed = subprocess.run(
+            [
+                npm,
+                "install",
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+                "--no-save",
+                "--no-package-lock",
+                "--prefix",
+                str(prefix),
+                *wanted,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env={**environ, **_no_scripts()},
+        )
+        if completed.returncode or not (prefix / "node_modules").is_dir():
+            result.update(
+                status="failed",
+                detail=(completed.stdout + completed.stderr)[-600:],
+            )
+            return result
+        # Move what the prefix installed (the @types packages and the
+        # packages they depend on) where nothing of that name is installed.
+        for entry in sorted((prefix / "node_modules").iterdir()):
+            if entry.name.startswith("."):
+                continue
+            children = (
+                sorted(entry.iterdir()) if entry.name.startswith("@") else [entry]
+            )
+            for child in children:
+                relative = child.relative_to(prefix / "node_modules")
+                if not (modules / relative).exists():
+                    (modules / relative).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(child), str(modules / relative))
+    except subprocess.TimeoutExpired:
+        result.update(status="failed", detail="npm timed out acquiring @types")
+        return result
+    finally:
+        shutil.rmtree(prefix, ignore_errors=True)
+    result.update(status="acquired", packages=sorted(wanted))
+    return result

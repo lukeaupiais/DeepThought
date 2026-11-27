@@ -23,7 +23,7 @@
 //     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
-//   - "struct": every named struct type the file declares, with each field's
+//   - "model": every named struct type the file declares, with each field's
 //     name, tag, whether it is embedded, and how GORM's schema parser would
 //     take its type (see gormKind).
 //   - "error": a package that did not type-check completely; its facts are
@@ -54,6 +54,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -80,6 +81,47 @@ type argument struct {
 	// The argument's static type is an interface: what it holds at run
 	// time is not known.
 	Interface bool `json:"interface,omitempty"`
+	// "o:file:line:column" of the variable or field the argument names, or
+	// "c:file:line:column" of the call it is (see reference).
+	Ref string `json:"ref,omitempty"`
+	// "f:file:line:column" of the module's function or method the argument
+	// names, or that a call argument calls (a handler factory).
+	Function string `json:"function,omitempty"`
+	// The reference of the first parameter of a func literal argument.
+	Literal string `json:"literal,omitempty"`
+	// On a "pass" fact: the reference of the callee's parameter it fills.
+	Parameter string `json:"parameter,omitempty"`
+}
+
+// guard is a type assertion a "pass" fact's call sits behind: the call
+// runs only when the value Ref names holds Type ("if p, ok := v.(*T); ok"
+// or a type switch case naming one type).
+type guard struct {
+	Ref       string     `json:"ref"`
+	Type      *namedType `json:"type,omitempty"`
+	Interface bool       `json:"interface,omitempty"`
+}
+
+// typedArgument is an argument a "pass" fact's call gives an interface
+// parameter (v any): the named type of what it holds, when its static
+// type is not an interface itself.
+type typedArgument struct {
+	Ref       string     `json:"ref,omitempty"`
+	Parameter string     `json:"parameter"`
+	Type      *namedType `json:"type,omitempty"`
+	Interface bool       `json:"interface,omitempty"`
+}
+
+// A field of a struct type declared in the module: the module's named
+// types its type holds (through pointers, slices, arrays, maps, channels,
+// type arguments and inline structs), and whether it holds an interface,
+// whose dynamic type the static type does not give.
+type structField struct {
+	Name      string      `json:"name"`
+	Line      int         `json:"line"`
+	Embedded  bool        `json:"embedded,omitempty"`
+	Types     []namedType `json:"types,omitempty"`
+	Interface bool        `json:"interface,omitempty"`
 }
 
 type element struct {
@@ -87,8 +129,8 @@ type element struct {
 	argument
 }
 
-// structField is one field of a "struct" fact.
-type structField struct {
+// modelField is one field of a "model" fact.
+type modelField struct {
 	Name     string     `json:"name"`
 	Embedded bool       `json:"embedded,omitempty"`
 	Tag      string     `json:"tag,omitempty"`
@@ -150,21 +192,30 @@ func gormKind(t types.Type) string {
 }
 
 type fact struct {
-	Kind      string     `json:"kind"`
-	File      string     `json:"file,omitempty"`
-	Directory string     `json:"directory,omitempty"`
-	Line      int        `json:"line,omitempty"`
-	Column    int        `json:"column,omitempty"`
-	Method    string     `json:"method,omitempty"`
-	Declared  string     `json:"declared,omitempty"`
-	Results   []string   `json:"results,omitempty"`
-	Receiver  *namedType `json:"receiver,omitempty"`
-	Arguments []argument `json:"arguments,omitempty"`
-	Type      *namedType `json:"type,omitempty"`
-	Elements  []element  `json:"elements,omitempty"`
-	Table     string     `json:"table,omitempty"`
-	Package   string     `json:"package,omitempty"`
-	Message   string     `json:"message,omitempty"`
+	Kind      string        `json:"kind"`
+	File      string        `json:"file,omitempty"`
+	Directory string        `json:"directory,omitempty"`
+	Line      int           `json:"line,omitempty"`
+	Column    int           `json:"column,omitempty"`
+	Method    string        `json:"method,omitempty"`
+	Declared  string        `json:"declared,omitempty"`
+	Results   []string      `json:"results,omitempty"`
+	Receiver  *namedType    `json:"receiver,omitempty"`
+	Arguments []argument    `json:"arguments,omitempty"`
+	Type      *namedType    `json:"type,omitempty"`
+	Elements  []element     `json:"elements,omitempty"`
+	Fields    []structField `json:"fields,omitempty"`
+	Table     string        `json:"table,omitempty"`
+	Package   string        `json:"package,omitempty"`
+	Message   string        `json:"message,omitempty"`
+	// The reference of a method call's receiver expression, and of the
+	// variable or field the call's result is assigned to.
+	Operand  string `json:"operand,omitempty"`
+	Assigned string `json:"assigned,omitempty"`
+	// "f:file:line:column" of a "pass" fact's callee.
+	Callee string `json:"callee,omitempty"`
+	// The reference of the call itself ("c:..."), for a call or "new" fact.
+	Self string `json:"self,omitempty"`
 	// call: the types of the callee's results, the protobuf messages its
 	// arguments and results carry, and where its name is written; signature: the named types of a function's parameters and
 	// results.
@@ -173,8 +224,18 @@ type fact struct {
 	NameLine    int          `json:"name_line,omitempty"`
 	NameColumn  int          `json:"name_column,omitempty"`
 	Types       []*namedType `json:"types,omitempty"`
-	// struct: its fields.
-	Fields []structField `json:"fields,omitempty"`
+	// model: its fields.
+	ModelFields []modelField `json:"model_fields,omitempty"`
+	// "pass": the arguments given to interface parameters.
+	Typed []typedArgument `json:"typed,omitempty"`
+	// "pass": the type assertions the call runs behind.
+	Guards []guard `json:"guards,omitempty"`
+	// protofile: the serialized FileDescriptorProto protoc-gen-go embeds
+	// (RawDescriptor), the numbers of enums and messages it declares, and
+	// Types, the Go type of each GoTypes entry (nil for map entries).
+	Raw          []byte `json:"raw,omitempty"`
+	Enums        int    `json:"enums,omitempty"`
+	MessageCount int    `json:"message_count,omitempty"`
 }
 
 func ignored(name string) bool {
@@ -365,6 +426,20 @@ func main() {
 	}
 }
 
+// netHTTP reports whether t is net/http's *Request or ResponseWriter, what
+// a net/http handler passes on to the functions that read the request body
+// or write the response.
+func netHTTP(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "net/http" {
+		return false
+	}
+	return n.Obj().Name() == "Request" || n.Obj().Name() == "ResponseWriter"
+}
+
 // namedIn is the named types a parameter or result type is built from:
 // through pointers, slices, arrays, maps, channels, variadic parameters and
 // the type arguments of generic types (grpc.ServerStreamingClient[Feature]),
@@ -448,6 +523,8 @@ func messagesIn(t types.Type, named func(types.Type) *namedType) []*namedType {
 
 // facts prints the call, signature and TableName facts of one file.
 func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
+	structs(file, info, emit, where)
+	protoFiles(file, info, emit, where, named)
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.TYPE {
@@ -466,7 +543,7 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if !ok {
 				continue
 			}
-			out := fact{Kind: "struct", Type: named(obj.Type())}
+			out := fact{Kind: "model", Type: named(obj.Type())}
 			if out.Type == nil {
 				continue
 			}
@@ -474,7 +551,7 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			for i := 0; i < st.NumFields(); i++ {
 				v := st.Field(i)
 				_, line, column := where(v.Pos())
-				out.Fields = append(out.Fields, structField{
+				out.ModelFields = append(out.ModelFields, modelField{
 					Name:     v.Name(),
 					Embedded: v.Embedded(),
 					Tag:      st.Tag(i),
@@ -534,6 +611,248 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		}
 	}
 	literals, results := once(file, info)
+	// References: a variable, struct field or package variable is named by
+	// the position of its declaration, so every use of one object, in any
+	// file of the module, gives the same text; a call by its own position.
+	objectRef := func(obj types.Object) string {
+		v, ok := obj.(*types.Var)
+		if !ok {
+			return ""
+		}
+		f, line, column := where(v.Pos())
+		if f == "" {
+			return ""
+		}
+		return fmt.Sprintf("o:%s:%d:%d", f, line, column)
+	}
+	var reference func(ast.Expr) string
+	reference = func(e ast.Expr) string {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			obj := info.Uses[x]
+			if obj == nil {
+				obj = info.Defs[x]
+			}
+			return objectRef(obj)
+		case *ast.SelectorExpr:
+			if selection := info.Selections[x]; selection != nil {
+				if selection.Kind() == types.FieldVal {
+					return objectRef(selection.Obj())
+				}
+				return ""
+			}
+			return objectRef(info.Uses[x.Sel])
+		case *ast.CallExpr:
+			// The opening parenthesis: a call and the call it is made on
+			// (r.With(m).Get(...)) start at the same position.
+			f, line, column := where(x.Lparen)
+			return fmt.Sprintf("c:%s:%d:%d", f, line, column)
+		case *ast.UnaryExpr:
+			if x.Op == token.AND {
+				return reference(x.X)
+			}
+		case *ast.StarExpr:
+			return reference(x.X)
+		}
+		return ""
+	}
+	called := func(fun ast.Expr) *types.Func {
+		var obj types.Object
+		switch x := ast.Unparen(fun).(type) {
+		case *ast.Ident:
+			obj = info.Uses[x]
+		case *ast.SelectorExpr:
+			if selection := info.Selections[x]; selection != nil {
+				obj = selection.Obj()
+			} else {
+				obj = info.Uses[x.Sel]
+			}
+		case *ast.IndexExpr: // an instantiated generic function
+			return nil
+		}
+		fn, _ := obj.(*types.Func)
+		return fn
+	}
+	functionRef := func(fn *types.Func) string {
+		if fn == nil {
+			return ""
+		}
+		f, line, column := where(fn.Pos())
+		if f == "" {
+			return ""
+		}
+		return fmt.Sprintf("f:%s:%d:%d", f, line, column)
+	}
+	// The function an argument names; for a call that passes no function
+	// value, the function it calls, which returns the handler (a factory).
+	function := func(arg ast.Expr) string {
+		arg = ast.Unparen(arg)
+		if call, ok := arg.(*ast.CallExpr); ok {
+			for _, inner := range call.Args {
+				if _, ok := info.TypeOf(inner).(*types.Signature); ok {
+					return ""
+				}
+			}
+			arg = call.Fun
+		}
+		return functionRef(called(arg))
+	}
+	literalParameter := func(arg ast.Expr) string {
+		literal, ok := ast.Unparen(arg).(*ast.FuncLit)
+		if !ok || literal.Type.Params == nil || len(literal.Type.Params.List) == 0 || len(literal.Type.Params.List[0].Names) == 0 {
+			return ""
+		}
+		return objectRef(info.Defs[literal.Type.Params.List[0].Names[0]])
+	}
+	// A named type of a library outside the module and the standard
+	// library (a router), through pointers.
+	library := func(t types.Type) *types.Named {
+		if p, ok := t.(*types.Pointer); ok {
+			t = p.Elem()
+		}
+		n, ok := types.Unalias(t).(*types.Named)
+		if !ok || n.Obj().Pkg() == nil {
+			return nil
+		}
+		path := n.Obj().Pkg().Path()
+		if !strings.Contains(strings.Split(path, "/")[0], ".") {
+			return nil
+		}
+		if f, _, _ := where(n.Obj().Pos()); f != "" {
+			return nil
+		}
+		return n
+	}
+	// The variable or field each call's result is assigned to; and, as
+	// "alias" facts, a library-typed variable, field or parameter assigned
+	// to another (a struct field set from a constructor's parameter).
+	// The blocks that run only when a value holds an asserted type: the
+	// body of "if v, ok := x.(T); ok" and a type switch case naming one
+	// type, with the guard each sets.
+	type guardedBlock struct {
+		start, end token.Pos
+		guard      guard
+	}
+	var guarded []guardedBlock
+	assertion := func(x ast.Expr, t types.Type) (guard, bool) {
+		r := reference(x)
+		if r == "" || t == nil {
+			return guard{}, false
+		}
+		if types.IsInterface(t) {
+			return guard{Ref: r, Interface: true}, true
+		}
+		n := named(t)
+		if n == nil {
+			return guard{}, false
+		}
+		return guard{Ref: r, Type: n}, true
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.IfStmt:
+			init, ok := n.Init.(*ast.AssignStmt)
+			if !ok || len(init.Lhs) != 2 || len(init.Rhs) != 1 {
+				return true
+			}
+			assert, ok := ast.Unparen(init.Rhs[0]).(*ast.TypeAssertExpr)
+			okName, isIdent := init.Lhs[1].(*ast.Ident)
+			cond, condIdent := ast.Unparen(n.Cond).(*ast.Ident)
+			if !ok || assert.Type == nil || !isIdent || !condIdent || cond.Name != okName.Name {
+				return true
+			}
+			if g, ok := assertion(assert.X, info.TypeOf(assert.Type)); ok {
+				guarded = append(guarded, guardedBlock{n.Body.Pos(), n.Body.End(), g})
+			}
+		case *ast.TypeSwitchStmt:
+			var x ast.Expr
+			switch a := n.Assign.(type) {
+			case *ast.AssignStmt:
+				if len(a.Rhs) == 1 {
+					if t, ok := ast.Unparen(a.Rhs[0]).(*ast.TypeAssertExpr); ok {
+						x = t.X
+					}
+				}
+			case *ast.ExprStmt:
+				if t, ok := ast.Unparen(a.X).(*ast.TypeAssertExpr); ok {
+					x = t.X
+				}
+			}
+			if x == nil {
+				return true
+			}
+			for _, s := range n.Body.List {
+				clause, ok := s.(*ast.CaseClause)
+				if !ok || len(clause.List) != 1 {
+					continue
+				}
+				if id, ok := clause.List[0].(*ast.Ident); ok && id.Name == "nil" {
+					continue
+				}
+				if g, ok := assertion(x, info.TypeOf(clause.List[0])); ok && len(clause.Body) > 0 {
+					guarded = append(guarded, guardedBlock{clause.Body[0].Pos(), clause.End(), g})
+				}
+			}
+		}
+		return true
+	})
+	assigned := map[*ast.CallExpr]string{}
+	alias := func(left string, right ast.Expr) {
+		if left == "" {
+			return
+		}
+		if _, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+			return
+		}
+		if library(info.TypeOf(right)) == nil {
+			return
+		}
+		if r := reference(right); r != "" {
+			out := fact{Kind: "alias", Assigned: left, Operand: r}
+			out.File, out.Line, out.Column = where(right.Pos())
+			emit(out)
+		}
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i, right := range n.Rhs {
+					if call, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+						assigned[call] = reference(n.Lhs[i])
+					} else {
+						alias(reference(n.Lhs[i]), right)
+					}
+				}
+			} else if len(n.Rhs) == 1 {
+				if call, ok := ast.Unparen(n.Rhs[0]).(*ast.CallExpr); ok {
+					assigned[call] = reference(n.Lhs[0])
+				}
+			}
+		case *ast.ValueSpec:
+			for i, right := range n.Values {
+				if i >= len(n.Names) {
+					break
+				}
+				if call, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+					assigned[call] = objectRef(info.Defs[n.Names[i]])
+				} else {
+					alias(objectRef(info.Defs[n.Names[i]]), right)
+				}
+			}
+		case *ast.KeyValueExpr:
+			if key, ok := n.Key.(*ast.Ident); ok {
+				if v, ok := info.Uses[key].(*types.Var); ok && v.IsField() {
+					if call, ok := ast.Unparen(n.Value).(*ast.CallExpr); ok {
+						assigned[call] = objectRef(v)
+					} else {
+						alias(objectRef(v), n.Value)
+					}
+				}
+			}
+		}
+		return true
+	})
 	describe := func(arg ast.Expr) argument {
 		a := argument{}
 		if val := stringValue(arg, info, flows); val.known {
@@ -611,6 +930,60 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		if !ok {
 			return true
 		}
+		// A call of the module's own function that passes a value of a
+		// library type, or net/http's request or response writer: which
+		// parameter receives it ("pass").
+		if fn := called(call.Fun); fn != nil {
+			if callee := functionRef(fn); callee != "" {
+				params := fn.Type().(*types.Signature).Params()
+				out := fact{Kind: "pass", Callee: callee}
+				for i, arg := range call.Args {
+					if i >= params.Len() || (library(info.TypeOf(arg)) == nil && !netHTTP(info.TypeOf(arg))) {
+						continue
+					}
+					if r := reference(arg); r != "" {
+						out.Arguments = append(out.Arguments, argument{Ref: r, Parameter: objectRef(params.At(i))})
+					}
+				}
+				if len(out.Arguments) > 0 {
+					for i, arg := range call.Args {
+						if i >= params.Len() || !types.IsInterface(params.At(i).Type()) {
+							continue
+						}
+						parameter := objectRef(params.At(i))
+						t := info.TypeOf(arg)
+						if parameter == "" || t == nil {
+							continue
+						}
+						typed := typedArgument{Ref: reference(arg), Parameter: parameter}
+						if types.IsInterface(t) {
+							typed.Interface = true
+						} else {
+							typed.Type = named(t)
+						}
+						out.Typed = append(out.Typed, typed)
+					}
+					for _, block := range guarded {
+						if block.start <= call.Pos() && call.Pos() < block.end {
+							out.Guards = append(out.Guards, block.guard)
+						}
+					}
+					out.File, out.Line, out.Column = where(call.Pos())
+					emit(out)
+				}
+			} else if fn.Type().(*types.Signature).Recv() == nil && fn.Pkg() != nil {
+				// A library constructor: a package function whose first
+				// result is a type of its own package (gin.Default).
+				results := fn.Type().(*types.Signature).Results()
+				if results.Len() > 0 {
+					if n := library(results.At(0).Type()); n != nil && n.Obj().Pkg() == fn.Pkg() {
+						out := fact{Kind: "new", Type: named(n), Method: fn.Name(), Declared: fn.Pkg().Path(), Assigned: assigned[call], Self: reference(call)}
+						out.File, out.Line, out.Column = where(call.Pos())
+						emit(out)
+					}
+				}
+			}
+		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return true
@@ -632,6 +1005,23 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 					Method: function.Name(), Declared: "encoding/json",
 					Arguments: []argument{value},
 				})
+				return true
+			}
+		}
+		// go-chi/render's package functions that decode a request body
+		// into, or render a response from, their last argument.
+		if function, ok := info.Uses[selector.Sel].(*types.Func); ok {
+			if pkg := function.Pkg(); pkg != nil && pkg.Path() == "github.com/go-chi/render" && chiRender[function.Name()] {
+				f, line, column := where(call.Pos())
+				out := fact{Kind: "call", File: f, Line: line, Column: column, Method: function.Name(), Declared: pkg.Path()}
+				for _, arg := range call.Args {
+					a := argument{Ref: reference(arg), Type: named(info.TypeOf(arg))}
+					if t := info.TypeOf(arg); t != nil && types.IsInterface(t) {
+						a = argument{Ref: reference(arg), Interface: true}
+					}
+					out.Arguments = append(out.Arguments, a)
+				}
+				emit(out)
 				return true
 			}
 		}
@@ -660,17 +1050,33 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		for i := 0; i < results.Len(); i++ {
 			out.Messages = append(out.Messages, messagesIn(results.At(i).Type(), named)...)
 		}
+		out.Operand = reference(selector.X)
+		out.Assigned = assigned[call]
+		out.Self = reference(call)
 		for i, arg := range call.Args {
-			if i == 3 {
-				break
+			a := argument{}
+			if i < 3 {
+				a = describe(arg)
+				a.Type = named(info.TypeOf(arg))
+				if t := info.TypeOf(arg); t != nil && types.IsInterface(t) {
+					a.Interface = true
+				}
 			}
-			a := describe(arg)
-			a.Type = named(info.TypeOf(arg))
+			a.Ref = reference(arg)
+			a.Function = function(arg)
+			a.Literal = literalParameter(arg)
 			out.Arguments = append(out.Arguments, a)
 		}
 		emit(out)
 		return true
 	})
+}
+
+// chiRender names go-chi/render's functions whose last argument is the
+// request body decoded or the response rendered.
+var chiRender = map[string]bool{
+	"JSON": true, "Render": true, "Respond": true,
+	"Bind": true, "Decode": true, "DecodeJSON": true,
 }
 
 // Placeholder stands for text the code does not fix inside a string.
@@ -1510,4 +1916,259 @@ func stringsValue(arg ast.Expr, info *types.Info, f *flow, literals map[*types.V
 		}
 	}
 	return values, true
+}
+
+// structs prints the fields of the struct types a file declares at package
+// level: the exported ones and the embedded ones (encoding/json writes no
+// other, nor one tagged json:"-").
+func structs(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int)) {
+	var holds func(t types.Type, field *structField, seen map[types.Type]bool, depth int)
+	holds = func(t types.Type, field *structField, seen map[types.Type]bool, depth int) {
+		if t == nil || depth > 8 || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := types.Unalias(t).(type) {
+		case *types.Pointer:
+			holds(u.Elem(), field, seen, depth+1)
+		case *types.Slice:
+			holds(u.Elem(), field, seen, depth+1)
+		case *types.Array:
+			holds(u.Elem(), field, seen, depth+1)
+		case *types.Map:
+			holds(u.Key(), field, seen, depth+1)
+			holds(u.Elem(), field, seen, depth+1)
+		case *types.Chan:
+			holds(u.Elem(), field, seen, depth+1)
+		case *types.Interface:
+			field.Interface = true
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				holds(u.Field(i).Type(), field, seen, depth+1)
+			}
+		case *types.Named:
+			args := u.TypeArgs()
+			for i := 0; args != nil && i < args.Len(); i++ {
+				holds(args.At(i), field, seen, depth+1)
+			}
+			obj := u.Obj()
+			if obj.Pkg() == nil {
+				return // error, any's underlying: not a declaration
+			}
+			f, line, _ := where(obj.Pos())
+			if f == "" || strings.HasPrefix(f, "vendor/") || strings.Contains(f, "/vendor/") {
+				return // a library's type
+			}
+			if types.IsInterface(u) {
+				field.Interface = true
+				return
+			}
+			field.Types = append(field.Types, namedType{Package: obj.Pkg().Path(), Name: obj.Name(), File: f, Line: line})
+			// A named slice, map, array, pointer or channel (type Labels
+			// []Label) holds what its underlying type holds; a struct's
+			// fields are printed with the struct itself.
+			if _, ok := u.Underlying().(*types.Struct); !ok {
+				holds(u.Underlying(), field, seen, depth+1)
+			}
+		}
+	}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			obj, ok := info.Defs[ts.Name].(*types.TypeName)
+			if !ok || obj.IsAlias() {
+				continue
+			}
+			st, ok := obj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			out := fact{Kind: "struct", Type: &namedType{Package: obj.Pkg().Path(), Name: obj.Name()}}
+			out.File, out.Line, _ = where(ts.Name.Pos())
+			for i := 0; i < st.NumFields(); i++ {
+				v := st.Field(i)
+				if !v.Exported() && !v.Embedded() {
+					continue
+				}
+				// json:"-" omits the field; json:"-," names it "-".
+				if reflect.StructTag(st.Tag(i)).Get("json") == "-" {
+					continue
+				}
+				_, line, _ := where(v.Pos())
+				field := structField{Name: v.Name(), Line: line, Embedded: v.Embedded()}
+				holds(v.Type(), &field, map[types.Type]bool{}, 0)
+				if len(field.Types) > 0 || field.Interface {
+					out.Fields = append(out.Fields, field)
+				}
+			}
+			if len(out.Fields) > 0 {
+				emit(out)
+			}
+		}
+	}
+}
+
+const protoimplPath = "google.golang.org/protobuf/runtime/protoimpl"
+
+// protoimplType reports whether a composite literal's type is written as
+// protoimpl.<name> of protobuf-go's runtime package.
+func protoimplType(lit *ast.CompositeLit, info *types.Info, name string) bool {
+	sel, ok := lit.Type.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	obj, ok := info.Uses[sel.Sel].(*types.TypeName)
+	return ok && obj.Name() == name && obj.Pkg() != nil && obj.Pkg().Path() == protoimplPath
+}
+
+// protoFiles emits a "protofile" fact for each protoimpl.TypeBuilder that
+// protoc-gen-go writes in a generated file's init: the raw descriptor its
+// DescBuilder holds, NumEnums and NumMessages, and the Go types its GoTypes
+// lists, which protobuf-go orders as the file's enums then its messages in
+// its flattened ordering.
+func protoFiles(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType) {
+	// Package-level variables of the file and their initial values.
+	values := map[types.Object]ast.Expr{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.VAR && gen.Tok != token.CONST) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok || len(vs.Values) != len(vs.Names) {
+				continue
+			}
+			for i, name := range vs.Names {
+				if obj := info.Defs[name]; obj != nil {
+					values[obj] = vs.Values[i]
+				}
+			}
+		}
+	}
+	initial := func(e ast.Expr) ast.Expr {
+		if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+			if v, ok := values[info.Uses[id]]; ok {
+				return v
+			}
+		}
+		return e
+	}
+	// The bytes of a RawDescriptor: a string constant, a []byte literal of
+	// constants, or either passed through a conversion or
+	// unsafe.Slice(unsafe.StringData(s), len(s)).
+	var raw func(e ast.Expr, depth int) ([]byte, bool)
+	raw = func(e ast.Expr, depth int) ([]byte, bool) {
+		if depth > 4 {
+			return nil, false
+		}
+		e = ast.Unparen(e)
+		if tv, ok := info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+			return []byte(constant.StringVal(tv.Value)), true
+		}
+		switch x := initial(e).(type) {
+		case *ast.CompositeLit:
+			out := make([]byte, 0, len(x.Elts))
+			for _, elt := range x.Elts {
+				tv, ok := info.Types[elt]
+				if !ok || tv.Value == nil {
+					return nil, false
+				}
+				b, exact := constant.Uint64Val(constant.ToInt(tv.Value))
+				if !exact || b > 255 {
+					return nil, false
+				}
+				out = append(out, byte(b))
+			}
+			return out, true
+		case *ast.CallExpr:
+			for _, arg := range x.Args {
+				if b, ok := raw(arg, depth+1); ok {
+					return b, true
+				}
+			}
+		case *ast.Ident:
+			if x != e {
+				return raw(x, depth+1)
+			}
+		}
+		return nil, false
+	}
+	count := func(e ast.Expr) int {
+		if tv, ok := info.Types[e]; ok && tv.Value != nil {
+			if n, exact := constant.Int64Val(constant.ToInt(tv.Value)); exact {
+				return int(n)
+			}
+		}
+		return -1
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || !protoimplType(lit, info, "TypeBuilder") {
+			return true
+		}
+		out := fact{Kind: "protofile", Enums: -1, MessageCount: -1}
+		out.File, out.Line, _ = where(lit.Pos())
+		goTypes := false
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, _ := kv.Key.(*ast.Ident)
+			if key == nil {
+				continue
+			}
+			switch key.Name {
+			case "File":
+				desc, ok := ast.Unparen(kv.Value).(*ast.CompositeLit)
+				if !ok || !protoimplType(desc, info, "DescBuilder") {
+					continue
+				}
+				for _, d := range desc.Elts {
+					field, ok := d.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					name, _ := field.Key.(*ast.Ident)
+					if name == nil {
+						continue
+					}
+					switch name.Name {
+					case "RawDescriptor":
+						out.Raw, _ = raw(field.Value, 0)
+					case "NumEnums":
+						out.Enums = count(field.Value)
+					case "NumMessages":
+						out.MessageCount = count(field.Value)
+					}
+				}
+			case "GoTypes":
+				list, ok := initial(kv.Value).(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				goTypes = true
+				for _, item := range list.Elts {
+					tv := info.Types[item]
+					if tv.IsNil() || tv.Type == nil {
+						out.Types = append(out.Types, nil)
+						continue
+					}
+					out.Types = append(out.Types, named(tv.Type))
+				}
+			}
+		}
+		if out.Raw != nil && goTypes && out.Enums >= 0 && out.MessageCount >= 0 {
+			emit(out)
+		}
+		return true
+	})
 }
