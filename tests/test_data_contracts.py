@@ -715,6 +715,34 @@ CREATE TABLE snapshot AS SELECT * FROM roles;
             (3, 1, 1),
         )
 
+    def test_cte_names_are_scoped(self):
+        # A CTE is visible to the CTEs after it and to the statement it
+        # belongs to; to itself only under RECURSIVE; not outside its
+        # subquery.
+        cases = {
+            "WITH a AS (SELECT * FROM b) SELECT * FROM a": (("b",), ()),
+            "WITH t AS (SELECT * FROM t) SELECT * FROM t": (("t",), ()),
+            "WITH RECURSIVE r AS (SELECT 1 UNION ALL SELECT * FROM r) "
+            "SELECT * FROM r": ((), ()),
+            "WITH x AS (SELECT 1), y AS (SELECT * FROM x) "
+            "SELECT * FROM y JOIN x ON true": ((), ()),
+            "WITH c AS (SELECT 1) INSERT INTO t SELECT * FROM c": ((), ("t",)),
+            "SELECT * FROM (WITH q AS (SELECT 1) SELECT * FROM q) s JOIN q ON true": (
+                ("q",),
+                (),
+            ),
+        }
+        for text, expected in cases.items():
+            read = statement_tables(text)
+            self.assertEqual((read.reads, read.writes), expected, text)
+        # Named parameters (sqlc @name, @p, @var) are bind markers; @@x and
+        # an @ in a string stay.
+        self.assertEqual(
+            statement_tables("SELECT a FROM t WHERE b = @b AND c = '@x'").text,
+            "SELECT a FROM t WHERE b = ?  AND c = '@x'",
+        )
+        self.assertEqual(statement_tables("SELECT @@version").text, "SELECT @@version")
+
     def test_statement_columns(self):
         schema = {
             "accounts": ("id", "owner", "balance"),
@@ -801,6 +829,16 @@ CREATE TABLE snapshot AS SELECT * FROM roles;
             [],
         )
         self.assertEqual(columns("SELECT count(*) FROM accounts"), ([], ["accounts"]))
+        # A CTE named like the table it updates: its own body names the
+        # table, the query after it names the CTE (sqlc's struct trick).
+        shadow = (
+            "WITH entries AS (UPDATE entries SET amount = @amount::int "
+            "WHERE id IN (SELECT e.id FROM entries e WHERE e.account_id = @id) "
+            "RETURNING *) SELECT * FROM entries ORDER BY id"
+        )
+        read = statement_tables(shadow)
+        self.assertEqual((read.reads, read.writes), (("entries",), ("entries",)))
+        self.assertEqual(columns(shadow)[1], ["entries"])
         # Text sqlglot did not read (JPQL here) has no columns.
         self.assertIsNone(
             statement_columns(
