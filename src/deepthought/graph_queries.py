@@ -1237,8 +1237,13 @@ class GraphQueryService:
         _text(qname, "function_qname")
         qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
+        # A function passed as a value (a handler, callback or middleware
+        # handed to a router, a table entry) is used where it is passed:
+        # REFERENCES_FUNCTION edges come with the calls.
         pattern = (
-            "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
+            "(other)-[r:CALLS|REFERENCES_FUNCTION]->(func)"
+            if incoming
+            else "(func)-[r:CALLS|REFERENCES_FUNCTION]->(other)"
         )
         response = await self._read(
             "MATCH (func:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$qname}) "
@@ -1261,7 +1266,10 @@ class GraphQueryService:
             response["status"] = "unsupported_or_unobserved"
         response["evidence_types"] = evidence
         response["semantics"] = (
-            "Observed CALLS edges only; absence does not prove that no calls exist."
+            "Observed CALLS edges, and REFERENCES_FUNCTION edges where the "
+            "function is passed as a value without being called there (each "
+            "relationship's type says which); absence does not prove that no "
+            "calls exist."
         )
         if len(_json(response).encode()) > budget:
             raise ValueError("Query response exceeds output byte budget")

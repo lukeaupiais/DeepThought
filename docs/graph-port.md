@@ -1509,6 +1509,47 @@ dependents) over fastapi's `docs_src/dependencies`, `docs_src/security` and
 `docs_src/sql_databases`, and 152 of 152 (594 dependents, 3 seeds over the
 output budget not compared) over the whole template backend.
 
+### Calls through parameters
+
+`def apply(f, x): return f(x)` called as `apply(double, 3)` runs `double`.
+A call written as a parameter's name that no other rule links gets a CALLS
+edge to each function, method or class passed to that parameter (rule
+`python.call-parameter-value`, evidence type `resolved`, `dispatch:
+parameter`; `src/deepthought/python_value_calls.py`, facts read by
+`python_parameter_calls.py` with Python's `ast`).
+
+- A call that the index or pyright links to a parsed function binds its
+  arguments as Python does: positional arguments in order, after `self` or
+  `cls` for a method called through an instance or for a class method
+  (not for one called through its class, nor for a `staticmethod`), to
+  `__init__` for a class called, keyword arguments by name, and nothing
+  after a `*` or `**` argument.
+- An argument is a value of its parameter when the SCIP index resolves its
+  name (or the last name of a dotted name) to a parsed function, method or
+  class. A decorator written as a name gets the function it decorates.
+- A caller that passes its own parameter on as a bare name (`def
+  forward(g): apply(g)`) passes every value of that parameter, to any
+  depth.
+- The calls of a parameter are the calls written as its bare name in the
+  function's body, including in nested functions and lambdas, unless one
+  of them binds the name again. A parameter that the body rebinds anywhere
+  (`f = f or default`) takes part in nothing.
+
+No maintained tool answers this for Python. pyright and scip-python
+resolve names, not values flowing into a parameter, and the points-to call
+graph tools do not run on current Python (PyCG was archived in 2023 and
+fails on 3.13; pytype was retired in 2024). The binding is therefore this
+rule's, over names the index resolves. Not followed: values stored and read
+back (`self.steps.append(step)`, then `for step in self.steps: step()`),
+values taken from containers or returned from calls, and arguments passed
+through `*args` or `**kwargs`. The tool metadata counts
+`python_parameter_calls` (`sites`, `edges`).
+
+The caller and callee queries (`getFunctionCallers`, `getFunctionCalls`)
+also return the REFERENCES_FUNCTION edges of a function passed as a value
+(a handler given to a router, a callback, a middleware, a table entry), in
+every language, and each row's relationship type says which it is.
+
 ### Python versions
 
 The pytest fixture and FastAPI dependency rules read sources with Python's
