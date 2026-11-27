@@ -4306,17 +4306,6 @@ TYPEORM_METHOD_SYMBOL = re.compile(
     r"(Repository|TreeRepository|MongoRepository|EntityManager|MongoEntityManager)"
     r"#(\w+)\(\)\."
 )
-# TypeORM's repository classes, as a type (``Repository<User>``).
-_TYPEORM_REPOSITORY_TYPE = re.compile(
-    r"scip-typescript npm typeorm \S+ .*/(Repository|TreeRepository|MongoRepository)#"
-)
-# The methods that return a repository of the entity their first argument
-# names: DataSource's, Connection's and EntityManager's getRepository.
-_TYPEORM_GET_REPOSITORY = re.compile(
-    r"scip-typescript npm typeorm \S+ .*/"
-    r"(DataSource|Connection|EntityManager|MongoEntityManager)"
-    r"#(getRepository|getTreeRepository|getMongoRepository)\(\)\."
-)
 
 
 @dataclass(frozen=True)
@@ -4362,14 +4351,15 @@ def extract_typeorm_calls(tree, content, file, definitions):
     return found
 
 
-def typeorm_call_entities(references, trees, call):
+def typeorm_call_entities(references, trees, call, receiver_entities):
     """(status, parsed entity classes) of a candidate call: status is
     ``no_scip_index``, ``not_typeorm`` (the index resolves the method to no
     TypeORM repository or entity manager method), ``entity_unknown`` or
-    ``resolved``. The entity is read through the index: the receiver's
-    declared type ``Repository<E>`` (a property, parameter or variable, or
-    ``this`` in a class extending it), a ``getRepository(E)`` call or a
-    variable holding one, or an entity manager method's first argument."""
+    ``resolved``. For a repository method the entities are
+    ``receiver_entities(call)``: the classes the TypeScript checker gives
+    as the receiver type's type arguments (``Repository<E>``, through any
+    wrapper's generics). For an entity manager method it is the class the
+    first argument names, through the index."""
     called = references.symbols(call.file, call.line, call.column)
     if called is None:
         return "no_scip_index", ()
@@ -4390,9 +4380,7 @@ def typeorm_call_entities(references, trees, call):
     if owners & {"EntityManager", "MongoEntityManager"}:
         found |= _typeorm_argument_entity(references, trees, call.file, member.parent)
     if owners & {"Repository", "TreeRepository", "MongoRepository"}:
-        found |= _typeorm_receiver_entity(
-            references, trees, call.file, member.child_by_field_name("object"), 3
-        )
+        found |= set(receiver_entities(call))
     entities = tuple(sorted(found, key=lambda d: d.id))
     return ("resolved" if entities else "entity_unknown"), entities
 
@@ -4423,7 +4411,7 @@ class TypeormBuilder:
     chain: tuple = ()  # (method, call node) of TypeORM's builder methods
 
 
-def typeorm_builder(references, trees, call):
+def typeorm_builder(references, trees, call, receiver_entities):
     """(status, TypeormBuilder or None) of a ``createQueryBuilder`` call, as
     typeorm_call_entities: the index must resolve the call to TypeORM's
     createQueryBuilder. The root table is the repository's entity (its
@@ -4480,9 +4468,7 @@ def typeorm_builder(references, trees, call):
     writes = any(method in _TYPEORM_BUILDER_WRITES for method, _ in chain)
     found = set()
     if owners & {"Repository", "TreeRepository", "MongoRepository"}:
-        found |= _typeorm_receiver_entity(
-            references, trees, call.file, member.child_by_field_name("object"), 3
-        )
+        found |= set(receiver_entities(call))
     if not found and owners & {
         "EntityManager",
         "MongoEntityManager",
@@ -4539,150 +4525,6 @@ def _typeorm_argument_entity(references, trees, file, call):
         None,
     )
     if first is None or first.type != "identifier":
-        return set()
-    content = trees[file][0]
-    declared = references.declarations(
-        file, first.start_point.row + 1, first.start_point.column, _text(first, content)
-    )
-    return {d for d in declared or () if d.kind == "Class"}
-
-
-def _typeorm_receiver_entity(references, trees, file, receiver, depth):
-    """Entity classes of a repository receiver (see typeorm_call_entities)."""
-    if receiver is None or depth <= 0:
-        return set()
-    while receiver.type in (
-        "parenthesized_expression",
-        "await_expression",
-        "non_null_expression",
-    ):
-        if not receiver.named_children:
-            return set()
-        receiver = receiver.named_children[0]
-    if receiver.type == "this":
-        heritage = _enclosing_class_extends(receiver)
-        return _typeorm_type_entity(references, trees, file, heritage)
-    if receiver.type == "call_expression":
-        function = receiver.child_by_field_name("function")
-        last = function
-        if function is not None and function.type == "member_expression":
-            last = function.child_by_field_name("property")
-        if last is None:
-            return set()
-        called = references.symbols(
-            file, last.start_point.row + 1, last.start_point.column
-        )
-        if any(_TYPEORM_GET_REPOSITORY.fullmatch(c) for c in called or ()):
-            return _typeorm_argument_entity(references, trees, file, receiver)
-        return set()
-    last = receiver
-    if receiver.type == "member_expression":
-        last = receiver.child_by_field_name("property")
-    if last is None or last.type not in ("identifier", "property_identifier"):
-        return set()
-    found = set()
-    for site in (
-        references.definition_sites(
-            file, last.start_point.row + 1, last.start_point.column
-        )
-        or ()
-    ):
-        entry = trees.get(site[0])
-        if entry is None:
-            continue
-        point = (site[1] - 1, site[2])
-        target = entry[1].root_node.descendant_for_point_range(point, point)
-        parent = target.parent if target is not None else None
-        if parent is None:
-            continue
-        annotation = parent.child_by_field_name("type")
-        if annotation is not None:
-            found |= _typeorm_type_entity(references, trees, site[0], annotation)
-        elif parent.type == "variable_declarator":
-            found |= _typeorm_receiver_entity(
-                references,
-                trees,
-                site[0],
-                parent.child_by_field_name("value"),
-                depth - 1,
-            )
-    return found
-
-
-def _enclosing_class_extends(node):
-    """The ``extends`` value of the class around ``node``, or None."""
-    while node is not None and node.type not in (
-        "class_declaration",
-        "abstract_class_declaration",
-        "class",
-    ):
-        node = node.parent
-    if node is None:
-        return None
-    for heritage in node.named_children:
-        if heritage.type != "class_heritage":
-            continue
-        for clause in heritage.named_children:
-            if clause.type == "extends_clause":
-                return clause
-    return None
-
-
-def _typeorm_type_entity(references, trees, file, node, depth=3):
-    """Entity classes of a type ``Repository<E>`` (also an ``extends``
-    clause ``Repository<E>``), where the index resolves the type to
-    TypeORM's repository class and E to a class; or of a project class the
-    index resolves the type to, through what it extends (``class
-    UserRepository extends Repository<User>``)."""
-    if node is None or depth <= 0:
-        return set()
-    if node.type == "type_annotation" and node.named_children:
-        node = node.named_children[0]
-    if node.type == "type_identifier":
-        found = set()
-        for site in (
-            references.definition_sites(
-                file, node.start_point.row + 1, node.start_point.column
-            )
-            or ()
-        ):
-            entry = trees.get(site[0])
-            if entry is None:
-                continue
-            point = (site[1] - 1, site[2])
-            target = entry[1].root_node.descendant_for_point_range(point, point)
-            if target is None or target.parent is None:
-                continue
-            found |= _typeorm_type_entity(
-                references,
-                trees,
-                site[0],
-                _enclosing_class_extends(target.parent.child_by_field_name("body"))
-                if target.parent.type
-                in ("class_declaration", "abstract_class_declaration")
-                else None,
-                depth - 1,
-            )
-        return found
-    if node.type == "extends_clause":
-        value = node.child_by_field_name("value")
-        arguments = node.child_by_field_name("type_arguments")
-    elif node.type == "generic_type":
-        value = node.child_by_field_name("name")
-        arguments = node.child_by_field_name("type_arguments")
-    else:
-        return set()
-    if value is None or arguments is None:
-        return set()
-    if value.type in ("nested_type_identifier", "member_expression"):
-        value = value.named_children[-1]
-    named = references.symbols(
-        file, value.start_point.row + 1, value.start_point.column
-    )
-    if not any(_TYPEORM_REPOSITORY_TYPE.match(c) for c in named or ()):
-        return set()
-    first = next((a for a in arguments.named_children if a.type != "comment"), None)
-    if first is None or first.type != "type_identifier":
         return set()
     content = trees[file][0]
     declared = references.declarations(

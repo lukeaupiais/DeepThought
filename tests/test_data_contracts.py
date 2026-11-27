@@ -1581,6 +1581,20 @@ class SqlModelTests(unittest.TestCase):
 
 TYPEORM_SCIP = {
     "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    # TypeORM's declarations as the TypeScript checker reads them.
+    "node_modules/typeorm/package.json": '{"name": "typeorm", "types": "index.d.ts"}',
+    "node_modules/typeorm/index.d.ts": "export declare function Entity(name?: string): ClassDecorator;\n"
+    "export declare class SelectQueryBuilder<E> { where(w: any): this; getMany(): Promise<E[]>; }\n"
+    "export declare class Repository<E> {\n"
+    "  find(): Promise<E[]>; findBy(w: any): Promise<E[]>; count(): Promise<number>;\n"
+    "  save(e: any): Promise<any>; delete(c: any): Promise<any>; create(e: any): E;\n"
+    "  createQueryBuilder(alias?: string): SelectQueryBuilder<E>; query(sql: string): Promise<any>;\n"
+    "}\n"
+    "export declare class DataSource {\n"
+    "  getRepository<E>(target: new () => E): Repository<E>;\n"
+    "  createQueryBuilder(): any;\n"
+    "}\n"
+    "export declare class EntityManager { findOneBy<E>(target: new () => E, w: any): Promise<E>; }\n",
     "src/user.entity.ts": "import { Entity } from 'typeorm';\n"
     "@Entity('users')\n"
     "export class User {}\n",
@@ -1616,6 +1630,25 @@ TYPEORM_SCIP = {
 
 TYPEORM_COLUMNS = {
     "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    # TypeORM's declarations as the TypeScript checker reads them.
+    "node_modules/typeorm/package.json": '{"name": "typeorm", "types": "index.d.ts"}',
+    "node_modules/typeorm/index.d.ts": "export declare function Entity(name?: string): ClassDecorator;\n"
+    "export declare function Column(o?: any): PropertyDecorator;\n"
+    "export declare function PrimaryGeneratedColumn(): PropertyDecorator;\n"
+    "export declare function CreateDateColumn(): PropertyDecorator;\n"
+    "export declare function ManyToOne(t: () => any): PropertyDecorator;\n"
+    "export type FindOptionsWhere<E> = { [P in keyof E]?: any };\n"
+    "export declare class UpdateQueryBuilder<E> {\n"
+    "  set(v: any): this; where(w: any): this; execute(): Promise<any>;\n"
+    "}\n"
+    "export declare class SelectQueryBuilder<E> { update(): UpdateQueryBuilder<E>; }\n"
+    "export declare class Repository<E> {\n"
+    "  findOne(o: any): Promise<E | null>; find(o?: any): Promise<E[]>;\n"
+    "  findBy(w: any): Promise<E[]>; save(e: any): Promise<any>;\n"
+    "  update(c: any, v: any): Promise<any>;\n"
+    "  createQueryBuilder(alias?: string): SelectQueryBuilder<E>;\n"
+    "}\n"
+    "export declare class EntityManager { delete<E>(t: new () => E, c: any): Promise<any>; }\n",
     "src/base.entity.ts": "import { CreateDateColumn } from 'typeorm';\n"
     "export abstract class Base {\n"
     "  @CreateDateColumn() createdAt: Date;\n"
@@ -1974,8 +2007,9 @@ class DrizzleScipTests(unittest.TestCase):
 
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter")
-    and importlib.util.find_spec("tree_sitter_typescript"),
-    "Provision the typescript grammar",
+    and importlib.util.find_spec("tree_sitter_typescript")
+    and os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT"),
+    "Provision the typescript grammar and the pinned scip-typescript",
 )
 class TypeormScipTests(unittest.TestCase):
     def analyze(self, with_index, unresolved=()):
@@ -6553,6 +6587,10 @@ class Prefix
 )
 @unittest.skipUnless(
     NODE, "TypeORM's naming strategy is installed with npm from its registry"
+)
+@unittest.skipUnless(
+    os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT"),
+    "Provision the pinned scip-typescript, whose compiler checks receivers",
 )
 class TypeormColumnTests(unittest.TestCase):
     """TypeORM entity properties: columns by TypeORM's own naming, accesses
