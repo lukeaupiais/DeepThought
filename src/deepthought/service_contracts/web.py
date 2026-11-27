@@ -1056,7 +1056,7 @@ def _router_middleware(node, content):
     return node
 
 
-def express_routers(tree, content, is_router=None):
+def express_routers(tree, content, is_router=None, is_mount=None):
     """Express apps and routers of one script file, what it exports and the
     routers it mounts, for composing route prefixes across files
     (``compose_express_prefixes``).
@@ -1071,7 +1071,8 @@ def express_routers(tree, content, is_router=None):
     (module specifier, export name). ``modules`` is ``_js_modules``.
     ``is_router(value)``, when given, also counts a bound value the SCIP
     index resolves to a router constructor (``new Router()`` of
-    koa-router)."""
+    koa-router, ``new Hono()``); ``is_mount(property node)`` a method other
+    than ``use`` that mounts a router under a path (Hono's ``route``)."""
     root = tree.root_node
     modules = _js_modules(root, content)
     folder = Folder("javascript", root, content)
@@ -1123,12 +1124,38 @@ def express_routers(tree, content, is_router=None):
                 function is None
                 or function.type != "member_expression"
                 or arguments is None
-                or text(function.child_by_field_name("property"), content) != "use"
+                or (
+                    text(function.child_by_field_name("property"), content) != "use"
+                    and (
+                        is_mount is None
+                        or not is_mount(function.child_by_field_name("property"))
+                    )
+                )
             ):
                 continue
             parent = function.child_by_field_name("object")
+            base = ""
             if parent.type != "identifier":
-                continue
+                # An app made in place (``new Hono().basePath("/v1").route(...)``,
+                # a chain of calls on it): mounted at the root under its
+                # basePath.
+                current = parent
+                while current.type == "call_expression":
+                    inner = current.child_by_field_name("function")
+                    if inner is None or inner.type != "member_expression":
+                        break
+                    if (
+                        text(inner.child_by_field_name("property"), content)
+                        == "basePath"
+                    ):
+                        given = current.child_by_field_name("arguments")
+                        if given is not None and given.named_children:
+                            base = folder.evaluate(given.named_children[0]) + base
+                    current = inner.child_by_field_name("object")
+                if current.type != "new_expression" or not (
+                    is_router is not None and is_router(current)
+                ):
+                    continue
             positional = [c for c in arguments.named_children if c.type != "comment"]
             if not positional:
                 continue
@@ -1150,7 +1177,15 @@ def express_routers(tree, content, is_router=None):
                 prefixes, rest = [""], positional
             children = [c for c in (child_of(n) for n in rest) if c is not None]
             if children and prefixes:
-                mounts.append((text(parent, content), prefixes, children))
+                mounts.append(
+                    (
+                        text(parent, content)
+                        if parent.type == "identifier"
+                        else "<in place>",
+                        [base + p for p in prefixes],
+                        children,
+                    )
+                )
     routers = {
         name
         for name, values in bound.items()
@@ -1422,6 +1457,24 @@ def _own_prefix(context, owner):
     found = context.folder.binding(owner)
     if found is None or found[1].type not in ("new_expression", "call_expression"):
         return ""
+    value, base = found[1], ""
+    # Hono: ``new Hono().basePath("/api")``.
+    while value.type == "call_expression":
+        function = value.child_by_field_name("function")
+        arguments = value.child_by_field_name("arguments")
+        if (
+            function is None
+            or function.type != "member_expression"
+            or text(function.child_by_field_name("property"), context.content)
+            != "basePath"
+            or arguments is None
+            or not arguments.named_children
+        ):
+            break
+        base = context.folder.evaluate(arguments.named_children[0]) + base
+        value = function.child_by_field_name("object")
+    if base:
+        return base
     arguments = found[1].child_by_field_name("arguments")
     options = [
         c for c in (arguments.named_children if arguments else ()) if c.type == "object"
@@ -1527,8 +1580,25 @@ def _typed_script_route(context, node, function, positional, framework, method):
         if handler_node.type == "identifier"
         else None
     )
+    # A route on a chain of calls (``const api = new Hono().get(...).post(...)``)
+    # is on the router the chain is bound to.
+    named = owner
+    while named.type == "call_expression":
+        inner = named.child_by_field_name("function")
+        if inner is None or inner.type != "member_expression":
+            break
+        named = inner.child_by_field_name("object")
+    if named.type != "identifier":
+        outer = node
+        while outer.parent is not None and outer.parent.type in (
+            "member_expression",
+            "call_expression",
+        ):
+            outer = outer.parent
+        if outer.parent is not None and outer.parent.type == "variable_declarator":
+            named = outer.parent.child_by_field_name("name")
     declared = _own_prefix(context, owner) + context.folder.evaluate(path_node)
-    for prefix in context.mounts.get(text(owner, content), [""]):
+    for prefix in context.mounts.get(text(named, content), [""]):
         path, base_unknown = _express_path(prefix + declared), False
         if prefix.startswith(PLACEHOLDER) or path.startswith(PLACEHOLDER):
             path, base_unknown = _unknown_base(path)

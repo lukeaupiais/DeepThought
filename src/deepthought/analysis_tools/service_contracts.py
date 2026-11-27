@@ -464,6 +464,16 @@ ROUTE_RULES = {
             "joined.",
         )
     ),
+    "hono-indexed": register_rule(
+        EvidenceRule(
+            "service-contracts.hono-route",
+            "pattern_matched",
+            "A call the scip-typescript index resolves to a Hono route method "
+            "(get, post, put, patch, delete, options, all) with a handler "
+            "argument declares this path, joined with the app's basePath and "
+            "the paths it is mounted at with route.",
+        )
+    ),
     "fastify": register_rule(
         EvidenceRule(
             "service-contracts.fastify-route",
@@ -2080,10 +2090,22 @@ _SCRIPT_ROUTE_METHODS = (
         ),
         "koa-router",
     ),
+    (
+        re.compile(
+            r"^scip-typescript npm hono \S+ \S*`hono-base\.d\.ts`/Hono#"
+            r"(get|post|put|patch|delete|options|all)\.$"
+        ),
+        "hono",
+    ),
 )
 _SCRIPT_ROUTER_CONSTRUCTORS = re.compile(
-    r"^scip-typescript npm (?:@types/koa-router|@types/koa__router|koa-router|"
-    r"@koa/router) \S+ \S*Router#`<constructor>`\(\)\.$"
+    r"^scip-typescript npm (?:(?:@types/koa-router|@types/koa__router|koa-router|"
+    r"@koa/router) \S+ \S*Router|hono \S+ \S*Hono)#`<constructor>`\(\)\.$"
+)
+# Methods that mount one router under a path in another, besides ``use``:
+# Hono's ``app.route(path, subApp)``.
+_SCRIPT_MOUNT_METHODS = re.compile(
+    r"^scip-typescript npm hono \S+ \S*`hono-base\.d\.ts`/Hono#route\(\)\.$"
 )
 
 
@@ -2183,6 +2205,14 @@ def _script_router_constructor(references, file):
     Router()``) to a koa-router Router constructor."""
 
     def is_router(value):
+        # A chain of calls on a new router is the router: Hono's
+        # ``new Hono().basePath("/api")`` and route methods return the app.
+        while (
+            value.type == "call_expression"
+            and value.child_by_field_name("function") is not None
+            and value.child_by_field_name("function").type == "member_expression"
+        ):
+            value = value.child_by_field_name("function").child_by_field_name("object")
         if value.type != "new_expression" or not references.covers(file):
             return False
         constructor = value.child_by_field_name("constructor")
@@ -2198,6 +2228,21 @@ def _script_router_constructor(references, file):
         )
 
     return is_router
+
+
+def _script_mount_method(references, file):
+    """``is_mount(property node)``: whether the index resolves a called
+    name to a method that mounts a router under a path (``_SCRIPT_MOUNT_METHODS``)."""
+
+    def is_mount(name):
+        return references.covers(file) and any(
+            _SCRIPT_MOUNT_METHODS.match(symbol)
+            for symbol in references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+        )
+
+    return is_mount
 
 
 def _python_router_resolver(references, routers):
@@ -2925,10 +2970,18 @@ def _express_mounts(sources, references=None):
             None
             if references is None
             else _script_router_constructor(references, coverage.file),
+            None
+            if references is None
+            else _script_mount_method(references, coverage.file),
         )
         for coverage, content, tree in sources
         if coverage.language in ("javascript", "typescript")
-        and (b"express" in content or b".use(" in content or b"Router" in content)
+        and (
+            b"express" in content
+            or b".use(" in content
+            or b"Router" in content
+            or b"Hono" in content
+        )
     }
     if not any(facts[2] for facts in found.values()):
         return {}
