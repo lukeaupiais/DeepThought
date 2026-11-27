@@ -93,6 +93,25 @@ type argument struct {
 	Parameter string `json:"parameter,omitempty"`
 }
 
+// guard is a type assertion a "pass" fact's call sits behind: the call
+// runs only when the value Ref names holds Type ("if p, ok := v.(*T); ok"
+// or a type switch case naming one type).
+type guard struct {
+	Ref       string     `json:"ref"`
+	Type      *namedType `json:"type,omitempty"`
+	Interface bool       `json:"interface,omitempty"`
+}
+
+// typedArgument is an argument a "pass" fact's call gives an interface
+// parameter (v any): the named type of what it holds, when its static
+// type is not an interface itself.
+type typedArgument struct {
+	Ref       string     `json:"ref,omitempty"`
+	Parameter string     `json:"parameter"`
+	Type      *namedType `json:"type,omitempty"`
+	Interface bool       `json:"interface,omitempty"`
+}
+
 // A field of a struct type declared in the module: the module's named
 // types its type holds (through pointers, slices, arrays, maps, channels,
 // type arguments and inline structs), and whether it holds an interface,
@@ -207,6 +226,10 @@ type fact struct {
 	Types       []*namedType `json:"types,omitempty"`
 	// model: its fields.
 	ModelFields []modelField `json:"model_fields,omitempty"`
+	// "pass": the arguments given to interface parameters.
+	Typed []typedArgument `json:"typed,omitempty"`
+	// "pass": the type assertions the call runs behind.
+	Guards []guard `json:"guards,omitempty"`
 	// protofile: the serialized FileDescriptorProto protoc-gen-go embeds
 	// (RawDescriptor), the numbers of enums and messages it declares, and
 	// Types, the Go type of each GoTypes entry (nil for map entries).
@@ -401,6 +424,20 @@ func main() {
 			}
 		}
 	}
+}
+
+// netHTTP reports whether t is net/http's *Request or ResponseWriter, what
+// a net/http handler passes on to the functions that read the request body
+// or write the response.
+func netHTTP(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "net/http" {
+		return false
+	}
+	return n.Obj().Name() == "Request" || n.Obj().Name() == "ResponseWriter"
 }
 
 // namedIn is the named types a parameter or result type is built from:
@@ -689,6 +726,76 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 	// The variable or field each call's result is assigned to; and, as
 	// "alias" facts, a library-typed variable, field or parameter assigned
 	// to another (a struct field set from a constructor's parameter).
+	// The blocks that run only when a value holds an asserted type: the
+	// body of "if v, ok := x.(T); ok" and a type switch case naming one
+	// type, with the guard each sets.
+	type guardedBlock struct {
+		start, end token.Pos
+		guard      guard
+	}
+	var guarded []guardedBlock
+	assertion := func(x ast.Expr, t types.Type) (guard, bool) {
+		r := reference(x)
+		if r == "" || t == nil {
+			return guard{}, false
+		}
+		if types.IsInterface(t) {
+			return guard{Ref: r, Interface: true}, true
+		}
+		n := named(t)
+		if n == nil {
+			return guard{}, false
+		}
+		return guard{Ref: r, Type: n}, true
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.IfStmt:
+			init, ok := n.Init.(*ast.AssignStmt)
+			if !ok || len(init.Lhs) != 2 || len(init.Rhs) != 1 {
+				return true
+			}
+			assert, ok := ast.Unparen(init.Rhs[0]).(*ast.TypeAssertExpr)
+			okName, isIdent := init.Lhs[1].(*ast.Ident)
+			cond, condIdent := ast.Unparen(n.Cond).(*ast.Ident)
+			if !ok || assert.Type == nil || !isIdent || !condIdent || cond.Name != okName.Name {
+				return true
+			}
+			if g, ok := assertion(assert.X, info.TypeOf(assert.Type)); ok {
+				guarded = append(guarded, guardedBlock{n.Body.Pos(), n.Body.End(), g})
+			}
+		case *ast.TypeSwitchStmt:
+			var x ast.Expr
+			switch a := n.Assign.(type) {
+			case *ast.AssignStmt:
+				if len(a.Rhs) == 1 {
+					if t, ok := ast.Unparen(a.Rhs[0]).(*ast.TypeAssertExpr); ok {
+						x = t.X
+					}
+				}
+			case *ast.ExprStmt:
+				if t, ok := ast.Unparen(a.X).(*ast.TypeAssertExpr); ok {
+					x = t.X
+				}
+			}
+			if x == nil {
+				return true
+			}
+			for _, s := range n.Body.List {
+				clause, ok := s.(*ast.CaseClause)
+				if !ok || len(clause.List) != 1 {
+					continue
+				}
+				if id, ok := clause.List[0].(*ast.Ident); ok && id.Name == "nil" {
+					continue
+				}
+				if g, ok := assertion(x, info.TypeOf(clause.List[0])); ok && len(clause.Body) > 0 {
+					guarded = append(guarded, guardedBlock{clause.Body[0].Pos(), clause.End(), g})
+				}
+			}
+		}
+		return true
+	})
 	assigned := map[*ast.CallExpr]string{}
 	alias := func(left string, right ast.Expr) {
 		if left == "" {
@@ -824,13 +931,14 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			return true
 		}
 		// A call of the module's own function that passes a value of a
-		// library type: which parameter receives it ("pass").
+		// library type, or net/http's request or response writer: which
+		// parameter receives it ("pass").
 		if fn := called(call.Fun); fn != nil {
 			if callee := functionRef(fn); callee != "" {
 				params := fn.Type().(*types.Signature).Params()
 				out := fact{Kind: "pass", Callee: callee}
 				for i, arg := range call.Args {
-					if i >= params.Len() || library(info.TypeOf(arg)) == nil {
+					if i >= params.Len() || (library(info.TypeOf(arg)) == nil && !netHTTP(info.TypeOf(arg))) {
 						continue
 					}
 					if r := reference(arg); r != "" {
@@ -838,6 +946,28 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 					}
 				}
 				if len(out.Arguments) > 0 {
+					for i, arg := range call.Args {
+						if i >= params.Len() || !types.IsInterface(params.At(i).Type()) {
+							continue
+						}
+						parameter := objectRef(params.At(i))
+						t := info.TypeOf(arg)
+						if parameter == "" || t == nil {
+							continue
+						}
+						typed := typedArgument{Ref: reference(arg), Parameter: parameter}
+						if types.IsInterface(t) {
+							typed.Interface = true
+						} else {
+							typed.Type = named(t)
+						}
+						out.Typed = append(out.Typed, typed)
+					}
+					for _, block := range guarded {
+						if block.start <= call.Pos() && call.Pos() < block.end {
+							out.Guards = append(out.Guards, block.guard)
+						}
+					}
 					out.File, out.Line, out.Column = where(call.Pos())
 					emit(out)
 				}
