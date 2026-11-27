@@ -463,6 +463,18 @@ ROUTE_RULES = {
             "joined.",
         )
     ),
+    "django-rest-framework": register_rule(
+        EvidenceRule(
+            "service-contracts.drf-router-route",
+            "pattern_matched",
+            "A ViewSet registered on a router the scip-python index resolves to "
+            "Django REST framework's has the routes SimpleRouter generates for "
+            "its actions (list, create, retrieve, update, partial_update, "
+            "destroy and @action methods), read from its class and the DRF "
+            "classes among its bases; the patterns of the URLconf entries "
+            "including router.urls are joined.",
+        )
+    ),
     "django": register_rule(
         EvidenceRule(
             "service-contracts.django-urlconf-route",

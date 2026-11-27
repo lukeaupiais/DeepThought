@@ -19,7 +19,7 @@ class outside a group) is not read. Django dispatches every method to the
 view, so each route takes any method.
 
 Routes a Django REST framework router registers (``include(router.urls)``)
-come from ViewSet actions and are not read here.
+come from ViewSet actions and are read by ``drf_routers``.
 """
 
 import re
@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
     import sre_parse as _sre_parse
 
 from ..syntax import identifier
+from .drf_routers import DrfRouters
 from .folding import Folder, text
 from .http import ANY_METHOD, PLACEHOLDER, join_paths
 from .model import HttpRoute, Unread
@@ -123,6 +124,7 @@ def django_routes(python_sources, references, definitions, repository_id):
         by_site.setdefault((d.file, d.line, d.symbol), []).append(d)
     files = {coverage.file for coverage, _, _ in python_sources}
     entries, unread = {}, []
+    drf = DrfRouters(python_sources, references, by_site, _regex_path)
 
     def django_kind(file, call, content):
         name = _call_name(call, content)
@@ -208,6 +210,9 @@ def django_routes(python_sources, references, definitions, repository_id):
             elif node.type == "identifier":
                 for value in bound.get(text(node, content), ()):
                     yield from entries_of(value, prefix, depth + 1)
+            elif node.type == "attribute" and drf.is_urls(file, node):
+                for path, view, call, methods, site in drf.routes_of(file, node):
+                    yield ("view", prefix + path, view, call, methods, site)
             elif node.type == "call":
                 yield from entry(node, prefix, depth)
 
@@ -252,7 +257,7 @@ def django_routes(python_sources, references, definitions, repository_id):
                             Unread(file, line, "route", "include_not_resolved")
                         )
                     else:
-                        yield ("include", prefix + path, child, node)
+                        yield ("include", prefix + path, child, node, None, file)
                 elif first:
                     patterns = first[0]
                     if patterns.type == "tuple" and patterns.named_children:
@@ -271,7 +276,7 @@ def django_routes(python_sources, references, definitions, repository_id):
             if view is None:
                 unread.append(Unread(file, line, "route", "view_not_resolved"))
                 return
-            yield ("view", prefix + path, view, node)
+            yield ("view", prefix + path, view, node, None, file)
 
         found = []
         for value in bound.get("urlpatterns", ()):
@@ -281,7 +286,7 @@ def django_routes(python_sources, references, definitions, repository_id):
 
     parents = {}
     for file, found in entries.items():
-        for kind, path, child, _ in found:
+        for kind, path, child, *_ in found:
             if kind == "include":
                 parents.setdefault(child, []).append((file, path))
 
@@ -299,30 +304,37 @@ def django_routes(python_sources, references, definitions, repository_id):
     routes, ordinals = [], {}
     for file in sorted(entries):
         outer = sorted(prefixes(file, frozenset({file})))
-        for kind, path, view, node in entries[file]:
+        for kind, path, view, node, methods, site in entries[file]:
             if kind != "view":
                 continue
+            methods = methods or (ANY_METHOD,)
+            framework = (
+                "django" if methods == (ANY_METHOD,) else "django-rest-framework"
+            )
             for prefix in outer:
                 written = prefix + path
                 base_unknown = PLACEHOLDER in written
                 if base_unknown:
                     written = written.rpartition(PLACEHOLDER)[2]
                 full = join_paths("/" + written)
-                key = f"{ANY_METHOD} {full}"
-                ordinal = ordinals.get((file, key), 0)
-                ordinals[(file, key)] = ordinal + 1
+                key = f"{','.join(methods)} {full}"
+                ordinal = ordinals.get((site, key), 0)
+                ordinals[(site, key)] = ordinal + 1
                 routes.append(
                     HttpRoute(
-                        id=identifier(repository_id, file, key, "HttpRoute", ordinal),
-                        file=file,
+                        id=identifier(repository_id, site, key, "HttpRoute", ordinal),
+                        file=site,
                         line=node.start_point.row + 1,
                         column=node.start_point.column,
                         handler_id=view.id,
-                        methods=(ANY_METHOD,),
+                        methods=methods,
                         path=full,
-                        framework="django",
+                        framework=framework,
                         base_unknown=base_unknown,
                         base_written=base_unknown,
                     )
                 )
+    unread.extend(
+        Unread(f, line, "route", reason) for f, line, reason in sorted(set(drf.unread))
+    )
     return routes, unread
