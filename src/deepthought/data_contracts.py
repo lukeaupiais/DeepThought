@@ -6976,6 +6976,8 @@ class GormModel:
     how: str  # "embeds" (gorm.Model) or "migrated" (AutoMigrate) or "model"
     line: int
     column: int
+    # The import path of a type named from another package (models.User).
+    package: str | None = None
 
 
 @dataclass(frozen=True)
@@ -7134,6 +7136,40 @@ def _go_variables(function, content, imports):
     return {k: v for k, v in found.items() if v is not None}
 
 
+# NamingStrategy settings that change GORM's column names (ColumnName's
+# toDBName): table settings (SingularTable, TablePrefix) do not.
+GORM_COLUMN_NAMING = {"NoLowerCase", "NameReplacer"}
+
+
+def gorm_column_naming(tree, content):
+    """Whether a file configures a NamingStrategy that may rename columns:
+    one that is not a ``schema.NamingStrategy{...}`` literal, or one setting
+    NoLowerCase or NameReplacer."""
+    for element in _descendants(tree.root_node, "keyed_element"):
+        children = element.named_children
+        if len(children) < 2 or _text(children[0], content) != "NamingStrategy":
+            continue
+        value = children[1]
+        if value.type == "literal_element" and value.named_children:
+            value = value.named_children[0]
+        written = (
+            value.child_by_field_name("type")
+            if value.type == "composite_literal"
+            else None
+        )
+        if written is None or _text(written, content).rpartition(".")[2] != (
+            "NamingStrategy"
+        ):
+            return True
+        body = value.child_by_field_name("body")
+        for keyed in _descendants(body, "keyed_element") if body else ():
+            if keyed.named_children and _text(keyed.named_children[0], content) in (
+                GORM_COLUMN_NAMING
+            ):
+                return True
+    return False
+
+
 def extract_gorm(tree, content, file, definitions):
     """(models, uses, naming) of one Go file. In a file importing
     gorm.io/gorm: structs that embed ``gorm.Model``, types passed to
@@ -7204,7 +7240,7 @@ def extract_gorm(tree, content, file, definitions):
         if method == "AutoMigrate" and gorm:
             for value in values:
                 kind = _go_value_type(value, content, imports, {})
-                if kind is not None and kind.package is None:
+                if kind is not None:
                     models.append(
                         GormModel(
                             file,
@@ -7212,6 +7248,7 @@ def extract_gorm(tree, content, file, definitions):
                             "migrated",
                             value.start_point.row + 1,
                             value.start_point.column,
+                            kind.package,
                         )
                     )
             continue
@@ -7238,7 +7275,7 @@ def extract_gorm(tree, content, file, definitions):
                 node = node.parent.parent
             reads = any(m in GORM_CHAIN_READS | GORM_READ_WRITES for m in chain)
             writes = any(m in GORM_CHAIN_WRITES | GORM_READ_WRITES for m in chain)
-            if kind.package is None and gorm:
+            if gorm:
                 models.append(
                     GormModel(
                         file,
@@ -7246,6 +7283,7 @@ def extract_gorm(tree, content, file, definitions):
                         "model",
                         call.start_point.row + 1,
                         call.start_point.column,
+                        kind.package,
                     )
                 )
         elif method in GORM_READS | GORM_WRITES | GORM_READ_WRITES:

@@ -23,6 +23,7 @@ import time
 from .._version import __version__
 from .. import go_facts as gofacts
 from .. import ts_modules
+from ..gorm_naming import lookup as gorm_lookup
 from ..gorm_naming import table_names as gorm_table_names
 from ..django_naming import column_names as django_column_names
 from ..typeorm_naming import column_names as typeorm_column_names
@@ -47,6 +48,7 @@ from ..data_contracts import (
     drizzle_helper_name,
     drizzle_spread_columns,
     statement_columns,
+    statement_tables,
     app_config_label,
     extract_ddl,
     drizzle_foreign_keys,
@@ -63,6 +65,7 @@ from ..data_contracts import (
     GORM_MODULES,
     GoTableName,
     extract_gorm,
+    gorm_column_naming,
     django_app,
     django_historical_model,
     extract_django,
@@ -795,7 +798,8 @@ GORM_DEFAULT_RULE = register_rule(
         "data-contracts.gorm-default-table-name",
         "name_matched",
         "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
-        "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
+        "as &T{} or new(T), T of any package, to AutoMigrate or Model in a "
+        "file importing gorm.io/gorm) "
         "without a TableName method, and this table is GORM's default name "
         "as GORM's own schema.NamingStrategy{}.TableName computes it, built "
         "at the gorm.io/gorm and jinzhu/inflection versions the model's "
@@ -803,6 +807,47 @@ GORM_DEFAULT_RULE = register_rule(
         "configures a NamingStrategy gets no default names; a module whose "
         "GORM cannot be built gets none either, with a gorm_naming_unread "
         "warning.",
+    )
+)
+GORM_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-column",
+        "resolved",
+        "A field of a GORM model struct (or of a struct it embeds, gorm.Model "
+        "included) that GORM's schema parser stores: the Go type checker "
+        "gives the fields, tags, embedding and types (a data type: bool, "
+        "number, string, []byte, time.Time, a Valuer or GormDataTyper, or a "
+        "type or serializer tag); GORM's own ParseTagSetting and "
+        "NamingStrategy.ColumnName, at the GORM version the module selects, "
+        "give the column (column tag, else the default name), the embedded "
+        "prefix and ignored fields. Declared for a table whose migrations "
+        "give no columns.",
+    )
+)
+GORM_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-scip-column-access",
+        "resolved",
+        "A scip-go index resolves a field selector or a composite literal key "
+        "to a column field of a GORM model (data-contracts.gorm-column): an "
+        "assignment or literal key writes the column (a literal passed as a "
+        "query condition reads it), ++, -- and op= read and write it, any "
+        "other selector reads it.",
+    )
+)
+GORM_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-column-key",
+        "pattern_matched",
+        "A column a *gorm.DB call names in a string, in a chain whose model "
+        "GORM's call rules give (data-contracts.gorm-call): the SQL "
+        "fragments of Where, Or, Not, Having, Select, Pluck, Distinct, "
+        "Group and Order (their values folded by the Go type checker) read "
+        "the columns sqlglot resolves in them against the model table's "
+        "columns (Select in a chain that writes names written columns); "
+        "Update and UpdateColumn's column and the string keys of a "
+        "map[string]... literal passed to Updates, UpdateColumns or Create "
+        "write; those of one passed to Where, Not, Or or a finder read.",
     )
 )
 GORM_CALL_RULE = register_rule(
@@ -1650,7 +1695,19 @@ class DataContractTool(AnalysisTool):
                 )
             return [d.kind, "Symbol"], name
 
+        edges_linked = set()
+
         def link(kind, source, target, rule, extra, labels=("DbTable", "Contract")):
+            # One fact found twice (a string with several folded values, two
+            # calls of a chain naming one model) is one edge.
+            identity = json.dumps(
+                [kind, source[1], target, extra, rule.rule_id],
+                sort_keys=True,
+                default=str,
+            )
+            if identity in edges_linked:
+                return
+            edges_linked.add(identity)
             relationships.append(
                 RelationshipData(
                     kind,
@@ -1946,7 +2003,66 @@ class DataContractTool(AnalysisTool):
             counts["columns"] += 1
             return column_target
 
-        def link_field_accesses(field_at, field_name, trees, rule, counts):
+        def python_direction(node, counts):
+            """The column edges of a Python attribute access at ``node``;
+            None to leave it to the call-key rules."""
+            kinds = ("READS_COLUMN",)
+            if node is None:
+                return kinds
+            access = node.parent
+            holder = access.parent if access is not None else None
+            if (
+                access is not None
+                and access.type == "keyword_argument"
+                and access.child_by_field_name("name") == node
+            ):
+                # A keyword the index resolves to the field (a synthesized
+                # __init__): read as a call key.
+                counts["keyword_sites"] += 1
+                return None
+            if (
+                access is not None
+                and access.type == "attribute"
+                and holder is not None
+                and holder.child_by_field_name("left") == access
+            ):
+                if holder.type == "assignment":
+                    kinds = ("WRITES_COLUMN",)
+                elif holder.type == "augmented_assignment":
+                    # ``x.f += 1`` reads the value it writes.
+                    kinds = ("READS_COLUMN", "WRITES_COLUMN")
+            elif (
+                access is not None
+                and access.type == "attribute"
+                and holder is not None
+                and holder.type == "pair"
+                and holder.child_by_field_name("key") == access
+            ):
+                # ``update(User).values({User.name: x})``.
+                call = holder.parent
+                while call is not None and call.type in (
+                    "dictionary",
+                    "list",
+                    "argument_list",
+                ):
+                    call = call.parent
+                function = (
+                    call.child_by_field_name("function")
+                    if call is not None and call.type == "call"
+                    else None
+                )
+                if (
+                    function is not None
+                    and function.type == "attribute"
+                    and function.child_by_field_name("attribute").text
+                    in (b"values", b"update")
+                ):
+                    kinds = ("WRITES_COLUMN",)
+            return kinds
+
+        def link_field_accesses(
+            field_at, field_name, trees, rule, counts, direction=python_direction
+        ):
             """READS_COLUMN/WRITES_COLUMN edges of the attribute accesses the
             index resolves to an ORM field (``field_at``: the field's
             definition site -> {table: DbColumn}). An assignment writes, an
@@ -1968,60 +2084,16 @@ class DataContractTool(AnalysisTool):
                             column_nodes[name].properties["reads_unattributed"] = True
                     continue
                 entry = trees.get(file)
-                kinds = ("READS_COLUMN",)
-                if entry is not None:
-                    node = entry[1].root_node.descendant_for_point_range(
+                node = (
+                    entry[1].root_node.descendant_for_point_range(
                         (line - 1, column), (line - 1, column)
                     )
-                    access = node.parent if node is not None else None
-                    holder = access.parent if access is not None else None
-                    if (
-                        access is not None
-                        and access.type == "keyword_argument"
-                        and access.child_by_field_name("name") == node
-                    ):
-                        # A keyword the index resolves to the field (a
-                        # synthesized __init__): read as a call key.
-                        counts["keyword_sites"] += 1
-                        continue
-                    if (
-                        access is not None
-                        and access.type == "attribute"
-                        and holder is not None
-                        and holder.child_by_field_name("left") == access
-                    ):
-                        if holder.type == "assignment":
-                            kinds = ("WRITES_COLUMN",)
-                        elif holder.type == "augmented_assignment":
-                            # ``x.f += 1`` reads the value it writes.
-                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
-                    elif (
-                        access is not None
-                        and access.type == "attribute"
-                        and holder is not None
-                        and holder.type == "pair"
-                        and holder.child_by_field_name("key") == access
-                    ):
-                        # ``update(User).values({User.name: x})``.
-                        call = holder.parent
-                        while call is not None and call.type in (
-                            "dictionary",
-                            "list",
-                            "argument_list",
-                        ):
-                            call = call.parent
-                        function = (
-                            call.child_by_field_name("function")
-                            if call is not None and call.type == "call"
-                            else None
-                        )
-                        if (
-                            function is not None
-                            and function.type == "attribute"
-                            and function.child_by_field_name("attribute").text
-                            in (b"values", b"update")
-                        ):
-                            kinds = ("WRITES_COLUMN",)
+                    if entry is not None
+                    else None
+                )
+                kinds = direction(node, counts)
+                if kinds is None:
+                    continue
                 sites.add((file, line, column))
                 tool, receipt = references.tool(file)
                 for kind in kinds:
@@ -2859,16 +2931,40 @@ class DataContractTool(AnalysisTool):
                 else GORM_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        modules = sorted(
+            (
+                (c.name, c.manifest.rpartition("/")[0])
+                for c in scan.components
+                if c.kind == "go_module" and c.name
+            ),
+            key=lambda m: -len(m[0]),
+        )
+
+        def package_directory(import_path):
+            for module, directory in modules:
+                if import_path == module or import_path.startswith(module + "/"):
+                    rest = import_path[len(module) :].strip("/")
+                    return "/".join(p for p in (directory, rest) if p)
+            return None
+
         # A configured NamingStrategy changes every default name.
         gorm_defaults, pending = 0, {}
         for model in sorted(
             [] if gorm_naming else gorm_models,
             key=lambda m: (m.file, m.line, m.column),
         ):
-            key = (model.file.rpartition("/")[0], model.type_name)
+            directory = (
+                model.file.rpartition("/")[0]
+                if model.package is None
+                else package_directory(model.package)
+            )
+            if directory is None:
+                continue
+            key = (directory, model.type_name)
             if key in gorm_targets or key in pending:
                 continue
-            declared = owner(model.file, model.type_name)
+            found = go_types.get(key, [])
+            declared = found[0] if len(found) == 1 else None
             if declared is not None:
                 pending[key] = (declared, model.type_name)
         # GORM's own NamingStrategy at the version each module selects.
@@ -2900,23 +2996,10 @@ class DataContractTool(AnalysisTool):
                     GORM_DEFAULT_RULE,
                     {"line": declared.line, "column": declared.column},
                 )
-        modules = sorted(
-            (
-                (c.name, c.manifest.rpartition("/")[0])
-                for c in scan.components
-                if c.kind == "go_module" and c.name
-            ),
-            key=lambda m: -len(m[0]),
-        )
-
-        def package_directory(import_path):
-            for module, directory in modules:
-                if import_path == module or import_path.startswith(module + "/"):
-                    rest = import_path[len(module) :].strip("/")
-                    return "/".join(p for p in (directory, rest) if p)
-            return None
-
         gorm_access = {"linked": 0, "not_a_model": 0}
+        # Each call chain's model tables, by where the chain starts (every
+        # call of a chain starts there), and the chains that write.
+        gorm_chains, gorm_chain_writes = defaultdict(set), set()
         for use in gorm_uses:
             directory = (
                 use.file.rpartition("/")[0]
@@ -2928,6 +3011,9 @@ class DataContractTool(AnalysisTool):
                 gorm_access["not_a_model"] += 1
                 continue
             gorm_access["linked"] += 1
+            gorm_chains[(use.file, use.line, use.column)].add(target)
+            if use.writes:
+                gorm_chain_writes.add((use.file, use.line, use.column))
             source = code(use.file, use.caller_id)
             for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                 if used:
@@ -2941,6 +3027,334 @@ class DataContractTool(AnalysisTool):
                             "line": use.line,
                             "column": use.column,
                         },
+                    )
+        # GORM columns: the fields of each model struct as GORM's schema
+        # parser takes them, named by GORM's own tag parsing and naming.
+        gorm_columns_counts = Counter()
+        go_structs = {s.type: s for s in facts.models}
+        gorm_model_structs = {}
+        for s_ in facts.models:
+            key = (s_.file.rpartition("/")[0], s_.type[1])
+            if key in gorm_targets:
+                gorm_model_structs[key] = s_
+
+        def gorm_reachable(struct, seen):
+            """The structs whose fields a model may take: itself and the
+            structs its fields embed, through the type checker's types."""
+            found = [struct]
+            for f in struct.fields:
+                if f.type in go_structs and f.type not in seen and f.kind == "struct":
+                    seen.add(f.type)
+                    found += gorm_reachable(go_structs[f.type], seen)
+            return found
+
+        gorm_by_module = defaultdict(list)
+        for key, struct in sorted(gorm_model_structs.items()):
+            gorm_by_module[facts.module_of(struct.file)].append((key, struct))
+        gorm_field_at, gorm_field_name = defaultdict(dict), {}
+        gorm_table_columns = defaultdict(dict)  # table -> {column: DbColumn}
+        gorm_attrs = {}  # model key -> {Go field name: DbColumn}
+        GORM_MODEL = ("gorm.io/gorm", "Model")
+        GORM_MODEL_FIELDS = ("ID", "CreatedAt", "UpdatedAt", "DeletedAt")
+        if gorm_model_structs and any(
+            gorm_column_naming(tree, content) for _, content, tree in go_trees
+        ):
+            # A configured NamingStrategy may rename every default column.
+            gorm_columns_counts["naming_strategy_configured"] = len(gorm_model_structs)
+            gorm_by_module = {}
+        for module, models in sorted(gorm_by_module.items(), key=lambda m: m[0] or ""):
+            if module is None:
+                continue
+            structs, seen = [], set()
+            for _, struct in models:
+                seen.add(struct.type)
+                structs += gorm_reachable(struct, seen)
+            requests = list(
+                dict.fromkeys(
+                    [(f.tag, f.name) for st in structs for f in st.fields]
+                    + [("", name) for name in GORM_MODEL_FIELDS]
+                )
+            )
+            found, reason = gorm_lookup(root, module, fields=requests)
+            if reason is not None:
+                gorm_naming_unread[module or "."] = reason
+                gorm_columns_counts["naming_unread"] += len(models)
+                continue
+            settings = dict(zip(requests, found.get("fields", [])))
+
+            def gorm_flatten(struct, prefix, seen):
+                columns = []
+                for f in struct.fields:
+                    tag = settings[(f.tag, f.name)]
+                    if not f.name[:1].isupper() or tag.get("ignored"):
+                        continue
+                    if (
+                        (f.embedded or tag.get("embedded"))
+                        and f.kind == "struct"
+                        and not tag.get("typed")
+                    ):
+                        inner = prefix + tag.get("prefix", "")
+                        if f.type == GORM_MODEL:
+                            for name in GORM_MODEL_FIELDS:
+                                columns.append(
+                                    (None, name, inner + settings[("", name)]["column"])
+                                )
+                        elif f.type in go_structs and f.type not in seen:
+                            columns += gorm_flatten(
+                                go_structs[f.type], inner, seen | {f.type}
+                            )
+                        else:
+                            gorm_columns_counts["embedded_unread"] += 1
+                        continue
+                    if f.kind == "value" or tag.get("typed"):
+                        columns.append(((struct, f), f.name, prefix + tag["column"]))
+                return columns
+
+            for key, struct in models:
+                target = gorm_targets[key]
+                attrs = gorm_attrs.setdefault(key, {})
+                for where, name, column in gorm_flatten(struct, "", {struct.type}):
+                    owner_struct, f = where if where is not None else (struct, None)
+                    column_target = column_for(
+                        target,
+                        column,
+                        owner_struct.file,
+                        GORM_COLUMN_RULE,
+                        gorm_columns_counts,
+                        name,
+                        f.line if f is not None else None,
+                    )
+                    if column_target is None:
+                        continue
+                    attrs[name] = column_target
+                    gorm_table_columns[target][
+                        column_target.rsplit("::column::", 1)[1]
+                    ] = column_target
+                    if f is not None:
+                        site = (owner_struct.file, f.line, f.column)
+                        gorm_field_at[site][target] = column_target
+                        gorm_field_name[site] = name
+        go_tree_map = {file: (content, tree) for file, content, tree in go_trees}
+        # Methods whose struct-literal arguments are conditions: all of
+        # them, or those after the destination (index 0).
+        GORM_CONDITIONS = {"Where", "Not", "Or", "Having"}
+        GORM_INLINE_CONDITIONS = {
+            "First",
+            "Last",
+            "Take",
+            "Find",
+            "Delete",
+            "FirstOrInit",
+        }
+
+        def go_direction(node, counts):
+            """The column edges of a Go field reference at ``node``: None in
+            a file the analysis does not read (tests)."""
+            if node is None:
+                return None
+            parent = node.parent
+            if parent is not None and parent.type == "selector_expression":
+                holder = parent.parent
+                if holder is not None and holder.type in (
+                    "inc_statement",
+                    "dec_statement",
+                ):
+                    return ("READS_COLUMN", "WRITES_COLUMN")
+                if (
+                    holder is not None
+                    and holder.type == "expression_list"
+                    and holder.parent is not None
+                    and holder.parent.type == "assignment_statement"
+                    and holder.parent.child_by_field_name("left") == holder
+                ):
+                    operator = holder.parent.child_by_field_name("operator")
+                    if operator is not None and operator.text == b"=":
+                        return ("WRITES_COLUMN",)
+                    return ("READS_COLUMN", "WRITES_COLUMN")
+                return ("READS_COLUMN",)
+            element = parent.parent if parent is not None else None
+            if (
+                parent is not None
+                and parent.type == "literal_element"
+                and element is not None
+                and element.type == "keyed_element"
+                and element.child_by_field_name("key") == parent
+            ):
+                literal = element.parent.parent if element.parent else None
+                outer = literal
+                while (
+                    outer is not None
+                    and outer.parent is not None
+                    and (
+                        outer.parent.type
+                        in ("unary_expression", "parenthesized_expression")
+                    )
+                ):
+                    outer = outer.parent
+                arguments = outer.parent if outer is not None else None
+                call = arguments.parent if arguments is not None else None
+                function = (
+                    call.child_by_field_name("function")
+                    if call is not None
+                    and call.type == "call_expression"
+                    and arguments.type == "argument_list"
+                    else None
+                )
+                if function is not None and function.type == "selector_expression":
+                    method = function.child_by_field_name("field").text.decode()
+                    index = arguments.named_children.index(outer)
+                    if method in GORM_CONDITIONS or (
+                        method in GORM_INLINE_CONDITIONS and index > 0
+                    ):
+                        return ("READS_COLUMN",)
+                    if method == "FirstOrCreate" and index > 0:
+                        return ("READS_COLUMN", "WRITES_COLUMN")
+                counts["literal_keys"] += 1
+                return ("WRITES_COLUMN",)
+            return ("READS_COLUMN",)
+
+        link_field_accesses(
+            gorm_field_at,
+            gorm_field_name,
+            go_tree_map,
+            GORM_COLUMN_ACCESS_RULE,
+            gorm_columns_counts,
+            go_direction,
+        )
+        # Columns *gorm.DB calls name in strings.
+        GORM_FRAGMENTS = {
+            "Where": "SELECT 1 FROM {t} WHERE {f}",
+            "Or": "SELECT 1 FROM {t} WHERE {f}",
+            "Not": "SELECT 1 FROM {t} WHERE {f}",
+            "Having": "SELECT 1 FROM {t} WHERE {f}",
+            "Select": "SELECT {f} FROM {t}",
+            "Pluck": "SELECT {f} FROM {t}",
+            "Distinct": "SELECT {f} FROM {t}",
+            "Group": "SELECT 1 FROM {t} GROUP BY {f}",
+            "Order": "SELECT 1 FROM {t} ORDER BY {f}",
+        }
+        GORM_MAP_READS = {"Where", "Not", "Or", "First", "Last", "Take", "Find"}
+        GORM_MAP_WRITES = {"Updates", "UpdateColumns", "Create"}
+        gorm_owners = defaultdict(list)
+        for d in result.definitions:
+            if d.file.endswith(".go"):
+                gorm_owners[d.file].append(d)
+
+        def gorm_key(file, line, column, target, name, writes, method):
+            column_target = gorm_table_columns[target].get(name) or next(
+                (
+                    c
+                    for n, c in gorm_table_columns[target].items()
+                    if n.lower() == name.lower()
+                ),
+                None,
+            )
+            if column_target is None:
+                gorm_columns_counts["keys_unknown"] += 1
+                return
+            gorm_columns_counts["string_keys"] += 1
+            link(
+                "WRITES_COLUMN" if writes else "READS_COLUMN",
+                code(file, _owner_at(gorm_owners[file], file, line, column)),
+                column_target,
+                GORM_COLUMN_KEY_RULE,
+                {"line": line, "column": column, "method": method, "column_name": name},
+                labels=("DbColumn", "Contract"),
+            )
+
+        for call in facts.calls if gorm_table_columns else ():
+            if call.declared != "gorm.io/gorm" or call.receiver != (
+                "gorm.io/gorm",
+                "DB",
+            ):
+                continue
+            method = call.method
+            if not (
+                method in GORM_FRAGMENTS
+                or method in ("Update", "UpdateColumn")
+                or method in GORM_MAP_READS | GORM_MAP_WRITES
+            ):
+                continue
+            chain = (call.file, call.line, call.column)
+            targets = gorm_chains.get(chain, set()) & set(gorm_table_columns)
+            if len(targets) != 1:
+                gorm_columns_counts["chain_model_unknown"] += 1
+                continue
+            target = next(iter(targets))
+            line = call.name_line or call.line
+            column = call.name_column if call.name_column is not None else call.column
+            texts = call.texts[0] if call.texts else None
+            if method in ("Update", "UpdateColumn"):
+                for text in texts or ():
+                    if PLACEHOLDER not in text:
+                        gorm_key(call.file, line, column, target, text, True, method)
+                continue
+            if method in GORM_FRAGMENTS and texts:
+                key = target.rsplit("::", 1)[1]
+                schema = {key: list(gorm_table_columns[target])}
+                writes = method == "Select" and chain in gorm_chain_writes
+                for text in texts:
+                    sql = GORM_FRAGMENTS[method].format(
+                        t=key, f=text.replace(PLACEHOLDER, "NULL")
+                    )
+                    statement = statement_tables(sql)
+                    found = (
+                        statement_columns(statement, schema)
+                        if statement.reader == "sqlglot"
+                        else None
+                    )
+                    if found is None:
+                        gorm_columns_counts["fragments_unread"] += 1
+                        continue
+                    for use in found[0]:
+                        gorm_key(
+                            call.file, line, column, target, use.column, writes, method
+                        )
+                continue
+            # A map[string]... literal argument: its string keys.
+            entry = go_tree_map.get(call.file)
+            if entry is None:
+                continue
+            node = entry[1].root_node.descendant_for_point_range(
+                (line - 1, column), (line - 1, column)
+            )
+            node = node.parent.parent if node is not None and node.parent else None
+            arguments = (
+                node.child_by_field_name("arguments")
+                if node is not None and node.type == "call_expression"
+                else None
+            )
+            for argument in arguments.named_children if arguments else ():
+                if argument.type == "unary_expression":
+                    argument = argument.child_by_field_name("operand")
+                if (
+                    argument is None
+                    or argument.type != "composite_literal"
+                    or argument.child_by_field_name("type") is None
+                    or argument.child_by_field_name("type").type != "map_type"
+                ):
+                    continue
+                body = argument.child_by_field_name("body")
+                for element in body.named_children if body else ():
+                    key = element.child_by_field_name("key")
+                    if element.type != "keyed_element" or key is None:
+                        continue
+                    if key.named_children:
+                        key = key.named_children[0]
+                    if key.type not in (
+                        "interpreted_string_literal",
+                        "raw_string_literal",
+                    ):
+                        continue
+                    name = key.text.decode("utf-8", "replace")[1:-1]
+                    gorm_key(
+                        call.file,
+                        key.start_point.row + 1,
+                        key.start_point.column,
+                        target,
+                        name,
+                        method in GORM_MAP_WRITES,
+                        method,
                     )
         # Prisma models and the client calls that use them.
         prisma_targets, prisma_by_accessor = {}, defaultdict(set)
@@ -4912,6 +5326,7 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
                     "sqlalchemy_columns": dict(sa_columns_counts),
+                    "gorm_columns": dict(gorm_columns_counts),
                     "sql_text": sql_counts,
                     "sql_columns": dict(column_counts),
                     "mybatis_mapper_statements": mybatis_counts,

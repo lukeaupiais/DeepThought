@@ -3604,7 +3604,8 @@ def go_edges(output):
             r.properties["rule_id"].split(".", 1)[1],
         )
         for r in output.relationships
-        if r.type != "CONTAINS"
+        # GORM columns have their own test.
+        if r.type != "CONTAINS" and "gorm-column" not in r.properties["rule_id"]
     )
 
 
@@ -4591,6 +4592,98 @@ func Save(db DB, value interface{}, rows []models.Legacy) {
 }
 
 
+GORM_COLUMNS = {
+    "go.mod": "module example.com/shop\n\ngo 1.22\n\nrequire gorm.io/gorm v1.25.12\n",
+    "models/models.go": """\
+package models
+
+import (
+	"database/sql"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+type Audit struct {
+	CreatedBy string
+	Note      string `gorm:"column:audit_note"`
+}
+
+type User struct {
+	gorm.Model
+	Name     string
+	Email    sql.NullString `gorm:"column:mail"`
+	Visits   int
+	Seen     time.Time
+	Secret   string `gorm:"-"`
+	Audit    Audit  `gorm:"embedded;embeddedPrefix:a_"`
+	Orders   []Order
+	APIKey   string
+	internal int
+}
+
+type Order struct {
+	ID     uint
+	UserID uint
+	User   User
+	Total  int
+}
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(&User{}, &Order{})
+}
+
+type Tag struct {
+	Label string
+}
+""",
+    # A model migrated from another package, as new(T).
+    "db/migrate.go": """\
+package db
+
+import (
+	"example.com/shop/models"
+	"gorm.io/gorm"
+)
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(new(models.Tag))
+}
+""",
+    "store/store.go": """\
+package store
+
+import (
+	"example.com/shop/models"
+	"gorm.io/gorm"
+)
+
+func Touch(db *gorm.DB, u *models.User) string {
+	u.Visits++
+	u.Name = "x"
+	db.Where(&models.User{Name: "a"}).First(u)
+	db.Create(&models.Order{UserID: u.ID, Total: 3})
+	return u.Name
+}
+
+func Strings(db *gorm.DB, u *models.User) {
+	db.Model(u).Where("name = ? AND visits > ?", "a", 1).Order("seen desc").Update("mail", "x")
+	db.Model(&models.User{}).Updates(map[string]interface{}{"api_key": "k"})
+	var names []string
+	db.Model(&models.User{}).Pluck("name", &names)
+}
+
+func Multi(db *gorm.DB, flag bool) {
+	col := "name"
+	if flag {
+		col = "visits"
+	}
+	db.Model(&models.User{}).Where(col+" = ? and seen > ?", 1, 2).First(&models.User{})
+}
+""",
+}
+
+
 class GormTests(unittest.TestCase):
     @needs_go
     @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
@@ -4646,7 +4739,7 @@ class GormTests(unittest.TestCase):
                 r.properties["rule_id"].split(".", 1)[1],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type != "CONTAINS" and "column" not in r.properties["rule_id"]
         )
         self.assertEqual(
             edges,
@@ -4667,6 +4760,151 @@ class GormTests(unittest.TestCase):
         self.assertEqual(metrics["gorm_default_table_names"], 2)
         self.assertEqual(
             metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
+        )
+
+    @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
+    def test_columns_and_field_accesses(self):
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        m = "scip-go gomod example.com/shop v0 `example.com/shop/models`/"
+        documents = {
+            "models/models.go": [
+                (10, "CreatedBy", m + "Audit#CreatedBy.", True, 0),
+                (11, "Note", m + "Audit#Note.", True, 0),
+                (16, "Name", m + "User#Name.", True, 0),
+                (18, "Visits", m + "User#Visits.", True, 0),
+                (29, "UserID", m + "Order#UserID.", True, 0),
+                (31, "Total", m + "Order#Total.", True, 0),
+            ],
+            "store/store.go": [
+                (8, "Visits", m + "User#Visits.", False, 0),
+                (9, "Name", m + "User#Name.", False, 0),
+                (10, "Name", m + "User#Name.", False, 0),
+                (11, "UserID", m + "Order#UserID.", False, 0),
+                (11, "Total", m + "Order#Total.", False, 0),
+                (12, "Name", m + "User#Name.", False, 0),
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, GORM_COLUMNS)
+            index = wire.Index()
+            index.metadata.tool_info.name = "scip-go"
+            index.metadata.tool_info.version = "0.1.26"
+            for path, occurrences in documents.items():
+                lines = GORM_COLUMNS[path].split("\n")
+                document = index.documents.add(relative_path=path)
+                for line, text, symbol, definition, _ in occurrences:
+                    column = lines[line].index(text)
+                    document.occurrences.add(
+                        symbol=symbol,
+                        range=[line, column, column + len(text)],
+                        symbol_roles=wire.Definition if definition else 0,
+                    )
+            path = Path(directory) / ".index.scip"
+            path.write_bytes(index.SerializeToString())
+            ingested = deepthought.ingest_scip(path, repository_id="r")
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["go"], scip_indexes=[(ingested, "sha256:test")]
+                )
+            )
+        self.maxDiff = None
+        columns = sorted(
+            r.target_match["qualified_name"].split("::db-table::")[-1]
+            for r in output.relationships
+            if r.type == "HAS_COLUMN"
+        )
+        # gorm.Model's fields, the embedded Audit with its prefix, tags and
+        # GORM's default names; not the ignored, unexported or relation
+        # fields.
+        self.assertEqual(
+            columns,
+            [
+                "orders::column::id",
+                "orders::column::total",
+                "orders::column::user_id",
+                "tags::column::label",
+                "users::column::a_audit_note",
+                "users::column::a_created_by",
+                "users::column::api_key",
+                "users::column::created_at",
+                "users::column::deleted_at",
+                "users::column::id",
+                "users::column::mail",
+                "users::column::name",
+                "users::column::seen",
+                "users::column::updated_at",
+                "users::column::visits",
+            ],
+        )
+        access = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.type in ("READS_COLUMN", "WRITES_COLUMN")
+            and r.properties["rule_id"].endswith("access")
+        )
+        keys = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].split("::db-table::")[-1],
+                r.properties["line"],
+                r.properties["method"],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.gorm-column-key"
+        )
+        # Where's SQL fragment and Order's read by sqlglot, Update's column
+        # and a map key written, Pluck's column read.
+        self.assertEqual(
+            keys,
+            [
+                ("READS_COLUMN", "users::column::name", 17, "Where"),
+                ("READS_COLUMN", "users::column::name", 20, "Pluck"),
+                # Both values of col; seen once, though both strings name it.
+                ("READS_COLUMN", "users::column::name", 28, "Where"),
+                ("READS_COLUMN", "users::column::seen", 17, "Order"),
+                ("READS_COLUMN", "users::column::seen", 28, "Where"),
+                ("READS_COLUMN", "users::column::visits", 17, "Where"),
+                ("READS_COLUMN", "users::column::visits", 28, "Where"),
+                ("WRITES_COLUMN", "users::column::api_key", 18, "Updates"),
+                ("WRITES_COLUMN", "users::column::mail", 17, "Update"),
+            ],
+        )
+        # Every edge once, by the graph writer's identity of an edge (it
+        # refuses a snapshot with a duplicate).
+        from deepthought.storage.graph.writer import _canonical
+
+        identities = [
+            _canonical(
+                [
+                    r.type,
+                    [
+                        r.source_match["qualified_name"],
+                        r.target_match["qualified_name"],
+                    ],
+                    dict(r.properties),
+                ]
+            )
+            for r in output.relationships
+        ]
+        self.assertEqual(len(identities), len(set(identities)))
+        self.assertEqual(
+            access,
+            [
+                ("READS_COLUMN", "users::column::name", 11),
+                ("READS_COLUMN", "users::column::name", 13),
+                ("READS_COLUMN", "users::column::visits", 9),
+                ("WRITES_COLUMN", "orders::column::total", 12),
+                ("WRITES_COLUMN", "orders::column::user_id", 12),
+                ("WRITES_COLUMN", "users::column::name", 10),
+                ("WRITES_COLUMN", "users::column::visits", 9),
+            ],
         )
 
     @needs_go

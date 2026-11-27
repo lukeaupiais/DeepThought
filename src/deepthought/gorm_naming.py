@@ -1,7 +1,10 @@
-"""GORM's default table names, from GORM's own naming code.
+"""GORM's default table and column names and field tag settings, from
+GORM's own naming and tag-parsing code.
 
 ``gormnames/main.go`` calls ``schema.NamingStrategy{}.TableName`` for each
-model type name. It is built inside a scratch copy of the analyzed module's
+model type name, and ``schema.ParseTagSetting`` and
+``NamingStrategy{}.ColumnName`` for each requested struct field. It is
+built inside a scratch copy of the analyzed module's
 go.mod and go.sum, so the go command selects the gorm.io/gorm and
 github.com/jinzhu/inflection versions that module selects (downloading
 them when the module cache lacks them). Only the helper and the published
@@ -99,14 +102,17 @@ def build(go, module_directory, timeout=600):
     return binary, None
 
 
-def table_names(root, module_directory, names, *, go=None, timeout=600):
-    """({type name: GORM's default table name}, None) for the module at
-    ``module_directory`` (relative to ``root``), or ({}, reason)."""
+def lookup(root, module_directory, tables=(), fields=(), *, go=None, timeout=600):
+    """({"tables": {type name: GORM's default table name}, "fields": [...]},
+    None) for the module at ``module_directory`` (relative to ``root``), or
+    ({}, reason). ``fields`` are (struct tag, field name) pairs; each gets
+    {"column", "prefix", "ignored", "embedded", "typed"} as GORM's own
+    ParseTagSetting and NamingStrategy read them."""
     go = go or toolchain()
     if go is None:
         return {}, "the Go toolchain is not installed"
-    if not names:
-        return {}, None
+    if not tables and not fields:
+        return {"tables": {}, "fields": []}, None
     try:
         binary, reason = build(go, Path(root) / module_directory, timeout)
     except (OSError, subprocess.SubprocessError) as error:
@@ -116,7 +122,9 @@ def table_names(root, module_directory, names, *, go=None, timeout=600):
     try:
         run = subprocess.run(
             [str(binary)],
-            input=json.dumps(sorted(set(names))),
+            input=json.dumps(
+                {"tables": sorted(set(tables)), "fields": [list(f) for f in fields]}
+            ),
             capture_output=True,
             text=True,
             timeout=120,
@@ -129,3 +137,12 @@ def table_names(root, module_directory, names, *, go=None, timeout=600):
         )
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         return {}, f"gorm naming helper failed: {type(error).__name__}"
+
+
+def table_names(root, module_directory, names, *, go=None, timeout=600):
+    """({type name: GORM's default table name}, None) for the module at
+    ``module_directory`` (relative to ``root``), or ({}, reason)."""
+    if not names:
+        return {}, None
+    found, reason = lookup(root, module_directory, tables=names, go=go, timeout=timeout)
+    return found.get("tables", {}), reason
