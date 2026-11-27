@@ -150,11 +150,14 @@ def _json_stream(operand, function, content, made_by, parameter_type, field):
     )
 
 
-def handler_payloads(function, content, calls):
+def handler_payloads(function, content, calls, bound=None):
     """[(direction, argument type (package, name), declaration (file, line)
     or None)] of the go_facts ``calls`` in the handler ``function`` (a
     tree-sitter function or method declaration, or a func literal) whose
-    argument carries the request body or the response."""
+    argument carries the request body or the response. ``bound`` maps the
+    references of a helper's interface parameters to the (named type,
+    declaration) of what its caller passes them: an interface argument
+    that is such a parameter carries that type."""
     starts = {}
     for node in _walk(function):
         if node.type == "call_expression":
@@ -203,6 +206,12 @@ def handler_payloads(function, content, calls):
         else:
             continue
         if index < len(call.interfaces) and call.interfaces[index]:
+            given = (bound or {}).get(
+                call.refs[index] if index < len(call.refs) else None
+            )
+            if given is not None:
+                found.append((direction, given[0], given[1]))
+                continue
             # An interface value (body any): what it holds is not known.
             found.append((direction, None, None))
             continue

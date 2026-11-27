@@ -129,6 +129,13 @@ class GoPass:
     column: int
     callee: tuple
     arguments: tuple
+    # The arguments given to interface parameters (v any): (argument
+    # reference, parameter reference, named type, declaration (file, line)
+    # or None, whether the argument's static type is an interface).
+    typed: tuple = ()
+    # The type assertions the call runs behind: (reference of the asserted
+    # value, named type or None for an interface).
+    guards: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -757,6 +764,25 @@ def _read(text, directory, members, facts):
                     tuple(
                         (ref(a.get("ref")), ref(a.get("parameter")))
                         for a in item.get("arguments") or ()
+                    ),
+                    tuple(
+                        (
+                            ref(a.get("ref")),
+                            ref(a["parameter"]),
+                            _type(a.get("type")),
+                            (relative(a["type"]["file"]), a["type"]["line"])
+                            if (a.get("type") or {}).get("file")
+                            else None,
+                            bool(a.get("interface")),
+                        )
+                        for a in item.get("typed") or ()
+                    ),
+                    tuple(
+                        (
+                            ref(g["ref"]),
+                            None if g.get("interface") else _type(g.get("type")),
+                        )
+                        for g in item.get("guards") or ()
                     ),
                 )
             )
