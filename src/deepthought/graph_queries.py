@@ -246,6 +246,49 @@ def _query_strings(query, parameters):
     return list(dict.fromkeys(v for v in found if v and len(v) <= 300))
 
 
+_GO_TEST = re.compile(r"^(?:Test|Benchmark|Example|Fuzz)[A-Za-z0-9_]*$")
+_PYTHON_TEST = re.compile(r"^(?:[A-Za-z_][\w]*\.)?test[\w]*$")
+
+
+def _test_commands(rows):
+    """Commands that run the tests ``tests_reaching`` lists, in each
+    language's usual runner: ``go test -run`` per package directory for Go
+    test functions, pytest node ids for Python test functions, and the
+    test files for JavaScript and TypeScript (whose runner the project
+    picks). Tests no runner can select by name (helpers in test files,
+    Go suite methods) are covered by the test that calls them."""
+    go, python, files = {}, [], []
+    for row in rows:
+        file, name = row["file"] or "", row["test"] or ""
+        if file.endswith(".go") and _GO_TEST.match(name):
+            directory = file.rpartition("/")[0] or "."
+            go.setdefault(directory, []).append(name)
+        elif file.endswith(".py") and _PYTHON_TEST.match(name):
+            python.append(file + "::" + name.replace(".", "::"))
+        elif file.endswith(
+            (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs")
+        ):
+            files.append(file)
+    commands = []
+    for directory, names in sorted(go.items()):
+        package = "./" + ("" if directory == "." else directory)
+        names = sorted(set(names))
+        # Past a few dozen names the pattern is the whole package anyway.
+        commands.append(
+            f"go test {package}"
+            if len(names) > 30
+            else f"go test {package} -run '^(" + "|".join(names) + ")$'"
+        )
+    if python:
+        python = list(dict.fromkeys(python))
+        if len(python) > 30:
+            python = list(dict.fromkeys(p.split("::")[0] for p in python))
+        commands.append("python -m pytest " + " ".join(python))
+    if files:
+        commands.append("test files: " + " ".join(dict.fromkeys(files)))
+    return commands
+
+
 async def _hinted(read):
     """``read``, with a fix named for Cypher errors agents commonly make."""
     try:
@@ -2847,6 +2890,122 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
         )
+
+    async def tests_reaching(self, changed_lines, *, max_depth=4, limit=40, timeout=10):
+        """The tests in the graph that run the declarations an edit changes.
+
+        ``changed_lines`` maps each edited file (as the graph has it) to the
+        ``{"start", "end", "inside"}`` ranges of unedited lines the edit
+        changes (``FileEdit.changed_lines``). The changed declarations are
+        the innermost ones overlapping a range (holding both lines of an
+        ``inside`` insertion). A test is a declaration or file in a test file
+        (``source_roles``) that reaches one of them over CALLS,
+        DISPATCHES_TO, REFERENCES_FUNCTION and USES_FIXTURE, in at most
+        ``max_depth`` links; a changed declaration in a test file is its
+        own test. Each test is listed once, nearest first, with the changed
+        declaration it reaches and how many links away. The graph must hold
+        a single snapshot (a dedicated database); otherwise, or without
+        changed lines, the answer says why it has no tests."""
+        ranges = [
+            {**r, "file": file}
+            for file, found in (changed_lines or {}).items()
+            for r in found
+        ]
+        if not ranges:
+            return {"status": "no_changed_lines", "changed": [], "tests": []}
+        depth = max(0, min(int(max_depth), 6))
+        async with self.driver.session(
+            database=self.database, default_access_mode="READ"
+        ) as session:
+            tx = await session.begin_transaction(timeout=timeout)
+            try:
+                result = await tx.run(
+                    "MATCH (f:File) WITH DISTINCT f.repo_url AS repo,"
+                    " f.snapshot_id AS snapshot RETURN repo, snapshot LIMIT 2"
+                )
+                snapshots = [dict(r) async for r in result]
+                if len(snapshots) != 1:
+                    return {
+                        "status": "no_single_snapshot",
+                        "changed": [],
+                        "tests": [],
+                    }
+                scope = snapshots[0]
+                result = await tx.run(
+                    "UNWIND $ranges AS e "
+                    "MATCH (s:Symbol {repo_url:$repo, snapshot_id:$snapshot,"
+                    " file_path:e.file}) "
+                    "WHERE CASE WHEN e.inside "
+                    " THEN s.start_line <= e.start AND e.end <= s.end_line "
+                    " ELSE s.start_line <= e.end AND e.start <= s.end_line END "
+                    "WITH e, s ORDER BY s.end_line - s.start_line "
+                    "WITH e, collect(s) AS holding "
+                    # Overlapping ranges keep every declaration they touch
+                    # that holds no other touched one; insertions keep the
+                    # innermost.
+                    "UNWIND CASE WHEN e.inside THEN holding[0..1] ELSE"
+                    " [s IN holding WHERE NONE(o IN holding WHERE o <> s"
+                    " AND s.start_line <= o.start_line AND o.end_line <= s.end_line)]"
+                    " END AS s "
+                    "WITH DISTINCT s "
+                    "MATCH p = (t)-[:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION|USES_FIXTURE*0.."
+                    + str(depth)
+                    + "]->(s) "
+                    "WHERE coalesce(t.file_path, t.path, '') =~ $test "
+                    "AND t.repo_url = $repo AND t.snapshot_id = $snapshot "
+                    "WITH s, t, min(length(p)) AS steps "
+                    "ORDER BY steps, coalesce(t.file_path, t.path), t.start_line "
+                    "WITH t, collect({name: s.name, file: s.file_path,"
+                    " line: s.start_line, steps: steps})[0] AS nearest "
+                    "RETURN coalesce(t.name, t.path) AS test,"
+                    " coalesce(t.file_path, t.path) AS file, t.start_line AS line,"
+                    " nearest "
+                    "ORDER BY nearest.steps, file, line",
+                    ranges=ranges,
+                    test=ROLE_PATTERNS["test"],
+                    **scope,
+                )
+                tests = [dict(r) async for r in result]
+                result = await tx.run(
+                    "UNWIND $ranges AS e "
+                    "MATCH (s:Symbol {repo_url:$repo, snapshot_id:$snapshot,"
+                    " file_path:e.file}) "
+                    "WHERE CASE WHEN e.inside "
+                    " THEN s.start_line <= e.start AND e.end <= s.end_line "
+                    " ELSE s.start_line <= e.end AND e.start <= s.end_line END "
+                    "WITH e, s ORDER BY s.end_line - s.start_line "
+                    "WITH e, collect(s) AS holding "
+                    "UNWIND CASE WHEN e.inside THEN holding[0..1] ELSE"
+                    " [s IN holding WHERE NONE(o IN holding WHERE o <> s"
+                    " AND s.start_line <= o.start_line AND o.end_line <= s.end_line)]"
+                    " END AS s "
+                    "WITH DISTINCT s RETURN s.name AS name, s.file_path AS file,"
+                    " s.start_line AS line ORDER BY file, line",
+                    ranges=ranges,
+                    **scope,
+                )
+                changed = [dict(r) async for r in result]
+            finally:
+                await tx.rollback()
+        rows = [
+            {
+                "test": t["test"],
+                "file": t["file"],
+                "line": t["line"],
+                "reaches": t["nearest"]["name"],
+                "reaches_at": f"{t['nearest']['file']}:{t['nearest']['line']}",
+                "links_away": t["nearest"]["steps"],
+            }
+            for t in tests
+        ]
+        return {
+            "status": "succeeded",
+            "changed": changed,
+            "total_tests": len(rows),
+            "truncated": len(rows) > limit,
+            "tests": rows[:limit],
+            "run": _test_commands(rows),
+        }
 
     async def _why_empty(self, query, parameters, repo_url, snapshot_id, timeout):
         """Sentences on why a query matched nothing, from the paths and code

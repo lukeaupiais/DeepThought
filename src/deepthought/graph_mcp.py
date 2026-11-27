@@ -683,6 +683,7 @@ def create_server():
 
         @server.tool()
         async def checkEdit(
+            ctx: Context,
             diff: str = "",
             max_elements: Annotated[int, Field(ge=1, le=500)] = 100,
         ) -> dict:
@@ -701,6 +702,15 @@ def create_server():
             complete is false when a check could not run or files were not
             checked (unchecked_files). At most max_elements breaks are
             returned; total_breaks counts all.
+
+            tests are the existing tests the graph links to the declarations
+            the edit changes (changed): each test that calls one, directly or
+            up to four calls away (through interface methods, functions
+            passed as values and pytest fixtures too), nearest first, with
+            run, the commands that run them (go test -run, pytest node ids;
+            test files for JavaScript and TypeScript). The type check says
+            whether the edit compiles; these tests say whether the code they
+            exercise still behaves. Tests the edit adds are not in the graph.
             """
             from .edit_check import check_edit, check_working_copy
 
@@ -718,6 +728,21 @@ def create_server():
             report["truncated"] = len(breaks) > max_elements
             report["breaks"] = breaks[:max_elements]
             report["status"] = "succeeded"
+            try:
+                service = ctx.request_context.lifespan_context
+            except (AttributeError, LookupError, ValueError):
+                service = None  # no graph behind this server
+            if service is not None and hasattr(service, "tests_reaching"):
+                try:
+                    report["tests"] = await service.tests_reaching(
+                        report.get("changed_lines")
+                    )
+                except Exception as error:  # the type check still stands
+                    report["tests"] = {
+                        "status": "failed",
+                        "error": str(error)[:300],
+                        "tests": [],
+                    }
             return report
 
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
