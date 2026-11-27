@@ -16,6 +16,7 @@ from deepthought.calls import (
     CALL_MODULE_ATTRIBUTE,
     CALL_TS_COMPILER_EXPORT,
     CALL_TS_DECLARATION_FILE,
+    CALL_TS_EXPORT_CONFLICT,
     resolve_calls,
 )
 from deepthought.engine import analyze_repository
@@ -243,6 +244,138 @@ class CompilerCallTests(unittest.TestCase):
         self.assertEqual(rules[CALL_TS_COMPILER_EXPORT], "resolved")
         self.assertEqual(rules[CALL_TS_DECLARATION_FILE], "resolved")
         self.assertNotIn(CALL_MODULE_ATTRIBUTE, rules)
+
+
+@unittest.skipUnless(READY, "Install the pinned scip-typescript")
+class ExportConflictTests(unittest.TestCase):
+    maxDiff = None
+    """Exports the language rejects, which the compiler reports and binds
+    to one declaration anyway."""
+
+    def test_calls_through_a_rejected_export_carry_their_own_rule(self):
+        files = {
+            "a.ts": (
+                "export function dup() {}\n"
+                "export function f(a: string): void;\n"
+                "export function f(a: any) {}\n"
+                "export const g = () => {}, h = () => {};\n"
+            ),
+            "b.ts": "export function dup() {}\nexport function only() {}\n",
+            # Two stars that give `dup`, and two that give the same `f`.
+            "star.ts": (
+                "export * from './a';\nexport * from './b';\nexport * from './again';\n"
+            ),
+            "again.ts": "export { f } from './a';\n",
+            # A rejected export followed through another module.
+            "relay.ts": (
+                "export { dup as relayed } from './star';\n"
+                "import { dup } from './star';\nexport { dup as again };\n"
+            ),
+            "dflt.ts": (
+                "export default function one() {}\n"
+                "function two() {}\nexport { two as default };\n"
+            ),
+            "named.ts": "export namespace N {}\nexport { only as N } from './b';\n",
+            "vars.ts": (
+                "const w = () => {};\nexport const v = () => {};\nexport { w as v };\n"
+            ),
+            # A module's own export shadows what its stars give.
+            "shadow.ts": (
+                "export function dup() {}\nexport * from './a';\nexport * from './b';\n"
+            ),
+            # A rejected export reached through a star.
+            "twice.ts": (
+                "export { only } from './b';\nexport { dup as only } from './a';\n"
+            ),
+            "star2.ts": "export * from './twice';\n",
+            # Through a declaration file to its implementation: rejected on
+            # the way there, and in the implementation.
+            "clean.d.ts": "export declare function c(): void;\n",
+            "clean.js": "export function c() {}\n",
+            "rel3.ts": (
+                "export { c as c3 } from './clean';\nexport { only as c3 } from './b';\n"
+            ),
+            "rel4.ts": "export { p as p4 } from './pair';\n",
+            "nsx.ts": "export * as K from './b';\nexport function K() {}\n",
+            # An implementation beside its declaration file, which the
+            # language rejects.
+            "pair.d.ts": "export declare function p(): void;\n",
+            "pair.js": "export function p() {}\nfunction q() {}\nexport { q as p };\n",
+            "main.ts": (
+                "import { dup, f, only, g, h } from './star';\n"
+                "import { relayed, again } from './relay';\n"
+                "import one from './dflt';\n"
+                "import { N } from './named';\n"
+                "import { v } from './vars';\n"
+                "import { K } from './nsx';\n"
+                "import { p } from './pair';\n"
+                "import { dup as own } from './shadow';\n"
+                "import { only as o2 } from './star2';\n"
+                "import { c3 } from './rel3';\n"
+                "import { p4 } from './rel4';\n"
+                "dup(); f(''); only(); g(); h(); relayed(); again(); one(); N(); v(); K(); p(); own(); o2(); c3(); p4();\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, text in files.items():
+                Path(directory, name).write_text(text)
+            result = ts_modules.with_compiler_modules(
+                analyze_repository(
+                    directory,
+                    repository_id="r",
+                    languages=("typescript", "javascript"),
+                ),
+                directory,
+            )
+        sites = {s.id: s for s in result.call_sites}
+        by_id = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                r.target_id
+                and f"{by_id[r.target_id].file}:{by_id[r.target_id].symbol}",
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "main.ts"
+        }
+        self.assertEqual(
+            found,
+            {
+                "dup": ("a.ts:dup", CALL_TS_EXPORT_CONFLICT),
+                "relayed": ("a.ts:dup", CALL_TS_EXPORT_CONFLICT),
+                "again": ("a.ts:dup", CALL_TS_EXPORT_CONFLICT),
+                "one": ("dflt.ts:two", CALL_TS_EXPORT_CONFLICT),
+                "N": ("b.ts:only", CALL_TS_EXPORT_CONFLICT),
+                "v": ("vars.ts:w", CALL_TS_EXPORT_CONFLICT),
+                "o2": ("b.ts:only", CALL_TS_EXPORT_CONFLICT),
+                "c3": ("clean.js:c", CALL_TS_EXPORT_CONFLICT),
+                "p4": ("pair.js:q", CALL_TS_EXPORT_CONFLICT),
+                "own": ("shadow.ts:dup", CALL_IMPORTED_NAME),
+                "p": ("pair.js:q", CALL_TS_EXPORT_CONFLICT),
+                # The compiler keeps the namespace, which declares nothing
+                # callable.
+                "K": (None, None),
+                # Overloads, a name two stars give as one symbol, and
+                # several variables of one statement are not rejected.
+                "f": ("a.ts:f", CALL_TS_COMPILER_EXPORT),
+                "only": ("b.ts:only", CALL_TS_COMPILER_EXPORT),
+                "g": ("a.ts:g", CALL_TS_COMPILER_EXPORT),
+                "h": ("a.ts:h", CALL_TS_COMPILER_EXPORT),
+            },
+        )
+        self.assertEqual(
+            {
+                (m, n)
+                for m, n in result.compiler_modules.conflicts
+                if m in ("star.ts", "relay.ts", "nsx.ts")
+            },
+            {
+                ("star.ts", "dup"),
+                ("relay.ts", "relayed"),
+                ("relay.ts", "again"),
+                ("nsx.ts", "K"),
+            },
+        )
 
 
 if __name__ == "__main__":

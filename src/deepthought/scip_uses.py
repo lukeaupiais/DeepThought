@@ -32,7 +32,7 @@ from pathlib import PurePosixPath
 
 from .models import AnalysisResult
 from .scip_calls import _declaration, _IndexView, _key, _Lines, _to_utf8
-from .syntax import LANGUAGES, make_parser, parse_source
+from .syntax import LANGUAGES, make_parser, parse_source, script_source
 
 USES_TYPE = "USES_TYPE"
 REFERENCES_FUNCTION = "REFERENCES_FUNCTION"
@@ -141,9 +141,11 @@ class _Writes:
             language = _language(file)
             tree = None
             if language is not None:
-                suffix = PurePosixPath(file).suffix
                 try:
-                    content = (self.root / file).read_bytes()
+                    # A Vue component is read as its script blocks.
+                    suffix, content = script_source(
+                        file, (self.root / file).read_bytes()
+                    )
                     key = (language, suffix == ".tsx")
                     if key not in self.parsers:
                         self.parsers[key] = make_parser(language, suffix)
@@ -283,11 +285,16 @@ def bind_uses(result: AnalysisResult, indexes, root):
             )
         return fields[key]
 
+    # An index covers its whole project, which can hold files the analysis
+    # left out (a skip pattern); a reference there has no File to start from.
+    analysed = {c.file for c in result.coverage if c.status in {"analyzed", "partial"}}
     writes = _Writes(root)
     grouped = {}
     for index, view in views:
         for reference in index.references:
             if covering.get(reference.file) is not view:
+                continue
+            if reference.file not in analysed:
                 continue
             text = lines.get(reference.file, reference.line)
             column = _to_utf8(text, reference.column, view.encoding(reference))
