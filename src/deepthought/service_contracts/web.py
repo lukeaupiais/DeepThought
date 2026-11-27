@@ -80,6 +80,7 @@ class _Context:
         self.calls_of = None
         self.python_router_of = None
         self.script_route_of = None
+        self.fastify_route_of = None
         self.client_of = None
         # Python and Express: {router name: full prefixes} of the file's
         # mounted routers.
@@ -1433,6 +1434,57 @@ def _own_prefix(context, owner):
     return ""
 
 
+def _fastify_route(context, node, positional, verb, prefixes):
+    """A Fastify route: ``instance.get(path, [options], handler)`` and the
+    other shorthand methods, or ``instance.route({method, url, handler})``
+    (``path`` is accepted for ``url``), under the prefixes its plugin is
+    registered with (``fastify.FastifyPlugins``)."""
+    content = context.content
+    if verb == "route":
+        if not positional or positional[0].type != "object":
+            return
+        options = _js_object(positional[0], content)
+        url = options.get("url") or options.get("path")
+        method_node = options.get("method")
+        if url is None or method_node is None:
+            return
+        given = (
+            method_node.named_children if method_node.type == "array" else [method_node]
+        )
+        methods = [_method(context.folder, m, None) for m in given]
+        if not methods or None in methods:
+            context.unread.append(
+                Unread(
+                    context.file,
+                    node.start_point.row + 1,
+                    "route",
+                    "method_not_literal",
+                )
+            )
+            return
+        handler_node = options.get("handler")
+    else:
+        if len(positional) < 2:
+            return
+        url = positional[0]
+        methods = [ANY_METHOD if verb == "all" else verb.upper()]
+        handler_node = positional[-1]
+        if handler_node.type == "object":
+            handler_node = _js_object(handler_node, content).get("handler")
+    handler = (
+        context.named_function(text(handler_node, content))
+        if handler_node is not None and handler_node.type == "identifier"
+        else None
+    )
+    declared = context.folder.evaluate(url)
+    for prefix in prefixes:
+        path, base_unknown = _express_path(prefix + declared), False
+        if path.startswith(PLACEHOLDER):
+            rest = path.lstrip(PLACEHOLDER)
+            path, base_unknown = (rest if rest.startswith("/") else "/" + rest), True
+        context.route(node, methods, path, "fastify", handler, base_unknown)
+
+
 def _typed_script_route(context, node, function, positional, framework, method):
     """A route registered by a call whose method the SCIP index resolves to
     a router library's registration method (``script_route_of``). The path
@@ -1643,6 +1695,14 @@ def extract_javascript(context, nest=None, axios_imports=None):
         if function.type == "member_expression":
             owner = text(function.child_by_field_name("object"), content)
             verb = text(function.child_by_field_name("property"), content)
+            fastify = (
+                context.fastify_route_of(context.file, node, function)
+                if context.fastify_route_of is not None
+                else None
+            )
+            if fastify is not None:
+                _fastify_route(context, node, positional, *fastify)
+                continue
             typed = (
                 context.script_route_of(
                     context.file, function.child_by_field_name("property")
@@ -2368,6 +2428,7 @@ def extract_web(
     go_routes=None,
     python_router_of=None,
     script_route_of=None,
+    fastify_route_of=None,
     client_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
@@ -2389,6 +2450,8 @@ def extract_web(
     ``script_route_of(file, property node)`` the (framework, method) of a
     JavaScript/TypeScript route registration method the SCIP index resolves
     the called name to (``_script_route_resolver``), or None;
+    ``fastify_route_of(file, call, member)`` the (verb, prefixes) of a
+    Fastify route call (``fastify.FastifyPlugins.route_of``), or None;
     ``client_of(file, name node)`` the HTTP client library (``requests``,
     ``httpx``, ``aiohttp``, ``axios``) whose request method the index
     resolves a called name to (``_client_resolver``), or None."""
@@ -2399,6 +2462,7 @@ def extract_web(
     context.mounts = mounts or {}
     context.python_router_of = python_router_of
     context.script_route_of = script_route_of
+    context.fastify_route_of = fastify_route_of
     context.client_of = client_of
     if language == "python":
         extract_python(context)

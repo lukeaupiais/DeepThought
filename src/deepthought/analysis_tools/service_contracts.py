@@ -34,6 +34,7 @@ from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.django_urls import django_routes
+from ..service_contracts.fastify import FastifyPlugins
 from ..service_contracts.deployed import (
     Deployments,
     command_line,
@@ -461,6 +462,17 @@ ROUTE_RULES = {
             "index resolves to a FastAPI app or APIRouter another module binds; "
             "the router's own prefix and the prefixes it is included with are "
             "joined.",
+        )
+    ),
+    "fastify": register_rule(
+        EvidenceRule(
+            "service-contracts.fastify-route",
+            "pattern_matched",
+            "A route method (get, post, ..., all, route) called on a Fastify "
+            "instance, which the scip-typescript index resolves the method to or "
+            "which is the first parameter of a plugin the repository registers "
+            "or @fastify/autoload loads, declares this path under the prefixes "
+            "the plugin is registered with.",
         )
     ),
     "django-rest-framework": register_rule(
@@ -3529,6 +3541,7 @@ class ServiceContractTool(AnalysisTool):
         indexed = ScipReferences(result, scip_indexes, root)
         python_router_of = _python_router_resolver(indexed, python_routers_found)
         script_route_of = _script_route_resolver(indexed)
+        fastify = FastifyPlugins(sources, indexed, resolve_script_module)
         client_of = _client_resolver(indexed)
         composer = {}
         symfony_clients = {}
@@ -3724,6 +3737,7 @@ class ServiceContractTool(AnalysisTool):
                     mounts=python_mounts.get(coverage.file),
                     python_router_of=python_router_of,
                     script_route_of=script_route_of,
+                    fastify_route_of=fastify.route_of,
                     client_of=client_of,
                     go_routes=go_routes.get(coverage.file, {}),
                     externals=(
@@ -3868,6 +3882,10 @@ class ServiceContractTool(AnalysisTool):
         )
         routes.extend(found_django)
         unread.extend(unread_django)
+        unread.extend(
+            Unread(file, line, "route", reason)
+            for file, line, reason in sorted(set(fastify.unread))
+        )
 
         for path in sorted(
             p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
