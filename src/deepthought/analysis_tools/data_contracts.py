@@ -24,12 +24,17 @@ from .._version import __version__
 from .. import go_facts as gofacts
 from .. import ts_modules
 from ..gorm_naming import table_names as gorm_table_names
+from ..django_naming import column_names as django_column_names
 from ..typeorm_naming import column_names as typeorm_column_names
 from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     _owner_at,
+    _descendants,
+    DJANGO_NO_COLUMN,
+    django_chain,
+    django_columns,
     PRISMA_INPUT_KINDS,
     prisma_columns,
     extract_typeorm_classes,
@@ -478,6 +483,45 @@ DJANGO_HISTORICAL_RULE = register_rule(
 )
 
 
+DJANGO_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-column",
+        "resolved",
+        "A field of a Django model (or of an abstract model it extends) "
+        "assigned a Django field class: its column is the one Django's own "
+        "Field.get_attname_column() gives, at the Django release the project "
+        "declares (db_column, else the attname: author_id for a ForeignKey "
+        "author); the implicit id of a model without a primary key. Declared "
+        "for a table whose migrations give no columns.",
+    )
+)
+DJANGO_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-scip-column-access",
+        "resolved",
+        "A scip-python index resolves an attribute access to a field of a "
+        "Django model (data-contracts.django-column): an assignment to it "
+        "writes the column, an augmented assignment reads and writes it, any "
+        "other access reads it.",
+    )
+)
+DJANGO_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-column-key",
+        "pattern_matched",
+        "A lookup or field name of a Django query on a model the index "
+        "resolves (data-contracts.django-scip-manager-call): keyword lookups "
+        "of filter, exclude, get and the like and of Q(), field names of "
+        "values, only, order_by and the like and of F() and aggregates read, "
+        "followed through relations (author__name reads author_id and the "
+        "author's name) and reverse relations (by related_query_name, else "
+        "related_name, else the model name); keywords of update and create, "
+        "defaults of get_or_create and a Model(...) constructor's keywords "
+        "write, and get_or_create/update_or_create lookups read and write. Read "
+        "against the model's fields, as scip-python does not resolve keyword "
+        "lookups or field-name strings.",
+    )
+)
 SA_TABLENAME_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sqlalchemy-tablename",
@@ -1812,6 +1856,227 @@ class DataContractTool(AnalysisTool):
             model = by_id[model_id]
             label = model.app_label or django_app(model.file, labels)[1]
             django_by_label.setdefault((label, model.name), set()).add(target)
+        # Django model fields: their columns by Django's own naming, the
+        # accesses the index resolves to them, and the lookups and field
+        # names of manager calls and model constructors.
+        django_columns_counts = Counter()
+        django_models, django_field_at = {}, defaultdict(dict)
+        django_field_name = {}
+        models_by_name = defaultdict(list)
+        for model in models:
+            models_by_name[model.name].append(model)
+
+        def django_model_named(name, file):
+            found = models_by_name.get(name, [])
+            own = [m for m in found if scope(m.file) == scope(file)]
+            found = own or found
+            return found[0] if len(found) == 1 else None
+
+        def django_fields(model, seen=()):
+            """The fields of a model and of the abstract models it extends,
+            the model's own last."""
+            found = []
+            for base in model.bases:
+                parent = django_model_named(base, model.file)
+                if (
+                    parent is not None
+                    and parent.abstract
+                    and parent.model_id not in seen
+                ):
+                    found += django_fields(parent, seen + (model.model_id,))
+            return found + [(model, f) for f in model.fields]
+
+        django_planned, django_requests = [], set()
+        for model_id, target in sorted(django_by_model.items(), key=str):
+            model = by_id[model_id]
+            if model.proxy:
+                continue
+            fields = {}
+            for owner, field in django_fields(model):
+                fields[field.name] = (owner, field)
+            concrete_parent = any(
+                (p := django_model_named(b, model.file)) is not None and not p.abstract
+                for b in model.bases
+            )
+            entry = django_models.setdefault(
+                target, {"fields": {}, "pk": None, "reverse": {}}
+            )
+            primary = next((n for n, (_, f) in fields.items() if f.primary), None)
+            entry["pk"] = primary or ("id" if not concrete_parent else None)
+            for name, (owner, field) in fields.items():
+                related = None
+                if field.target is not None:
+                    other = (
+                        model
+                        if field.target == "self"
+                        else django_model_named(field.target, owner.file)
+                    )
+                    if other is not None:
+                        related = django_by_model.get(other.model_id)
+                entry["fields"][name] = (None, related)
+                if field.kind in DJANGO_NO_COLUMN:
+                    continue
+                request = (field.kind, field.name, field.db_column)
+                django_requests.add(request)
+                django_planned.append((target, owner, field, request))
+            if primary is None and not concrete_parent:
+                django_requests.add(("AutoField", "id", None))
+                django_planned.append((target, model, None, ("AutoField", "id", None)))
+        django_names, django_unread = django_column_names(root, django_requests)
+        if not django_planned:
+            django_unread = None
+        if django_unread:
+            django_columns_counts["naming_unread"] = len(django_planned)
+        for target, owner, field, request in django_planned:
+            name = django_names.get(request)
+            if name is None:
+                continue
+            known = table_columns.get(target)
+            if known is not None:
+                column = (
+                    name
+                    if name in known
+                    else next((c for c in known if c.lower() == name.lower()), None)
+                )
+                if column is None:
+                    django_columns_counts["not_a_table_column"] += 1
+                    continue
+            else:
+                column = name
+            column_target = f"{target}::column::{column}"
+            if known is None and column_target not in column_nodes:
+                table_label = target.rsplit("::", 1)[-1]
+                column_nodes[column_target] = NodeData(
+                    ["DbColumn", "Contract"],
+                    {
+                        "qualified_name": column_target,
+                        "repo_url": repo_url,
+                        "name": f"{table_label}.{column}",
+                        "display_name": f"{table_label}.{column}",
+                        "table": table_label,
+                        "column": column,
+                        "protocol": "sql",
+                        "scope": scope(owner.file),
+                    },
+                )
+                link(
+                    "HAS_COLUMN",
+                    (["DbTable", "Contract"], target),
+                    column_target,
+                    DJANGO_COLUMN_RULE,
+                    {"field": request[1]},
+                    labels=("DbColumn", "Contract"),
+                )
+                if field is not None:
+                    link(
+                        "DECLARES",
+                        (["File"], f"{repo_url}::{owner.file}::file"),
+                        column_target,
+                        DJANGO_COLUMN_RULE,
+                        {"line": field.line, "field": field.name},
+                        labels=("DbColumn", "Contract"),
+                    )
+                django_columns_counts["columns_declared"] += 1
+            django_columns_counts["columns"] += 1
+            entry = django_models[target]
+            entry["fields"][request[1]] = (
+                column_target,
+                entry["fields"].get(request[1], (None, None))[1],
+            )
+            if field is not None:
+                site = (owner.file, field.line, field.column)
+                django_field_at[site][target] = column_target
+                django_field_name[site] = field.name
+        # A reverse relation's lookup name: related_query_name, else
+        # related_name, else the model's name in lower case.
+        django_related_query = {}
+        for target, owner, field, request in django_planned:
+            if field is not None and field.related_query:
+                django_related_query[(target, field.name)] = field.related_query
+        for target, entry in django_models.items():
+            for name, (column, related) in entry["fields"].items():
+                if column is not None and related in django_models:
+                    model_name = django_related_query.get((target, name)) or next(
+                        (
+                            by_id[m].name.lower()
+                            for m, t in django_by_model.items()
+                            if t == target and not by_id[m].proxy
+                        ),
+                        None,
+                    )
+                    if model_name and "%" not in model_name and model_name != "+":
+                        django_models[related]["reverse"].setdefault(
+                            model_name, (target, name)
+                        )
+        # Attribute accesses the index resolves to a field.
+        django_sites = set()
+        if django_field_at:
+            owners_by_file = defaultdict(list)
+            for d in result.definitions:
+                owners_by_file[d.file].append(d)
+            for file, line, column, site in references.references_to(django_field_at):
+                holders = django_field_at[site]
+                if len(holders) != 1:
+                    django_columns_counts["accesses_unattributed"] += 1
+                    for name in holders.values():
+                        if name in column_nodes:
+                            column_nodes[name].properties["reads_unattributed"] = True
+                    continue
+                entry = django_trees.get(file)
+                kinds = ("READS_COLUMN",)
+                if entry is not None:
+                    node = entry[1].root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    access = node.parent if node is not None else None
+                    holder = access.parent if access is not None else None
+                    if (
+                        access is not None
+                        and access.type == "attribute"
+                        and holder is not None
+                        and holder.child_by_field_name("left") == access
+                    ):
+                        if holder.type == "assignment":
+                            kinds = ("WRITES_COLUMN",)
+                        elif holder.type == "augmented_assignment":
+                            # ``x.f += 1`` reads the value it writes.
+                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
+                django_sites.add((file, line, column))
+                tool, receipt = references.tool(file)
+                for kind in kinds:
+                    django_columns_counts[
+                        "writes" if kind == "WRITES_COLUMN" else "reads"
+                    ] += 1
+                    link(
+                        kind,
+                        code(file, _owner_at(owners_by_file[file], file, line, column)),
+                        next(iter(holders.values())),
+                        DJANGO_COLUMN_ACCESS_RULE,
+                        {
+                            "line": line,
+                            "column": column,
+                            "field": django_field_name[site],
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                        labels=("DbColumn", "Contract"),
+                    )
+
+        def django_keys(file, keyed, method):
+            owners = [d for d in result.definitions if d.file == file]
+            for key, name, sets, line, column in keyed.uses:
+                if (file, line, column) in django_sites:
+                    continue
+                django_columns_counts["call_keys"] += 1
+                link(
+                    "WRITES_COLUMN" if sets else "READS_COLUMN",
+                    code(file, _owner_at(owners, file, line, column)),
+                    django_models[key]["fields"][name][0],
+                    DJANGO_COLUMN_KEY_RULE,
+                    {"line": line, "column": column, "method": method, "field": name},
+                    labels=("DbColumn", "Contract"),
+                )
+
         django_counts = {
             "linked_scip": 0,
             "historical": 0,
@@ -1847,6 +2112,34 @@ class DataContractTool(AnalysisTool):
             django_counts["historical" if historical else "linked_scip"] += 1
             tool, receipt = references.tool(access.file)
             source = code(access.file, access.caller_id)
+            properties = {
+                "model": access.model,
+                "line": access.line,
+                "column": access.column,
+                "indexer": tool,
+                "receipt": receipt,
+            }
+            entry = django_trees.get(access.file)
+            if targets[0] in django_models and entry is not None:
+                node = entry[1].root_node.descendant_for_point_range(
+                    (access.line - 1, access.column), (access.line - 1, access.column)
+                )
+                while node is not None and not (
+                    node.type == "attribute"
+                    and node.child_by_field_name("attribute") is not None
+                    and node.child_by_field_name("attribute").text == b"objects"
+                ):
+                    node = node.parent
+                if node is not None:
+                    chain = django_chain(node)
+                    keyed = django_columns(chain, entry[0], targets[0], django_models)
+                    django_keys(
+                        access.file, keyed, chain[-1][0] if chain else "objects"
+                    )
+                    properties["columns_resolved"] = keyed.complete and not keyed.rows
+                    django_columns_counts["calls_resolved"] += properties[
+                        "columns_resolved"
+                    ]
             for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
                 if used:
                     link(
@@ -1854,14 +2147,43 @@ class DataContractTool(AnalysisTool):
                         source,
                         targets[0],
                         DJANGO_HISTORICAL_RULE if historical else DJANGO_ACCESS_RULE,
-                        {
-                            "model": access.model,
-                            "line": access.line,
-                            "column": access.column,
-                            "indexer": tool,
-                            "receipt": receipt,
-                        },
+                        properties,
                     )
+        # Model(field=...) constructors the index resolves to a model.
+        if django_models:
+            model_names = {
+                by_id[m].name for m, t in django_by_model.items() if t in django_models
+            }
+            for file, content, tree in python_trees:
+                if not references.covers(file):
+                    continue
+                for call in _descendants(tree.root_node, "call"):
+                    function = call.child_by_field_name("function")
+                    if function is None:
+                        continue
+                    last = function
+                    if function.type == "attribute":
+                        last = function.child_by_field_name("attribute")
+                    if last is None or last.type != "identifier":
+                        continue
+                    name = last.text.decode("utf-8", "replace")
+                    if name not in model_names:
+                        continue
+                    declared = references.declarations(
+                        file, last.start_point.row + 1, last.start_point.column, name
+                    )
+                    found = {
+                        django_by_model[d.id]
+                        for d in declared or ()
+                        if d.id in django_by_model
+                    }
+                    if len(found) != 1 or next(iter(found)) not in django_models:
+                        continue
+                    keyed = django_columns(
+                        (), content, next(iter(found)), django_models, call
+                    )
+                    django_columns_counts["constructors"] += 1
+                    django_keys(file, keyed, name)
         # SQLAlchemy mapped classes, Table() declarations and their uses.
         # Where a SCIP index covers a file, a written model name links to the
         # class the index resolves it to; elsewhere to the one mapped class
@@ -4194,6 +4516,7 @@ class DataContractTool(AnalysisTool):
             or kysely_unindexed
             or gorm_naming_unread
             or typeorm_naming_unread
+            or django_unread
             or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
@@ -4210,6 +4533,11 @@ class DataContractTool(AnalysisTool):
             "without a name get no table"
             for path, reason in sorted(typeorm_naming_unread.items())
         ]
+        if django_unread:
+            warnings.append(
+                f"django_naming_unread: {django_unread}, so Django model fields "
+                "get no columns"
+            )
         warnings += [
             f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
             "this statement, so its foreign keys are not read"
@@ -4345,6 +4673,7 @@ class DataContractTool(AnalysisTool):
                     "orm_access_resolution": orm_counts,
                     "typeorm_scip": typeorm_scip_counts,
                     "typeorm_columns": dict(typeorm_columns),
+                    "django_columns": dict(django_columns_counts),
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
