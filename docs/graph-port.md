@@ -5779,11 +5779,11 @@ contract paths are folded through. In Python only the call's own argument is rea
 not variables holding SQL, and driver parameter markers (`%s`, `%(name)s`)
 never name a table. Fixed SQL text is parsed by sqlglot (a required
 dependency), trying the PostgreSQL, MySQL, SQLite, T-SQL and Oracle dialects
-and then the generic one; JPA's `?1` markers are read as `?`. The targets of
+and then the generic one; JPA's `?1` markers and named parameters (sqlc's `@name`, T-SQL's `@p`, MySQL's `@var`; not `@@x`) are read as `?`. The targets of
 `INSERT`, `UPDATE`, `DELETE` (with its `USING` tables, aliases resolved),
 `MERGE` and `TRUNCATE` are written and every other table the parse names is
 read. Common table expressions, `dual`, catalog names, functions in `FROM`
-and the `FOR UPDATE OF` lock list are not tables. The hand-written token
+and the `FOR UPDATE OF` lock list are not tables. A CTE name hides a table only where SQL makes the CTE visible: in the CTEs after it and the statement it belongs to, and in its own body only under `RECURSIVE` (`WITH t AS (UPDATE t ... RETURNING *) SELECT * FROM t` writes and reads the table `t`). sqlglot's scope builder builds no scopes for data-modifying CTEs, so this rule is applied by `_visible_ctes`. The hand-written token
 reader is kept only where no parser can read the text: SQL holding a part the
 code does not fix (that name is dropped), JPQL, and statements sqlglot cannot
 parse (PostgreSQL 18's `RETURNING WITH`, SQLite's `VARYING CHARACTER`). The
