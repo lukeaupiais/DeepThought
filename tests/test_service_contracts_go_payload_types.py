@@ -264,6 +264,73 @@ class GoPayloadTypeTests(unittest.TestCase):
             ],
         )
 
+    def test_fiber_endpoint_is_the_first_handler_not_calling_next(self):
+        # Fiber runs a route's handlers in order; one calling c.Next() is
+        # middleware, wherever it is written.
+        found = self.carried(
+            {
+                **go_stub_files(),
+                "svc/go.mod": go_mod("example.com/shop", "github.com/gofiber/fiber/v3"),
+                "svc/api/types.go": TYPES,
+                "svc/main.go": FIBER_ORDER,
+            }
+        )
+        self.assertEqual(
+            sorted((self.paths[f[5]], f[1], f[2]) for f in found),
+            [
+                ("/factory", "CreateOrder", "request"),
+                ("/first", "CreateOrder", "request"),
+                ("/inline", "CreateOrder", "request"),
+                ("/last", "CreateOrder", "request"),
+            ],
+        )
+
+
+FIBER_ORDER = """package main
+
+import (
+\t"github.com/gofiber/fiber/v3"
+
+\t"example.com/shop/api"
+)
+
+type controller struct{}
+
+func (controller) create(c fiber.Ctx) error {
+\tvar in api.CreateOrder
+\treturn c.Bind().Body(&in)
+}
+
+func restrict() fiber.Handler {
+\treturn func(c fiber.Ctx) error {
+\t\treturn c.Next()
+\t}
+}
+
+// A factory returning a handler that is not the module's (a library's
+// middleware): whether it passes the request on is not known.
+func limit() fiber.Handler {
+\tvar library fiber.Handler
+\treturn library
+}
+
+func audit(c fiber.Ctx) error {
+\tc.JSON(api.Order{})
+\treturn c.Next()
+}
+
+func main() {
+\tapp := fiber.New()
+\tctl := controller{}
+\tapp.Post("/first", ctl.create, restrict())
+\tapp.Post("/factory", limit(), ctl.create)
+\tapp.Post("/last", restrict(), ctl.create)
+\tapp.Post("/inline", func(c fiber.Ctx) error {
+\t\treturn c.Next()
+\t}, audit, ctl.create)
+}
+"""
+
 
 HELPERS = """package main
 
