@@ -3470,7 +3470,22 @@ which only client requests are read:
   join their `prefix` option and the paths they are mounted at with `use`,
   including `router.routes()` mounts and exports; the index decides what
   is a koa-router `Router`. Plain JavaScript gets these symbols through
-  the DefinitelyTyped packages acquired before indexing. Django routes are
+  the DefinitelyTyped packages acquired before indexing. Fastify routes
+  (`service_contracts/fastify.py`, rule `fastify-route`) are
+  `get`/`post`/.../`all` and `route({method, url, handler})` calls on an
+  instance the index resolves the method to Fastify's `FastifyInstance`
+  for, or that is the first parameter of a plugin function the repository
+  registers (`register(plugin, {prefix})`, inline, local or imported) or
+  `@fastify/autoload` loads; Fastify always calls a plugin with the
+  instance. Prefixes follow encapsulation: a plugin's routes take the
+  prefixes of the plugin registering it plus its `prefix` option, a
+  `fastify-plugin` wrapper takes none, and autoload, read as its
+  `find-plugins` loads a directory (its `index` file, else every script but
+  `autohooks`), adds the directory path below `dir` (unless
+  `dirNameRoutePrefix: false`), a literal `autoPrefix` export in its place,
+  and `options.prefix`. A prefix the code does not fix leaves the base
+  unknown; a `dir` other than `path.join(__dirname | import.meta.dirname,
+  "...")` is `autoload_dir_not_literal`. Django routes are
   URLconf entries (`service_contracts/django_urls.py`, rule
   `django-urlconf-route`): from a module's `urlpatterns` (with `+=` and
   `+` and the module's own lists), a call the scip-python index resolves
