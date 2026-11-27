@@ -72,6 +72,30 @@ class FileEdit:
     new_path: str | None
     hunks: list = field(default_factory=list)
     lines: dict = field(default_factory=dict)
+    # Unedited lines the edit removed or replaced, and the unedited lines
+    # each insertion falls between (the line before, the line after).
+    removed: set = field(default_factory=set)
+    inserted: set = field(default_factory=set)
+
+    def changed_lines(self):
+        """Where the edit changes the unedited file, for a lookup of the
+        declarations it changes: ``{"start", "end", "inside"}`` ranges of
+        unedited lines; ``inside`` ranges are insertions, which change a
+        declaration only when it holds both lines around them."""
+        ranges, run = [], None
+        for line in sorted(self.removed):
+            if run and line == run[1] + 1:
+                run[1] = line
+            else:
+                run = [line, line]
+                ranges.append(run)
+        found = [{"start": a, "end": b, "inside": False} for a, b in ranges]
+        found += [
+            {"start": before, "end": before + 1, "inside": True}
+            for before in sorted(self.inserted)
+            if before not in self.removed and before + 1 not in self.removed
+        ]
+        return found
 
     @property
     def path(self):
@@ -139,9 +163,11 @@ def parse_diff(text):
             and not line.startswith(("diff ", "index "))
         ):
             if line.startswith("-"):
+                edit.removed.add(hunk[4])
                 hunk[4] += 1
                 hunk[1] += 1
             elif line.startswith("+"):
+                edit.inserted.add(hunk[4] - 1)
                 edit.lines[hunk[5]] = None
                 hunk[5] += 1
                 hunk[3] += 1
@@ -975,6 +1001,11 @@ def check_edit(workspace, diff, *, timeout=_TIMEOUT):
     )
     return {
         "edited_files": edited,
+        "changed_lines": {
+            edit.old_path: edit.changed_lines()
+            for edit in edits
+            if edit.old_path and edit.changed_lines()
+        },
         "checks": [
             {
                 "language": c.language,
