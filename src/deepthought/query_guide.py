@@ -93,6 +93,21 @@ MATCH (s)-[r:CALLS|REFERENCES_FUNCTION|USES_TYPE|READS_FIELD|WRITES_FIELD|REQUES
 WITH type(r) AS how, collect(DISTINCT x) AS found
 RETURN how, size(found) AS in_total, found[0..$top] AS what ORDER BY how"""
 
+FORCED_BY = """\
+MATCH (s:Symbol {file_path: $file}) WHERE s.start_line <= $line <= s.end_line
+WITH s ORDER BY s.end_line - s.start_line LIMIT 1
+MATCH p = (d)-[first:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION]->()-[rest:CALLS|DISPATCHES_TO*0..4]->(s)
+WHERE d <> s
+  AND ($change <> "result" OR coalesce(first.result_use, "") <> "dropped")
+  AND all(r IN rest WHERE type(r) = "DISPATCHES_TO"
+    OR ($change = "parameters" AND r.forwards IS NOT NULL)
+    OR ($change = "result" AND r.result_use = "returned"))
+WITH d, p ORDER BY length(p), coalesce(d.file_path, d.path), d.start_line
+WITH d, collect(p)[0] AS how
+WITH collect({d: d, how: how}) AS found
+UNWIND found[0..$top] AS x
+RETURN size(found) AS forced_in_total, length(x.how) AS steps, x.how AS how"""
+
 RECIPES = {
     "users_of_a_type": USERS_OF_A_TYPE,
     "callers": CALLERS,
@@ -101,6 +116,7 @@ RECIPES = {
     "implementations": IMPLEMENTATIONS,
     "tests": TESTS,
     "uses": USES,
+    "forced_by": FORCED_BY,
 }
 
 GUIDE = f"""\
@@ -125,8 +141,15 @@ caller that must pass a new argument or handle a new result has callers too.
 changed): users of the type (query 1). Users that touch most of its fields handle the \
 value as a whole (build, copy, compare, hash, serialize, print, convert it); \
 they come first and usually change with it.
-- A function's parameters, result or behaviour change: its callers, up to four \
-calls away, nearest first (query 2).
+- A function's parameters or result change, or it is removed: what that \
+forces (query 8, $change "parameters", "result" or "removed"). Every direct \
+caller and reference must change; further up, a caller changes too when the \
+calls in between pass its parameter on (the new argument has to come from \
+it) or return the result as it is (its own result changes). A caller that \
+drops the result is not affected by a new result. Each row is the chain that \
+forces it.
+- A function's behaviour changes: its callers, up to four calls away, \
+nearest first (query 2).
 - New information must get from where it is produced to where it is used: \
 the declarations on the call chains between the two, and the fields that \
 pass data between them (queries 3 and 4). Each declaration that passes the information along \
@@ -148,8 +171,13 @@ What the graph holds:
 - (:Symbol {{name, file_path, start_line, end_line, kind}}) is a declaration; \
 members are "Owner.member", fields too (kind "Field"). Pick one by file and a \
 line inside it, as the queries do: names repeat.
-- (caller)-[:CALLS {{line}}]->(callee). The caller is the declaration whose \
-body holds the call, or the (:File {{path}}) for code outside any.
+- (caller)-[:CALLS {{line, result_use, forwards}}]->(callee). The caller is \
+the declaration whose body holds the call, or the (:File {{path}}) for code \
+outside any. result_use is what the caller does with the call's value: \
+"returned", "stored" (in a field or element), "assigned" (to a local), \
+"passed" (to another call), "dropped" or "used"; forwards lists the caller's \
+own parameters passed on as arguments ("0:opts", "key=opts"). Replies say \
+them in words: "(returns its result, passes on its parameter opts)".
 - (interface method)-[:DISPATCHES_TO]->(implementation).
 - (test)-[:USES_FIXTURE]->(fixture): a pytest test or fixture requesting a fixture.
 - (user)-[:REFERENCES_FUNCTION {{line, sites}}]->(function): named as a value \
@@ -204,4 +232,8 @@ its siblings):
 
 7. What a declaration calls, names and reads or writes, by kind of use:
 {USES}
+
+8. What changing a function's parameters or result, or removing it, forces \
+($change "parameters", "result" or "removed"), nearest first:
+{FORCED_BY}
 """

@@ -2657,6 +2657,237 @@ def _call_function(node):
     return target
 
 
+# Where a call's value goes and which of the caller's parameters it passes
+# on, read from the syntax around the call (``CallSite.result_use``,
+# ``CallSite.forwards``). Which declaration the call reaches is the
+# resolver's (the indexes'); these are only the positions around it.
+_FLOW_WRAPPERS = {
+    "parenthesized_expression",
+    "await_expression",
+    "await",
+    "non_null_expression",
+    "as_expression",
+    "satisfies_expression",
+    "type_assertion",
+}
+_FUNCTION_NODES = {
+    "function_declaration",
+    "method_declaration",
+    "func_literal",
+    "function_definition",
+    "lambda",
+    "function_expression",
+    "function",
+    "generator_function",
+    "generator_function_declaration",
+    "arrow_function",
+    "method_definition",
+}
+_LOCAL_DECLARATIONS = {
+    "short_var_declaration": "left",
+    "var_spec": "name",
+    "variable_declarator": "name",
+}
+
+
+def _result_use(node):
+    """``CallSite.result_use`` of the call ``node``."""
+    child, parent = node, node.parent
+    while parent is not None and parent.type in _FLOW_WRAPPERS:
+        child, parent = parent, parent.parent
+    if parent is None:
+        return "used"
+    kind = parent.type
+    if kind == "expression_list" and parent.parent is not None:
+        # Go: `return a, F()`, `x, err := F()`, `s.f = F()`.
+        index = [c.id for c in parent.named_children].index(child.id)
+        child, parent = parent, parent.parent
+        kind = parent.type
+        if kind in {"assignment_statement", "short_var_declaration"}:
+            left = parent.child_by_field_name("left")
+            if parent.child_by_field_name("right") is None or (
+                parent.child_by_field_name("right").id != child.id
+            ):
+                return "used"
+            targets = [] if left is None else list(left.named_children)
+            target = targets[index] if len(targets) > index else None
+            if len(parent.child_by_field_name("right").named_children) == 1:
+                target = targets[0] if len(targets) == 1 else None
+                if len(targets) > 1:
+                    stored = any(
+                        t.type in {"selector_expression", "index_expression"}
+                        for t in targets
+                    )
+                    return "stored" if stored else "assigned"
+            if target is not None and target.type in {
+                "selector_expression",
+                "index_expression",
+            }:
+                return "stored"
+            return "assigned"
+    if kind in {"return_statement", "return"}:
+        return "returned"
+    if kind == "arrow_function" and parent.child_by_field_name("body") is not None:
+        return (
+            "returned"
+            if parent.child_by_field_name("body").id == child.id
+            else "used"
+        )
+    if kind in {"expression_statement", "go_statement", "defer_statement"}:
+        return "dropped"
+    if kind in {"argument_list", "arguments", "keyword_argument", "variadic_argument"}:
+        return "passed"
+    if kind in {"spread_element", "list_splat", "dictionary_splat"}:
+        return "passed" if parent.parent is not None and parent.parent.type in {
+            "arguments",
+            "argument_list",
+        } else "used"
+    if kind in {"assignment", "assignment_expression", "augmented_assignment"}:
+        left = parent.child_by_field_name("left")
+        right = parent.child_by_field_name("right")
+        if right is None or right.id != child.id:
+            return "used"
+        if left is not None and left.type in {
+            "attribute",
+            "subscript",
+            "member_expression",
+            "subscript_expression",
+        }:
+            return "stored"
+        return "assigned"
+    if kind == "variable_declarator":
+        value = parent.child_by_field_name("value")
+        return "assigned" if value is not None and value.id == child.id else "used"
+    if kind == "var_spec":
+        return "assigned"
+    return "used"
+
+
+def _parameter_names(function, content):
+    """The names a function's own parameter list declares (not a Go
+    receiver, not Python's ``self`` or ``cls``)."""
+    parameters = function.child_by_field_name("parameters")
+    if parameters is None and function.type == "arrow_function":
+        single = function.child_by_field_name("parameter")
+        return {_text(single, content)} if single is not None else set()
+    if parameters is None:
+        return set()
+    names = []
+    for item in parameters.named_children:
+        if item.type in {"parameter_declaration", "variadic_parameter_declaration"}:
+            names.extend(_text(n, content) for n in item.children_by_field_name("name"))
+        elif item.type == "identifier":
+            names.append(_text(item, content))
+        elif item.type in {"required_parameter", "optional_parameter"}:
+            pattern = item.child_by_field_name("pattern")
+            if pattern is not None and pattern.type == "rest_pattern":
+                pattern = next(iter(pattern.named_children), None)
+            if pattern is not None and pattern.type == "identifier":
+                names.append(_text(pattern, content))
+        elif item.type == "assignment_pattern":
+            left = item.child_by_field_name("left")
+            if left is not None and left.type == "identifier":
+                names.append(_text(left, content))
+        elif item.type == "rest_pattern":
+            inner = next(iter(item.named_children), None)
+            if inner is not None and inner.type == "identifier":
+                names.append(_text(inner, content))
+        elif item.type in {"default_parameter", "typed_default_parameter"}:
+            name = item.child_by_field_name("name")
+            if name is not None:
+                names.append(_text(name, content))
+        elif item.type in {
+            "typed_parameter",
+            "list_splat_pattern",
+            "dictionary_splat_pattern",
+        }:
+            inner = next(
+                (c for c in item.named_children if c.type == "identifier"), None
+            )
+            if inner is not None:
+                names.append(_text(inner, content))
+    if function.type == "function_definition" and names[:1] in (["self"], ["cls"]):
+        names = names[1:]
+    return set(names)
+
+
+def _redeclared(function, content, names):
+    """Of ``names``, those a declaration in ``function``'s body declares
+    again (a Go ``:=`` or ``var``, a JavaScript ``let``, ``const`` or
+    ``var``), outside functions nested in it."""
+    found = set()
+    body = function.child_by_field_name("body")
+    stack = [] if body is None else [body]
+    while stack:
+        node = stack.pop()
+        if node.type in _FUNCTION_NODES:
+            continue
+        field = _LOCAL_DECLARATIONS.get(node.type)
+        if field is not None:
+            for target in node.children_by_field_name(field):
+                stack_names = [target]
+                while stack_names:
+                    n = stack_names.pop()
+                    if n.type == "identifier" and _text(n, content) in names:
+                        found.add(_text(n, content))
+                    elif n.type == "expression_list":
+                        stack_names.extend(n.named_children)
+        stack.extend(node.named_children)
+    return found
+
+
+def _forwards(node, content, caller_line):
+    """``CallSite.forwards`` of the call ``node``: arguments that are the
+    caller's own parameters as they are. Only when the innermost function
+    around the call is the caller's declaration (starting on
+    ``caller_line``), not a function literal inside it."""
+    function = node.parent
+    while function is not None and function.type not in _FUNCTION_NODES:
+        function = function.parent
+    if function is None or caller_line is None:
+        return None
+    starts = {function.start_point.row + 1}
+    if function.parent is not None:
+        starts.add(function.parent.start_point.row + 1)
+        if function.parent.parent is not None:
+            starts.add(function.parent.parent.start_point.row + 1)
+    if caller_line not in starts:
+        return None
+    names = _parameter_names(function, content)
+    if not names:
+        return None
+    names -= _redeclared(function, content, names)
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    found, position = [], 0
+    for argument in arguments.named_children:
+        if argument.type in {"comment", "type_arguments"}:
+            continue
+        value, keyword = argument, None
+        if argument.type == "keyword_argument":
+            keyword = argument.child_by_field_name("name")
+            value = argument.child_by_field_name("value")
+        elif argument.type in {
+            "variadic_argument",
+            "spread_element",
+            "list_splat",
+            "dictionary_splat",
+        }:
+            value = next(iter(argument.named_children), None)
+        if value is not None and value.type == "identifier":
+            name = _text(value, content)
+            if name in names:
+                found.append(
+                    f"{_text(keyword, content)}={name}"
+                    if keyword is not None
+                    else f"{position}:{name}"
+                )
+        if keyword is None:
+            position += 1
+    return tuple(found) or None
+
+
 def _callee_at(node):
     """``CallSite.callee_at``: (line, column) where the last name of a
     Python, JavaScript, TypeScript or Go call's callee starts, or None."""
@@ -5525,6 +5756,7 @@ def extract_call_sites(
         reverse=True,
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
+    lines = {d.id: d.line for d in definitions if d.file == file}
     tests = {d.id for d in definitions if d.file == file and d.kind in TEST_KINDS}
     python = tree.root_node.type == "module"
     java = tree.root_node.type == "program"
@@ -5638,6 +5870,12 @@ def extract_call_sites(
                         if script
                         else None,
                         callee_at=_callee_at(node) if script or python or go else None,
+                        result_use=_result_use(node)
+                        if script or python or go
+                        else None,
+                        forwards=_forwards(node, content, lines.get(caller))
+                        if script or python or go
+                        else None,
                         **(
                             _js_receiver(node, content, callee, scopes, tree.root_node)
                             if script

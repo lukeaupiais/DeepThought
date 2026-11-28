@@ -477,6 +477,18 @@ class CallSite:
     # indexer's occurrence of the called symbol is. None when the callee
     # does not end in a name, and elsewhere.
     callee_at: tuple[int, int] | None = None
+    # Python, JavaScript, TypeScript and Go calls: where the call's value
+    # goes, read from the syntax around it: ``"returned"`` (the caller
+    # returns it as it is), ``"stored"`` (assigned to a field or element),
+    # ``"assigned"`` (to a local), ``"passed"`` (an argument of another
+    # call), ``"dropped"`` (a statement of its own, ``go``, ``defer``) or
+    # ``"used"`` (any other expression). None elsewhere.
+    result_use: str | None = None
+    # The same calls: ``"i:name"`` for each argument at position ``i``
+    # (from 0, or ``"name=name"`` for a keyword argument) that is the
+    # caller's own parameter ``name`` passed on as it is. None when there is
+    # none.
+    forwards: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.callee_at is not None and (
@@ -962,6 +974,10 @@ class AnalysisResult:
                 del item["receiver_call"]
             if item["callee_at"] is None:
                 del item["callee_at"]
+            if item["result_use"] is None:
+                del item["result_use"]
+            if item["forwards"] is None:
+                del item["forwards"]
             if item["type_qualified"] is None:
                 del item["type_qualified"]
             if item["receiver_inherits"] is None:
@@ -1089,6 +1105,11 @@ class AnalysisResult:
                         **(
                             {"callee_at": tuple(item["callee_at"])}
                             if isinstance(item.get("callee_at"), list)
+                            else {}
+                        ),
+                        **(
+                            {"forwards": tuple(item["forwards"])}
+                            if isinstance(item.get("forwards"), list)
                             else {}
                         ),
                         **(

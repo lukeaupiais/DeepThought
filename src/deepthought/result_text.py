@@ -27,6 +27,32 @@ from .source_roles import source_roles
 from .storage.graph.schema import RELATIONSHIP_SENTENCES
 
 
+_RESULT_USES = {
+    "returned": "returns its result",
+    "stored": "stores its result in a field",
+    "passed": "passes its result to another call",
+}
+
+
+def _flow(props):
+    """What a call does with the called function's value and parameters, from
+    the call link's ``result_use`` and ``forwards``: "returns its result,
+    passes on its parameters a, b", or ""."""
+    said = []
+    use = _RESULT_USES.get(props.get("result_use"))
+    if use:
+        said.append(use)
+    forwards = props.get("forwards")
+    if isinstance(forwards, list) and forwards:
+        names = [re.split("[:=]", str(f), maxsplit=1)[-1] for f in forwards]
+        names = list(dict.fromkeys(names))
+        said.append(
+            ("passes on its parameter " if len(names) == 1 else "passes on its parameters ")
+            + ", ".join(names)
+        )
+    return ", ".join(said)
+
+
 def _is_node(value):
     return isinstance(value, dict) and "labels" in value and "properties" in value
 
@@ -212,6 +238,9 @@ class _Renderer:
         line = props.get("line")
         if _number(line) and link["type"] != "HAS_UNRESOLVED_CALL":
             parts.append(_Num("at line", "at lines", [line]))
+        flow = _flow(props)
+        if flow:
+            parts.append(f"({flow})")
         return parts
 
     def path_text(self, path, drop=None):
@@ -244,6 +273,7 @@ class _Renderer:
             # from this hop's own node, not from the item's first position.
             forward = link["source"] == nodes[hop]["element_id"]
             line = (link.get("properties") or {}).get("line")
+            flow = _flow(link.get("properties") or {})
             if forward:
                 phrase = f"{verb} {step(hop + 1)}"
             else:
@@ -257,6 +287,8 @@ class _Renderer:
                     parts.append("")
                 else:
                     parts[-1] += f" at line {line}"
+            if flow:
+                parts[-1] += f" ({flow})" if parts[-1] else f"({flow})"
         return parts
 
     def value_text(self, value):
@@ -375,6 +407,8 @@ def _join(parts):
             out = text
         elif text.startswith(", which "):
             out += text
+        elif text.startswith("("):
+            out += " " + text
         elif isinstance(part, _Num) and text.startswith("at "):
             out += " " + text
         else:
