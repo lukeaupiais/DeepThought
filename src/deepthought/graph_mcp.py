@@ -797,7 +797,9 @@ def create_server():
         if default_format not in ("json", "text"):
             raise ValueError("DEEPTHOUGHT_QUERY_FORMAT must be json or text")
 
-        @server.tool()
+        from .query_guide import GUIDE
+
+        @server.tool(description=GUIDE)
         async def queryGraph(
             query: str,
             parameters: dict,
@@ -810,12 +812,10 @@ def create_server():
             # JSON rows are returned with their structured content below.
             """Run bounded read-only Cypher in an explicitly dedicated snapshot database.
 
-            format "text" writes the rows as short sentences: code items as
-            Name (file:line), links as "A calls B at line N", chains as
-            "A calls B at line 4, which calls C at line 9", with a closing
-            coverage line. "json" returns status, items, returned and
-            truncated; describeSnapshot gives the snapshot's capabilities and
-            analysis status once.
+            The tool's description is ``query_guide.GUIDE``: when to ask the
+            graph instead of the shell, and worked queries. format "text"
+            writes the rows as short sentences with a closing coverage line;
+            "json" returns status, items, returned and truncated.
             """
             service = ctx.request_context.lifespan_context
             if (format or default_format) == "text":

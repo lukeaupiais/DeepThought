@@ -375,6 +375,39 @@ def _query_lines(query, parameters):
     return list(dict.fromkeys(n for n in lines if n > 0))[:4]
 
 
+def _named_anchor_pairs(query, parameters):
+    """(path, line) pairs a query anchors on through parameters named alike:
+    ``$file`` with ``$line``, ``$from_file`` with ``$from_line``. Empty when
+    no such pair is used; then every path goes with every line."""
+    try:
+        code = _cypher_code(query)
+    except ValueError:
+        code = query
+    used = set(re.findall(r"\$\s*(" + _IDENT + r")", code))
+    parameters = parameters or {}
+
+    def stem(name, suffixes):
+        lowered = name.lower()
+        for suffix in suffixes:
+            if lowered.endswith(suffix):
+                return lowered[: -len(suffix)].rstrip("_")
+        return None
+
+    files, lines = {}, {}
+    for key, value in parameters.items():
+        if key not in used:
+            continue
+        if isinstance(value, str) and _is_path(value):
+            name = stem(key, ("file_path", "file", "path"))
+            if name is not None:
+                files.setdefault(name, value)
+        elif isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            name = stem(key, ("line",))
+            if name is not None:
+                lines.setdefault(name, value)
+    return [(files[k], lines[k]) for k in files if k in lines][:4]
+
+
 def _declaration_at(record):
     where = f"{record['file']}:{record['start']}"
     if record["end"] and record["end"] != record["start"]:
@@ -571,6 +604,25 @@ def _check_cypher(query, parameters, allow_database_scope):
         raise ValueError(
             "Procedures, updates, administration and multiple statements are disabled"
         )
+
+
+# Parameters every raw query may use without passing them: the test file
+# pattern lets a query keep to (or leave out) tests the way answers sort them.
+BUILTIN_PARAMETERS = {"test_path_pattern": ROLE_PATTERNS["test"]}
+
+
+def _with_builtin_parameters(query, parameters):
+    """``parameters`` plus each built-in one the query names and the caller
+    did not pass."""
+    try:
+        code = _cypher_code(query)
+    except ValueError:
+        code = query
+    used = set(re.findall(r"\$\s*(" + _IDENT + r")", code))
+    extra = {
+        k: v for k, v in BUILTIN_PARAMETERS.items() if k in used and k not in parameters
+    }
+    return {**parameters, **extra} if extra else parameters
 
 
 class GraphQueryService:
@@ -3284,16 +3336,19 @@ class GraphQueryService:
 
     async def _anchor_declarations(self, tx, query, parameters, repo_url, snapshot_id):
         """The declarations a query anchors on by file and line: for each
-        analyzed path and line number it looks for (``$file`` and ``$line``,
-        or literals), the innermost declaration in that file holding the
-        line, as ``{path, line, element_id, name, file, start, end}``; a
+        analyzed path and line number it looks for (parameters paired by name,
+        ``$file`` with ``$line`` and ``$from_file`` with ``$from_line``; else
+        every path, parameter or literal, with every line), the innermost
+        declaration in that file holding the line, as ``{path, line, element_id, name, file, start, end}``; a
         line outside every declaration has ``element_id`` None."""
-        paths = [v for v in _query_strings(query, parameters) if _is_path(v)][:4]
-        lines = _query_lines(query, parameters)
-        if not paths or not lines:
+        pairs = _named_anchor_pairs(query, parameters)
+        if not pairs:
+            paths = [v for v in _query_strings(query, parameters) if _is_path(v)][:4]
+            pairs = [(p, n) for p in paths for n in _query_lines(query, parameters)]
+        if not pairs:
             return []
         result = await tx.run(
-            "UNWIND $paths AS p UNWIND $lines AS l "
+            "UNWIND $pairs AS pair WITH pair[0] AS p, pair[1] AS l "
             "OPTIONAL MATCH (s:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
             "WHERE (s.file_path = p OR s.file_path ENDS WITH '/' + p) "
             "AND s.start_line <= l AND l <= s.end_line "
@@ -3306,8 +3361,7 @@ class GraphQueryService:
             "RETURN p AS path, l AS line, elementId(s) AS element_id, "
             "s.name AS name, coalesce(s.file_path, file) AS file, "
             "s.start_line AS start, s.end_line AS end",
-            paths=paths,
-            lines=lines,
+            pairs=[list(pair) for pair in pairs],
             repo_url=repo_url,
             snapshot_id=snapshot_id,
         )
@@ -3995,6 +4049,7 @@ class GraphQueryService:
         EXPLAIN query type and unconditional rollback provide additional checks.
         """
         _check_cypher(query, parameters, allow_database_scope)
+        parameters = _with_builtin_parameters(query, parameters)
         response = await _hinted(
             self._read(
                 query,
@@ -4060,6 +4115,7 @@ class GraphQueryService:
         from .result_text import render
 
         _check_cypher(query, parameters, allow_database_scope)
+        parameters = _with_builtin_parameters(query, parameters)
         response = await _hinted(
             self._read(
                 query,
