@@ -38,6 +38,7 @@ PARAMETERS = {
     "implementations": {"file": "a.go", "line": 1},
     "tests": {"file": "a.go", "line": 1, "top": 30},
     "uses": {"file": "a.go", "line": 1, "top": 30},
+    "forced_by": {"file": "a.go", "line": 1, "change": "parameters", "top": 30},
 }
 
 
@@ -199,9 +200,18 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
             edge("produce", "Rec.b", "WRITES_FIELD", line=18),
             edge("consume", "Rec.b", "READS_FIELD", line=8),
             # entry -> carry -> produce; entry -> consume; the test runs entry.
-            edge("entry", "carry", "CALLS", line=12),
+            # carry passes its parameter on to produce and returns its
+            # result; entry drops what carry returns.
+            edge("entry", "carry", "CALLS", line=12, result_use="dropped"),
             edge("entry", "consume", "CALLS", line=13),
-            edge("carry", "produce", "CALLS", line=2),
+            edge(
+                "carry",
+                "produce",
+                "CALLS",
+                line=2,
+                result_use="returned",
+                forwards=["0:x"],
+            ),
             edge("carry", "Runner.Run", "CALLS", line=3),
             edge("Runner.Run", "real.Run", "DISPATCHES_TO"),
             edge("Runner.Run", "mock.Run", "DISPATCHES_TO"),
@@ -320,6 +330,23 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
                 ],
                 [("CALLS", 2, ["Runner.Run", "produce"])],
             )
+
+            # A new parameter reaches entry through carry, which passes its
+            # own on; a new result reaches only carry, since entry drops it.
+            for change, expected in (
+                ("parameters", [(1, "carry"), (2, "entry")]),
+                ("result", [(1, "carry")]),
+                ("removed", [(1, "carry")]),
+            ):
+                found = await rows(
+                    "forced_by", file=lib, line=18, change=change, top=10
+                )
+                self.assertEqual(
+                    [(r["steps"], r["how"].start_node["name"]) for r in found],
+                    expected,
+                    change,
+                )
+                self.assertEqual(found[0]["forced_in_total"], len(expected))
         finally:
             async with driver.session(database=database) as session:
                 result = await session.run(

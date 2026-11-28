@@ -6770,8 +6770,23 @@ read code with the shell, and keep replies to names and locations with a total
 count. It works through what a change touches by kind (a type's users ranked
 by how many of its fields they touch, callers up to four calls away, the call
 chains and shared fields between two declarations, implementations including
-test doubles, tests and what their helpers call) and carries those seven
-queries; `tests/test_query_guide.py` runs each one on a graph. A text answer's
+test doubles, tests and what their helpers call, and what changing a
+function's parameters or result, or removing it, forces) and carries those
+eight queries; `tests/test_query_guide.py` runs each one on a graph.
+
+Each `CALLS` link of a Python, JavaScript, TypeScript or Go call says what the
+caller does with the call, read from the syntax around it (the resolver or
+index still decides the target): `result_use` is `returned`, `stored` (in a
+field or element), `assigned` (to a local), `passed` (to another call),
+`dropped` or `used`, and `forwards` lists the caller's own parameters passed on
+as arguments (`"0:opts"`, `"key=opts"`), only when the call is in the caller's
+own body (not a function literal in it) and no declaration in the body names
+the parameter again. Text answers say them in words ("returns its result,
+passes on its parameter opts"). The "forced by" query follows them: every
+direct caller and reference of a function whose parameters change, and further
+callers while the calls in between pass their parameter on; for a new result,
+callers while the calls in between return it as it is, leaving out callers that
+drop it. A text answer's
 check of the declarations a query anchors on pairs parameters by name
 (`$from_file` with `$from_line`), so a two-ended query names its own ends.
 A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,

@@ -935,6 +935,19 @@ def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
+def _flow(site):
+    """Where a call's value goes and which of the caller's parameters it
+    passes on, from the syntax around the call: ``result_use`` and
+    ``forwards`` (``CallSite``). Nothing where the parser does not read
+    them."""
+    found = {}
+    if site.result_use is not None:
+        found["result_use"] = site.result_use
+    if site.forwards:
+        found["forwards"] = list(site.forwards)
+    return found
+
+
 def _produced(producer):
     """The indexer (``name@version``) and receipt digest behind a call an
     index decided; nothing for the parser's."""
@@ -1505,6 +1518,7 @@ class TreeSitterTool(AnalysisTool):
                     },
                     {
                         "call_id": site.id,
+                        **_flow(site),
                         "callee": site.callee,
                         "name": _call_name(site.callee),
                         "call_kind": site.kind,
@@ -1804,6 +1818,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": qualified[target], "repo_url": repo_url},
                         {
                             "call_id": site.id,
+                            **_flow(site),
                             "callee": site.callee,
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
@@ -1833,6 +1848,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": qualified[target], "repo_url": repo_url},
                         {
                             "call_id": site.id,
+                            **_flow(site),
                             "callee": site.callee,
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
@@ -1872,6 +1888,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": qualified[target], "repo_url": repo_url},
                         {
                             "call_id": site.id,
+                            **_flow(site),
                             "callee": site.callee,
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
@@ -1912,6 +1929,7 @@ class TreeSitterTool(AnalysisTool):
                         {"qualified_name": qualified[target], "repo_url": repo_url},
                         {
                             "call_id": site.id,
+                            **_flow(site),
                             "callee": site.callee,
                             "name": _call_name(site.callee),
                             "call_kind": site.kind,
