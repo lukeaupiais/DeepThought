@@ -6760,6 +6760,20 @@ deepthought-graph cypher --repository-id public-project --snapshot REVISION \
 For MCP, enable `DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER=1` to advertise `queryGraph`.
 The same dedicated-database checks and bounds apply. Reserved parameters
 `repo_url`, `snapshot_id` and `fetch_limit` are supplied by the query service.
+`$test_path_pattern` may be used without passing it: the regular expression
+for test file paths that answers use to sort tests (`source_roles`).
+
+The tool's description is `deepthought.query_guide.GUIDE`, a usage guide for
+agents: use the graph for relationship questions (who uses a declaration in
+every way, what lies between two declarations, everything up the callers),
+read code with the shell, and keep replies to names and locations with a total
+count. It works through what a change touches by kind (a type's users ranked
+by how many of its fields they touch, callers up to four calls away, the call
+chains and shared fields between two declarations, implementations including
+test doubles, tests and what their helpers call) and carries those seven
+queries; `tests/test_query_guide.py` runs each one on a graph. A text answer's
+check of the declarations a query anchors on pairs parameters by name
+(`$from_file` with `$from_line`), so a two-ended query names its own ends.
 A raw Cypher answer holds only `status`, `items`, `returned` and `truncated`,
 and `analysis_status` when the snapshot's analysis did not wholly succeed
 (`partial`, for example). It does not repeat the repository, snapshot, scope
