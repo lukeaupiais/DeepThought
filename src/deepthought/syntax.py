@@ -2729,19 +2729,23 @@ def _result_use(node):
         return "returned"
     if kind == "arrow_function" and parent.child_by_field_name("body") is not None:
         return (
-            "returned"
-            if parent.child_by_field_name("body").id == child.id
-            else "used"
+            "returned" if parent.child_by_field_name("body").id == child.id else "used"
         )
     if kind in {"expression_statement", "go_statement", "defer_statement"}:
         return "dropped"
     if kind in {"argument_list", "arguments", "keyword_argument", "variadic_argument"}:
         return "passed"
     if kind in {"spread_element", "list_splat", "dictionary_splat"}:
-        return "passed" if parent.parent is not None and parent.parent.type in {
-            "arguments",
-            "argument_list",
-        } else "used"
+        return (
+            "passed"
+            if parent.parent is not None
+            and parent.parent.type
+            in {
+                "arguments",
+                "argument_list",
+            }
+            else "used"
+        )
     if kind in {"assignment", "assignment_expression", "augmented_assignment"}:
         left = parent.child_by_field_name("left")
         right = parent.child_by_field_name("right")

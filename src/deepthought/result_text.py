@@ -47,7 +47,11 @@ def _flow(props):
         names = [re.split("[:=]", str(f), maxsplit=1)[-1] for f in forwards]
         names = list(dict.fromkeys(names))
         said.append(
-            ("passes on its parameter " if len(names) == 1 else "passes on its parameters ")
+            (
+                "passes on its parameter "
+                if len(names) == 1
+                else "passes on its parameters "
+            )
             + ", ".join(names)
         )
     return ", ".join(said)

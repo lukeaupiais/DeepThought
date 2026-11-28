@@ -97,7 +97,9 @@ class FlowTextTests(unittest.TestCase):
             "returns its result, passes on its parameters a, b",
         )
         self.assertEqual(_flow({"result_use": "assigned"}), "")
-        self.assertEqual(_flow({"forwards": ["1:opts"]}), "passes on its parameter opts")
+        self.assertEqual(
+            _flow({"forwards": ["1:opts"]}), "passes on its parameter opts"
+        )
 
 
 if __name__ == "__main__":
