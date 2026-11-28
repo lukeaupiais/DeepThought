@@ -136,8 +136,15 @@ users, query 1).
 test doubles and mocks included (query 5).
 - Tests: the tests that reach a declaration (query 6); what their shared helpers call (query 7) \
 shows the test setup the change may need.
-3. Decide each candidate by reading its use line, not the whole file, and \
-say why it changes.
+3. Settle every declaration these queries return, one by one, before you \
+answer: "changes, because ..." or "does not change, because ...", from its \
+use line, not the whole file. Do not drop one unsettled. A caller that must \
+pass on or handle what changed, a handler of the whole value of a changed \
+type, and an implementation of a changed method usually change; one that \
+only passes the value through unchanged, or touches none of what changed, \
+does not. Each one that changes is a new starting point for step 2.
+4. Answer with the declarations that change and why. Leave the ones you \
+settled as unchanged out of the answer.
 
 Keep replies small: return declarations and links, not source; give $top \
 (e.g. 30) to the queries that take it, which also return the total, so the \
