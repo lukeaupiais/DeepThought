@@ -29,7 +29,7 @@ RETURN size(found) AS users_in_total, x.u AS user, x.n AS fields_touched,
 CALLERS = """\
 MATCH (s:Symbol {file_path: $file}) WHERE s.start_line <= $line <= s.end_line
 WITH s ORDER BY s.end_line - s.start_line LIMIT 1
-MATCH p = (d)-[:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION*1..4]->(s) WHERE d <> s
+MATCH p = (d)-[:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION|USES_FIXTURE*1..4]->(s) WHERE d <> s
 WITH d, min(length(p)) AS calls_away
 ORDER BY calls_away, coalesce(d.file_path, d.path), d.start_line
 WITH collect({n: calls_away, d: d}) AS found
@@ -78,7 +78,7 @@ RETURN d AS implementation ORDER BY impl.file_path, impl.start_line"""
 TESTS = """\
 MATCH (s:Symbol {file_path: $file}) WHERE s.start_line <= $line <= s.end_line
 WITH s ORDER BY s.end_line - s.start_line LIMIT 1
-MATCH p = (t)-[:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION*1..4]->(s)
+MATCH p = (t)-[:CALLS|DISPATCHES_TO|REFERENCES_FUNCTION|USES_FIXTURE*1..4]->(s)
 WHERE coalesce(t.file_path, t.path) =~ $test_path_pattern
 WITH t, min(length(p)) AS calls_away
 ORDER BY calls_away, coalesce(t.file_path, t.path), t.start_line
@@ -151,6 +151,7 @@ line inside it, as the queries do: names repeat.
 - (caller)-[:CALLS {{line}}]->(callee). The caller is the declaration whose \
 body holds the call, or the (:File {{path}}) for code outside any.
 - (interface method)-[:DISPATCHES_TO]->(implementation).
+- (test)-[:USES_FIXTURE]->(fixture): a pytest test or fixture requesting a fixture.
 - (user)-[:REFERENCES_FUNCTION {{line, sites}}]->(function): named as a value \
 (handler, callback, table entry). -[:USES_TYPE]-> and -[:SIGNATURE_USES]->: \
 a type named in a body or in a signature. -[:READS_FIELD]-> and \
@@ -181,8 +182,8 @@ Queries ($file and $line: any line inside the declaration):
 most fields first (anchored on one field, the users of that field):
 {USERS_OF_A_TYPE}
 
-2. Callers, direct and up to four calls away (through interface methods and \
-function values too), nearest first:
+2. Callers, direct and up to four calls away (through interface methods, \
+function values and pytest fixtures too), nearest first:
 {CALLERS}
 
 3. Declarations on the shortest call chains between two declarations (either \

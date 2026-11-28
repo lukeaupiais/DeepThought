@@ -161,6 +161,8 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
             symbol("readA", "readA", app, 16, 18),
             symbol("mock.Run", "mock.Run", test, 1, 3, "Method"),
             symbol("TestEntry", "TestEntry", test, 5, 9),
+            symbol("TestFixture", "TestFixture", test, 11, 12),
+            symbol("fixture", "fixture", test, 13, 14),
         ]
         byname = {n.properties["qualified_name"]: n for n in nodes}
 
@@ -184,7 +186,10 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
                 edge("app", s, "DEFINES")
                 for s in ("carry", "consume", "entry", "readA")
             ),
-            *(edge("test", s, "DEFINES") for s in ("mock.Run", "TestEntry")),
+            *(
+                edge("test", s, "DEFINES")
+                for s in ("mock.Run", "TestEntry", "TestFixture", "fixture")
+            ),
             # Equal handles the whole value; readA reads one field.
             *(
                 edge("Rec.Equal", f, "READS_FIELD", line=8)
@@ -201,6 +206,9 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
             edge("Runner.Run", "real.Run", "DISPATCHES_TO"),
             edge("Runner.Run", "mock.Run", "DISPATCHES_TO"),
             edge("TestEntry", "entry", "CALLS", line=6),
+            # A test can reach code through a fixture it requests.
+            edge("TestFixture", "fixture", "USES_FIXTURE", line=11),
+            edge("fixture", "readA", "CALLS", line=13),
         ]
         meta = ToolExecutionMetadata(
             "fixture",
@@ -296,6 +304,12 @@ class GuideQueriesIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 [(r["calls_away"], name(r["test"])) for r in found],
                 [(3, "TestEntry")],
+            )
+            # Through a requested fixture: the test reaches readA in two links.
+            found = await rows("tests", file=app, line=17, top=10)
+            self.assertEqual(
+                [(r["calls_away"], name(r["test"])) for r in found],
+                [(1, "fixture"), (2, "TestFixture")],
             )
 
             found = await rows("uses", file=app, line=2, top=10)
